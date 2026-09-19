@@ -32,6 +32,9 @@ dist/
 /.paddlex/
 /src/.paddlex/
 docs/
+!docs/
+docs/*
+!docs/PHASE_0_BASELINE_VA_BEHAVIOR_MAP.md
 
 # Logs and temporary files
 *.log
