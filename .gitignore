@@ -1,0 +1,51 @@
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Virtual environments and uv cache
+.venv/
+venv/
+env/
+.uv-cache/
+
+# Packaging artifacts
+build/
+dist/
+*.egg-info/
+
+# Runtime state and generated extraction artifacts
+/runtime/
+/output/
+/output_v*/
+/.paddlex/
+/src/.paddlex/
+docs/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.bak
+.pytest-tmp/
+
+# IDE and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# The lockfile is part of the reproducible project state.
+!uv.lock

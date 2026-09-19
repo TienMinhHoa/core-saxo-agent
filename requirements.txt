@@ -1,0 +1,6 @@
+# Compatibility shim for tools that still expect requirements.txt.
+# The authoritative dependency definitions are pyproject.toml and uv.lock.
+-e .
+
+# Legacy UI, when required:
+#   pip install -e ".[legacy-ui]"
