@@ -11,6 +11,8 @@ def is_safe_artifact_reference(artifact_id: object) -> bool:
 
     if not isinstance(artifact_id, str) or not artifact_id or artifact_id != artifact_id.strip():
         return False
+    if any(ord(character) < 0x20 or ord(character) == 0x7F for character in artifact_id):
+        return False
     if any(character in artifact_id for character in ("\\", "\x00", ":")):
         return False
     parts = artifact_id.split("/")
