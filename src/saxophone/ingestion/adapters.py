@@ -473,6 +473,8 @@ def _validated_chroma_rows(
     ids, documents, metadatas, distances = rows
     if any(not isinstance(item, str) or not item.strip() for item in ids):
         raise ValueError("Chroma result ids must be non-blank strings")
+    if len(ids) != len(set(ids)):
+        raise ValueError("Chroma result ids must be unique")
     if any(not isinstance(item, str) for item in documents):
         raise ValueError("Chroma result documents must contain strings")
     if any(not isinstance(item, Mapping) for item in metadatas):

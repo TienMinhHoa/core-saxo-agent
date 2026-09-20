@@ -486,6 +486,23 @@ async def test_chroma_vector_index_rejects_malformed_search_results(result) -> N
 
 
 @pytest.mark.anyio
+async def test_chroma_vector_index_rejects_duplicate_search_result_ids() -> None:
+    class _DuplicateIdCollection:
+        def query(self, **kwargs):
+            return {
+                "ids": [["chunk-1", "chunk-1"]],
+                "documents": [["first", "second"]],
+                "metadatas": [[{}, {}]],
+                "distances": [[0.1, 0.2]],
+            }
+
+    index = ChromaVectorIndex(_DuplicateIdCollection())
+
+    with pytest.raises(ValueError, match="unique"):
+        await index.search((0.3, 0.4), limit=2)
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     "result",
     [
