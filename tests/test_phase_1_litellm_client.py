@@ -75,6 +75,39 @@ async def test_litellm_client_rejects_invalid_typed_response() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("task_type", "embed"),
+        ("model", "different-model"),
+        ("response_format", "different-schema"),
+    ],
+)
+async def test_litellm_client_rejects_response_identity_mismatch(
+    field: str,
+    value: str,
+) -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        payload = {
+            "task_type": "answer_generate",
+            "model": "answer-model-v1",
+            "response_format": "answer-v1",
+            "output": {"answer": "Use long tones."},
+            "source_version": "model-source-v1",
+        }
+        payload[field] = value
+        return httpx.Response(200, json=payload)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        with pytest.raises(ModelValidationError, match=field):
+            await LiteLLMModelClient(
+                "https://model.example.test/v1/invoke",
+                http_client=http_client,
+                bearer_token="secret-token",
+            ).invoke(_request())
+
+
+@pytest.mark.anyio
 async def test_litellm_client_propagates_http_failure_without_job_translation() -> None:
     async def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(503, json={"detail": "unavailable"})

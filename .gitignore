@@ -119,3 +119,4 @@ Desktop.ini
 # The lockfile is part of the reproducible project state.
 !uv.lock
 !docs/PHASE_7_HEALTH_CACHE.md
+!docs/PHASE_1_LITELLM_RESPONSE_IDENTITY.md

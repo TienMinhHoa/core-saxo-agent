@@ -150,10 +150,19 @@ class LiteLLMModelClient:
         payload = response.json()
         if not isinstance(payload, Mapping):
             raise ModelValidationError("model response must be a mapping")
+        task = _parse_task(payload.get("task_type"))
+        model = _required_text(payload, "model")
+        response_schema = _required_text(payload, "response_format")
+        _validate_response_identity(
+            request,
+            task=task,
+            model=model,
+            response_schema=response_schema,
+        )
         return ModelResponse(
-            task=_parse_task(payload.get("task_type")),
-            model=_required_text(payload, "model"),
-            response_schema=_required_text(payload, "response_format"),
+            task=task,
+            model=model,
+            response_schema=response_schema,
             output=_required_mapping(payload, "output"),
             source_version=_required_text(payload, "source_version"),
         )
@@ -208,3 +217,18 @@ def _required_mapping(payload: Mapping[str, object], name: str) -> Mapping[str, 
     if not isinstance(value, Mapping):
         raise ModelValidationError(f"model response {name} must be a mapping")
     return value
+
+
+def _validate_response_identity(
+    request: ModelRequest,
+    *,
+    task: ModelTask,
+    model: str,
+    response_schema: str,
+) -> None:
+    if task is not request.task:
+        raise ModelValidationError("model response task_type does not match request")
+    if model != request.model:
+        raise ModelValidationError("model response model does not match request")
+    if response_schema != request.response_schema:
+        raise ModelValidationError("model response response_format does not match request")
