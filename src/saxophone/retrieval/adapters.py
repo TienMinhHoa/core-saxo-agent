@@ -74,7 +74,7 @@ class ChromaSemanticRetriever(ChunkRetriever):
             document = documents[rank - 1] if rank - 1 < len(documents) else ""
             distance = distances[rank - 1] if rank - 1 < len(distances) else None
             if not isinstance(chunk_id, str) or not chunk_id.strip():
-                continue
+                raise ValueError("Chroma result chunk ids must be non-blank strings")
             normalized_metadata = dict(metadata) if isinstance(metadata, Mapping) else {}
             if isinstance(document, str) and document:
                 normalized_metadata["document"] = document

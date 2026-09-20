@@ -99,3 +99,20 @@ async def test_chroma_retriever_rejects_malformed_provider_results(result: objec
 
     with pytest.raises(ValueError, match="Chroma result"):
         await retriever.search("find scales")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("chunk_id", ["", "  ", 42, True])
+async def test_chroma_retriever_rejects_invalid_chunk_ids(chunk_id: object) -> None:
+    result = {
+        "ids": [[chunk_id]],
+        "documents": [["text"]],
+        "metadatas": [[{}]],
+        "distances": [[0.1]],
+    }
+    retriever = ChromaSemanticRetriever(
+        _MalformedCollection(result), _EmbeddingProvider(), retrieval_version="chroma-v1"
+    )
+
+    with pytest.raises(ValueError, match="Chroma result chunk ids"):
+        await retriever.search("find scales")
