@@ -76,6 +76,20 @@ async def test_litellm_client_rejects_invalid_typed_response() -> None:
 
 
 @pytest.mark.anyio
+async def test_litellm_client_maps_malformed_json_to_model_validation_error() -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"not-json", headers={"content-type": "application/json"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        with pytest.raises(ModelValidationError, match="JSON"):
+            await LiteLLMModelClient(
+                "https://model.example.test/v1/invoke",
+                http_client=http_client,
+                bearer_token="secret-token",
+            ).invoke(_request())
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("field", "value"),
     [

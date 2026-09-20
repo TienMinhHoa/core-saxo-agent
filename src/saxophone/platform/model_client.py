@@ -164,7 +164,10 @@ class LiteLLMModelClient:
             "response_format": request.response_schema,
         }
         response = await self._post_with_retry(payload)
-        payload = response.json()
+        try:
+            payload = response.json()
+        except ValueError as error:
+            raise ModelValidationError("model response JSON is invalid") from error
         if not isinstance(payload, Mapping):
             raise ModelValidationError("model response must be a mapping")
         task = _parse_task(payload.get("task_type"))
