@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from types import SimpleNamespace
 
 import pytest
 
 from saxophone.documents.models import ArtifactKind, ArtifactRef
 from saxophone.extraction.models import PdfExtractionRequest
-from saxophone.extraction.remote import RemotePdfExtractor
+from saxophone.extraction.remote import RemotePdfExtractor, _required_artifact
 from saxophone.platform.model_client import ModelRequest, ModelResponse, ModelTask
 
 
@@ -193,3 +194,22 @@ def test_remote_pdf_extractor_rejects_wrong_request_runtime_type() -> None:
                 object()  # type: ignore[arg-type]
             )
         )
+
+
+def test_remote_pdf_extractor_rejects_wrong_response_runtime_type() -> None:
+    class FakeClient:
+        async def invoke(self, request: ModelRequest) -> ModelResponse:
+            return SimpleNamespace(
+                task=ModelTask.PDF_EXTRACT,
+                response_schema="pdf-extraction-v1",
+                output={},
+                source_version="source-v1",
+            )  # type: ignore[return-value]
+
+    with pytest.raises(ValueError, match="response must be a ModelResponse"):
+        asyncio.run(RemotePdfExtractor(FakeClient(), model="extractor-v1").extract(_request()))
+
+
+def test_remote_pdf_extractor_rejects_non_mapping_output_before_artifact_lookup() -> None:
+    with pytest.raises(ValueError, match="model output must be a mapping"):
+        _required_artifact([("markdown", object())], "markdown")  # type: ignore[arg-type]

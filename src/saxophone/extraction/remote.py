@@ -5,7 +5,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from saxophone.documents.models import ArtifactKind, ArtifactRef
-from saxophone.platform.model_client import ModelClient, ModelRequest, ModelTask
+from saxophone.platform.model_client import (
+    ModelClient,
+    ModelRequest,
+    ModelResponse,
+    ModelTask,
+)
 
 from .models import PdfExtractionRequest, PdfExtractionResult
 
@@ -54,6 +59,8 @@ class RemotePdfExtractor:
                 idempotency_key=request.correlation_id,
             ),
         )
+        if not isinstance(response, ModelResponse):
+            raise ValueError("model response must be a ModelResponse")
         if response.task is not ModelTask.PDF_EXTRACT:
             raise ValueError("model response task must be pdf_extract")
         if response.response_schema != self._response_schema:
@@ -73,6 +80,8 @@ class RemotePdfExtractor:
 
 
 def _required_artifact(output: Mapping[str, object], name: str) -> ArtifactRef:
+    if not isinstance(output, Mapping):
+        raise ValueError("model output must be a mapping")
     value = output.get(name)
     if isinstance(value, ArtifactRef):
         return value
