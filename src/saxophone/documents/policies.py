@@ -71,7 +71,10 @@ def is_safe_media_type(media_type: object) -> bool:
         return False
     if any(ord(character) < 0x20 or ord(character) == 0x7F for character in media_type):
         return False
-    main_type, *parameters = media_type.split(";")
+    components = _split_mime_components(media_type)
+    if components is None:
+        return False
+    main_type, *parameters = components
     if any(not _is_mime_parameter(parameter) for parameter in parameters):
         return False
     main_type = main_type.strip()
@@ -114,3 +117,30 @@ def _is_mime_parameter(value: str) -> bool:
         if character != "\\":
             escaped = False
     return not escaped
+
+
+def _split_mime_components(media_type: str) -> list[str] | None:
+    """Split MIME components without treating quoted semicolons as separators."""
+
+    components: list[str] = []
+    start = 0
+    in_quotes = False
+    escaped = False
+    for index, character in enumerate(media_type):
+        if in_quotes:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_quotes = False
+            continue
+        if character == '"':
+            in_quotes = True
+        elif character == ";":
+            components.append(media_type[start:index])
+            start = index + 1
+    if in_quotes or escaped:
+        return None
+    components.append(media_type[start:])
+    return components

@@ -200,6 +200,40 @@ def test_artifact_reference_accepts_quoted_mime_parameter_value() -> None:
     assert artifact.media_type == 'application/json; charset="utf-8"'
 
 
+def test_artifact_reference_accepts_semicolon_inside_quoted_mime_parameter() -> None:
+    artifact = ArtifactRef(
+        artifact_id="document-123/manifest",
+        version="extract-v1",
+        kind=ArtifactKind.EXTRACTION_MANIFEST,
+        media_type='application/json; profile="urn:example;a"',
+        sha256="a" * 64,
+        size_bytes=128,
+    )
+
+    assert artifact.media_type == 'application/json; profile="urn:example;a"'
+
+
+@pytest.mark.parametrize(
+    "media_type",
+    [
+        'application/json; profile="urn:example;a',
+        'application/json; profile="urn:example;a"; charset=utf-8"',
+    ],
+)
+def test_artifact_reference_rejects_malformed_quoted_mime_parameters(
+    media_type: str,
+) -> None:
+    with pytest.raises(ValueError, match="media_type"):
+        ArtifactRef(
+            artifact_id="document-123/manifest",
+            version="extract-v1",
+            kind=ArtifactKind.EXTRACTION_MANIFEST,
+            media_type=media_type,
+            sha256="a" * 64,
+            size_bytes=128,
+        )
+
+
 def test_artifact_reference_accepts_standard_mime_token_punctuation() -> None:
     artifact = ArtifactRef(
         artifact_id="document-123/manifest",
