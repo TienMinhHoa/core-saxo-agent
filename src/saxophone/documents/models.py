@@ -41,6 +41,8 @@ class ArtifactRef:
         if not is_safe_artifact_reference(self.artifact_id):
             raise ValueError("artifact_id must be a safe relative reference")
         _require_non_blank("version", self.version)
+        if not is_safe_artifact_reference(self.version):
+            raise ValueError("version must be a safe relative reference")
         _require_non_blank("media_type", self.media_type)
         if not re.fullmatch(r"[0-9a-f]{64}", self.sha256):
             raise ValueError("sha256 must be a lowercase 64-character hexadecimal digest")

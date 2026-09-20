@@ -50,27 +50,38 @@ def test_artifact_reference_rejects_invalid_identity_fields(field: str, value: s
 
 
 @pytest.mark.parametrize(
-    "artifact_id",
+    ("field", "value"),
     [
-        "../outside",
-        "document/../outside",
-        r"document\outside",
-        "/absolute",
-        "C:/outside",
-        "document//file",
-        "document/./file",
+        ("artifact_id", "../outside"),
+        ("artifact_id", "document/../outside"),
+        ("artifact_id", r"document\outside"),
+        ("artifact_id", "/absolute"),
+        ("artifact_id", "C:/outside"),
+        ("artifact_id", "document//file"),
+        ("artifact_id", "document/./file"),
+        ("version", "../outside"),
+        ("version", r"extract\v1"),
+        ("version", "/absolute"),
+        ("version", "C:/outside"),
+        ("version", "extract//v1"),
+        ("version", "extract/./v1"),
     ],
 )
-def test_artifact_reference_rejects_path_escaping_or_noncanonical_identity(artifact_id: str) -> None:
-    with pytest.raises(ValueError, match="artifact_id"):
-        ArtifactRef(
-            artifact_id=artifact_id,
-            version="extract-v1",
-            kind=ArtifactKind.EXTRACTION_MANIFEST,
-            media_type="application/json",
-            sha256="a" * 64,
-            size_bytes=128,
-        )
+def test_artifact_reference_rejects_path_escaping_or_noncanonical_identity(
+    field: str, value: str
+) -> None:
+    fields = {
+        "artifact_id": "document-123/manifest",
+        "version": "extract-v1",
+        "kind": ArtifactKind.EXTRACTION_MANIFEST,
+        "media_type": "application/json",
+        "sha256": "a" * 64,
+        "size_bytes": 128,
+    }
+    fields[field] = value
+
+    with pytest.raises(ValueError, match=field):
+        ArtifactRef(**fields)
 
 
 @pytest.mark.parametrize("size_bytes", [-1, -100])
