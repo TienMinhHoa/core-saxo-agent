@@ -506,6 +506,47 @@ def test_from_environment_rejects_windows_device_path_components(
 
 
 @pytest.mark.parametrize(
+    "field_name",
+    ["data_root", "chroma_persist_directory"],
+)
+@pytest.mark.parametrize("component", ["runtime.", "runtime ", "nested/name.", "nested/name "])
+def test_direct_settings_construction_rejects_windows_trimmed_path_components(
+    field_name: str,
+    component: str,
+) -> None:
+    values = {
+        "data_root": Path("runtime/saxophone"),
+        "remote_gpu_base_url": "https://gpu.example.test",
+        "remote_gpu_bearer_token": "secret",
+    }
+    values[field_name] = Path(component)
+
+    with pytest.raises(SettingsValidationError) as error:
+        AppSettings(**values)
+
+    assert field_name in str(error.value)
+
+
+@pytest.mark.parametrize(
+    ("variable", "field_name"),
+    [
+        ("SAXO_DATA_ROOT", "data_root"),
+        ("SAXO_CHROMA_PERSIST_DIRECTORY", "chroma_persist_directory"),
+    ],
+)
+@pytest.mark.parametrize("component", ["runtime.", "runtime ", "nested/name.", "nested/name "])
+def test_from_environment_rejects_windows_trimmed_path_components(
+    variable: str,
+    field_name: str,
+    component: str,
+) -> None:
+    with pytest.raises(SettingsValidationError) as error:
+        AppSettings.from_environment({**VALID_ENVIRONMENT, variable: component})
+
+    assert field_name in str(error.value)
+
+
+@pytest.mark.parametrize(
     ("field_name", "value", "error_marker"),
     [
         ("remote_gpu_base_url", 123, "SAXO_REMOTE_GPU_BASE_URL"),

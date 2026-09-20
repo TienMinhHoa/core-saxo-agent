@@ -222,7 +222,7 @@ def _validate_environment_mapping(environment: object) -> None:
 def _parse_data_root(value: str | None) -> Path:
     if not value or not value.strip():
         raise SettingsValidationError("SAXO_DATA_ROOT must not be empty")
-    path = Path(value.strip())
+    path = Path(value)
     if path.drive and not path.is_absolute():
         raise SettingsValidationError("SAXO_DATA_ROOT must not be drive-relative")
     if path.root and not path.is_absolute():
@@ -235,7 +235,7 @@ def _parse_data_root(value: str | None) -> Path:
 def _parse_chroma_directory(value: str | None) -> Path:
     if not value or not value.strip():
         raise SettingsValidationError("SAXO_CHROMA_PERSIST_DIRECTORY must not be empty")
-    path = Path(value.strip())
+    path = Path(value)
     if path.drive and not path.is_absolute():
         raise SettingsValidationError("SAXO_CHROMA_PERSIST_DIRECTORY must not be drive-relative")
     if path.root and not path.is_absolute():
@@ -425,6 +425,10 @@ def _validate_windows_device_path_components(value: Path, field_name: str) -> No
     for component in value.parts:
         if component == value.anchor:
             continue
+        if component.endswith((" ", ".")):
+            raise SettingsValidationError(
+                f"{field_name} must not contain Windows-trimmed path components",
+            )
         normalized = component.rstrip(" .")
         device_name = normalized.split(".", 1)[0].upper()
         if device_name in reserved_names or re.fullmatch(r"(?:COM|LPT)[1-9]", device_name):
