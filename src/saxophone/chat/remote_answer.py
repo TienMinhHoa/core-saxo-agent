@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from saxophone.platform.model_client import ModelClient, ModelRequest, ModelTask
+from saxophone.platform.model_client import (
+    ModelClient,
+    ModelRequest,
+    ModelTask,
+    ModelValidationError,
+)
 from saxophone.retrieval.models import EvidenceBundle
 
 from .models import GeneratedAnswer
@@ -41,35 +46,38 @@ class RemoteAnswerGenerator(AnswerGenerator):
         )
         response = await self._model_client.invoke(request)
         if response.task is not ModelTask.ANSWER_GENERATE:
-            raise ValueError("model response task must be answer_generate")
+            raise ModelValidationError("model response task must be answer_generate")
         if response.response_schema != self._response_schema:
-            raise ValueError("model response schema does not match answer contract")
+            raise ModelValidationError("model response schema does not match answer contract")
 
         output = response.output
-        return GeneratedAnswer(
-            answer=_required_text(output, "answer"),
-            model_version=response.model,
-            token_usage=_required_mapping(output, "token_usage"),
-            cost=_required_number(output, "cost", default=0.0),
-        )
+        try:
+            return GeneratedAnswer(
+                answer=_required_text(output, "answer"),
+                model_version=response.model,
+                token_usage=_required_mapping(output, "token_usage"),
+                cost=_required_number(output, "cost", default=0.0),
+            )
+        except ValueError as error:
+            raise ModelValidationError(f"model output violates answer contract: {error}") from error
 
 
 def _required_text(output: Mapping[str, object], name: str) -> str:
     value = output.get(name)
     if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"model output {name} must be non-blank")
+        raise ModelValidationError(f"model output {name} must be non-blank")
     return value
 
 
 def _required_mapping(output: Mapping[str, object], name: str) -> Mapping[str, int]:
     value = output.get(name)
     if not isinstance(value, Mapping):
-        raise ValueError(f"model output {name} must be a mapping")
+        raise ModelValidationError(f"model output {name} must be a mapping")
     return value  # GeneratedAnswer validates keys and values.
 
 
 def _required_number(output: Mapping[str, object], name: str, *, default: float) -> float:
     value = output.get(name, default)
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError(f"model output {name} must be numeric")
+        raise ModelValidationError(f"model output {name} must be numeric")
     return float(value)

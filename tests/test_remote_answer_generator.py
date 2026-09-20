@@ -4,7 +4,12 @@ import pytest
 
 from saxophone.chat.models import GeneratedAnswer
 from saxophone.chat.remote_answer import RemoteAnswerGenerator
-from saxophone.platform.model_client import ModelRequest, ModelResponse, ModelTask
+from saxophone.platform.model_client import (
+    ModelRequest,
+    ModelResponse,
+    ModelTask,
+    ModelValidationError,
+)
 from saxophone.retrieval.models import ChunkHit, EvidenceBundle
 
 
@@ -81,7 +86,7 @@ async def test_remote_answer_generator_rejects_wrong_response_task() -> None:
         )
     )
 
-    with pytest.raises(ValueError, match="answer_generate"):
+    with pytest.raises(ModelValidationError, match="answer_generate"):
         await RemoteAnswerGenerator(
             client, model="answer-model-v1", response_schema="answer-v1"
         ).generate("How?", _evidence())
@@ -99,7 +104,7 @@ async def test_remote_answer_generator_rejects_malformed_model_output() -> None:
         )
     )
 
-    with pytest.raises(ValueError, match="token_usage"):
+    with pytest.raises(ModelValidationError, match="token_usage"):
         await RemoteAnswerGenerator(
             client, model="answer-model-v1", response_schema="answer-v1"
         ).generate("How?", _evidence())
