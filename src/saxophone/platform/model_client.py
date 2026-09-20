@@ -207,7 +207,7 @@ class LiteLLMModelClient:
         if idempotency_key is not None:
             headers["Idempotency-Key"] = idempotency_key
         for attempt in range(1, attempts + 1):
-            retry_delay = self._retry_backoff_seconds
+            retry_delay = self._retry_backoff_seconds * (2 ** (attempt - 1))
             response: httpx.Response | None = None
             try:
                 response = await self._http_client.post(
@@ -240,7 +240,7 @@ class LiteLLMModelClient:
             if response is not None:
                 retry_delay = _retry_delay_seconds(
                     response,
-                    fallback=self._retry_backoff_seconds,
+                    fallback=retry_delay,
                 )
             if retry_delay:
                 await asyncio.sleep(retry_delay)

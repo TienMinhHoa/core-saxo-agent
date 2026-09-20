@@ -9,7 +9,7 @@ khi có feature parity và quyết định migration riêng.
 
 - Các capability đích đã có trong package `src/saxophone`: composition root,
   extraction, ingestion, retrieval, chat, tagging, workflow và API adapters.
-- Bằng chứng offline hiện tại: `uv run pytest` đạt **293 passed, 2 skipped**;
+- Bằng chứng offline hiện tại: `uv run pytest` đạt **294 passed, 2 skipped**;
   `compileall` và `git diff --check` đã được chạy ở lát cắt gần nhất.
 - Chưa được phép kết luận production-ready: checkout không có remote
   model-service endpoint/credential để chạy live smoke thật. Trạng thái này
@@ -113,3 +113,13 @@ deployment production.
 - Xác minh iteration 14: **293 passed, 2 skipped, 1 warning**; `compileall` và
   `git diff --check` đều thành công. Live smoke vẫn chưa chạy do thiếu endpoint
   và credential thật.
+
+### Iteration 15 — exponential retry backoff
+
+- `LiteLLMModelClient` tăng delay local theo cấp số nhân giữa các lần retry;
+  `Retry-After` hợp lệ vẫn được tôn trọng, còn giá trị không hợp lệ vẫn dùng
+  local backoff.
+- Bổ sung contract test cho chuỗi delay `1.5` rồi `3.0` giây.
+- Xác minh iteration 15: **294 passed, 2 skipped, 1 warning**; `compileall` và
+  `git diff --check` đều thành công. Live smoke vẫn bị chặn bởi endpoint và
+  credential thật chưa được cung cấp.

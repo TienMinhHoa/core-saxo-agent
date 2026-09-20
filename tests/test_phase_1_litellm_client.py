@@ -172,6 +172,47 @@ async def test_litellm_client_retries_transient_http_failure_with_bounded_attemp
 
 
 @pytest.mark.anyio
+async def test_litellm_client_exponentially_increases_local_retry_backoff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts = 0
+    sleeps: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            return httpx.Response(503, json={"detail": "busy"})
+        return httpx.Response(
+            200,
+            json={
+                "task_type": "answer_generate",
+                "model": "answer-model-v1",
+                "response_format": "answer-v1",
+                "output": {"answer": "Use long tones."},
+                "source_version": "model-source-v1",
+            },
+        )
+
+    monkeypatch.setattr("saxophone.platform.model_client.asyncio.sleep", fake_sleep)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        response = await LiteLLMModelClient(
+            "https://model.example.test/v1/invoke",
+            http_client=http_client,
+            bearer_token="secret-token",
+            max_attempts=3,
+            retry_backoff_seconds=1.5,
+        ).invoke(_request())
+
+    assert response.output["answer"] == "Use long tones."
+    assert attempts == 3
+    assert sleeps == [1.5, 3.0]
+
+
+@pytest.mark.anyio
 async def test_litellm_client_retries_network_failure_without_unbound_response(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
