@@ -295,6 +295,33 @@ async def test_chroma_upsert_rejects_duplicate_chunk_ids_before_provider_io() ->
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("records", [None, "not-records", object()])
+async def test_chroma_upsert_rejects_non_sequence_records_before_provider_io(
+    records: object,
+) -> None:
+    class _CollectionThatMustNotBeCalled:
+        def upsert(self, **kwargs):
+            raise AssertionError("invalid records reached Chroma")
+
+    with pytest.raises(ValueError, match="records must be a sequence"):
+        await ChromaVectorIndex(_CollectionThatMustNotBeCalled()).upsert_chunks(
+            records  # type: ignore[arg-type]
+        )
+
+
+@pytest.mark.anyio
+async def test_chroma_upsert_rejects_non_chunk_records_before_provider_io() -> None:
+    class _CollectionThatMustNotBeCalled:
+        def upsert(self, **kwargs):
+            raise AssertionError("invalid record reached Chroma")
+
+    with pytest.raises(ValueError, match="records must contain ChunkIndexRecord"):
+        await ChromaVectorIndex(_CollectionThatMustNotBeCalled()).upsert_chunks(
+            [object()]  # type: ignore[list-item]
+        )
+
+
+@pytest.mark.anyio
 async def test_chroma_upsert_rejects_mixed_embedding_dimensions_before_provider_io() -> None:
     class _CollectionThatMustNotBeCalled:
         def upsert(self, **kwargs):
