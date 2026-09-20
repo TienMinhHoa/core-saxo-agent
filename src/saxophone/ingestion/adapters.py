@@ -292,9 +292,13 @@ class ChromaVectorIndex(VectorIndex):
     ) -> None:
         self._collection = collection
         self._client = client
+        if embedding_dimension is not None and (
+            isinstance(embedding_dimension, bool)
+            or not isinstance(embedding_dimension, int)
+            or embedding_dimension < 1
+        ):
+            raise ValueError("embedding_dimension must be a positive integer")
         self._io_limiter = io_limiter or create_blocking_io_limiter()
-        if embedding_dimension is not None and embedding_dimension < 1:
-            raise ValueError("embedding_dimension must be positive")
         self._embedding_dimension = embedding_dimension
 
     def close(self) -> None:

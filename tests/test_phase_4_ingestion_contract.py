@@ -314,6 +314,12 @@ async def test_chroma_search_passes_shared_blocking_io_limiter(monkeypatch) -> N
     assert calls[-1]["limiter"] is limiter
 
 
+@pytest.mark.parametrize("embedding_dimension", [0, -1, True, 1.5, "3"])
+def test_chroma_index_rejects_malformed_embedding_dimension(embedding_dimension) -> None:
+    with pytest.raises(ValueError, match="embedding_dimension"):
+        ChromaVectorIndex(object(), embedding_dimension=embedding_dimension)
+
+
 @pytest.mark.anyio
 @pytest.mark.parametrize("limit", [-1, True, 1.5, "1"])
 async def test_chroma_search_rejects_malformed_limit_before_provider_io(limit) -> None:
