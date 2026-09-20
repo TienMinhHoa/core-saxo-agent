@@ -79,6 +79,19 @@ async def test_chroma_retriever_returns_empty_for_non_positive_limit_without_io(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("limit", [True, 1.5, "2", object()])
+async def test_chroma_retriever_rejects_non_integer_limits_before_io(limit: object) -> None:
+    class _FailIfCalled:
+        def embed(self, texts: list[str]) -> list[list[float]]:
+            raise AssertionError("embedding should not be called")
+
+    retriever = ChromaSemanticRetriever(_FailIfCalled(), _FailIfCalled())
+
+    with pytest.raises(ValueError, match="limit must be a positive integer"):
+        await retriever.search("ignored", limit=limit)  # type: ignore[arg-type]
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     "result",
     [

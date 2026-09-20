@@ -43,6 +43,8 @@ class ChromaSemanticRetriever(ChunkRetriever):
         filters: Mapping[str, object] | None = None,
         limit: int = 10,
     ) -> list[ChunkHit]:
+        if isinstance(limit, bool) or not isinstance(limit, int):
+            raise ValueError("limit must be a positive integer")
         if limit < 1:
             return []
         if not isinstance(query, str) or not query.strip():
