@@ -40,3 +40,26 @@ class LayoutGeometryTest(unittest.TestCase):
         del payload["doc_preprocessor_res"]
         with self.assertRaisesRegex(ValueError, "Thiếu doc_preprocessor_res"):
             canonicalize_raw_pdf_layout(payload)
+
+    def test_non_finite_bbox_is_not_promoted_to_source_geometry(self) -> None:
+        for bbox in (
+            [float("nan"), 2, 30, 40],
+            [1, float("inf"), 30, 40],
+            [1, 2, float("-inf"), 40],
+        ):
+            with self.subTest(bbox=bbox):
+                payload = self._payload()
+                payload["parsing_res_list"][0]["block_bbox"] = bbox
+
+                result = canonicalize_raw_pdf_layout(payload)
+
+                self.assertNotIn("source_bbox", result["parsing_res_list"][0])
+
+    def test_non_finite_page_dimension_is_rejected(self) -> None:
+        for field in ("width", "height"):
+            with self.subTest(field=field):
+                payload = self._payload()
+                payload[field] = float("inf")
+
+                with self.assertRaisesRegex(ValueError, "width/height"):
+                    canonicalize_raw_pdf_layout(payload)

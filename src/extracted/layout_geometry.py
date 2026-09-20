@@ -6,6 +6,7 @@ safe to overlay only when it was detected on that same, unmodified raster.
 from __future__ import annotations
 
 from copy import deepcopy
+from math import isfinite
 from typing import Any
 
 
@@ -17,13 +18,23 @@ _TRANSFORMING_PREPROCESSORS = (
 
 
 def _valid_dimension(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and isfinite(value)
+        and value > 0
+    )
 
 
 def _source_bbox(value: Any) -> list[float | int] | None:
     if not isinstance(value, list) or len(value) != 4:
         return None
-    if any(not isinstance(item, (int, float)) or isinstance(item, bool) for item in value):
+    if any(
+        not isinstance(item, (int, float))
+        or isinstance(item, bool)
+        or not isfinite(item)
+        for item in value
+    ):
         return None
     left, top, right, bottom = value
     if right <= left or bottom <= top:
