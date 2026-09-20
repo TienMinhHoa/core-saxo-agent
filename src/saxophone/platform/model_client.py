@@ -216,7 +216,10 @@ class LiteLLMModelClient:
             raise ValueError("circuit_breaker_failure_threshold must not be negative")
         if circuit_breaker_cooldown_seconds <= 0:
             raise ValueError("circuit_breaker_cooldown_seconds must be positive")
-        self._endpoint = endpoint.strip().rstrip("/")
+        normalized_endpoint = endpoint.strip().rstrip("/")
+        if not normalized_endpoint:
+            raise ValueError("endpoint must not be empty")
+        self._endpoint = normalized_endpoint
         self._http_client = http_client
         self._headers = {"Authorization": f"Bearer {bearer_token.strip()}"}
         self._timeout_seconds = timeout_seconds
