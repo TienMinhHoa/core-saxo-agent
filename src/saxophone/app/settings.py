@@ -209,7 +209,7 @@ def _parse_data_root(value: str | None) -> Path:
     if not value or not value.strip():
         raise SettingsValidationError("SAXO_DATA_ROOT must not be empty")
     path = Path(value.strip())
-    if not path.is_absolute() and ".." in path.parts:
+    if ".." in path.parts:
         raise SettingsValidationError("SAXO_DATA_ROOT must not traverse parent directories")
     return path
 
@@ -218,7 +218,7 @@ def _parse_chroma_directory(value: str | None) -> Path:
     if not value or not value.strip():
         raise SettingsValidationError("SAXO_CHROMA_PERSIST_DIRECTORY must not be empty")
     path = Path(value.strip())
-    if not path.is_absolute() and ".." in path.parts:
+    if ".." in path.parts:
         raise SettingsValidationError(
             "SAXO_CHROMA_PERSIST_DIRECTORY must not traverse parent directories",
         )
@@ -376,7 +376,7 @@ def _validate_runtime_float(
 def _validate_runtime_path(value: object, field_name: str) -> None:
     if not isinstance(value, Path):
         raise SettingsValidationError(f"{field_name} must be a filesystem path")
-    if not value.is_absolute() and ".." in value.parts:
+    if ".." in value.parts:
         raise SettingsValidationError(f"{field_name} must not traverse parent directories")
 
 
