@@ -25,7 +25,7 @@ class FakeRemoteGpuGateway:
 
     async def health(self) -> RemoteGpuHealth:
         self.health_requests += 1
-        return RemoteGpuHealth(status=self.status)
+        return RemoteGpuHealth(status=self.status, capabilities=("embed",))
 
 
 class FakeModelClient:
@@ -120,6 +120,7 @@ def test_health_uses_override_and_returns_stable_disabled_capabilities() -> None
     assert response.json() == {
         "app": "ready",
         "remote_gpu": "degraded",
+        "remote_gpu_capabilities": ["embed"],
         "extraction": "disabled",
         "ingestion": "disabled",
         "retrieval": "disabled",

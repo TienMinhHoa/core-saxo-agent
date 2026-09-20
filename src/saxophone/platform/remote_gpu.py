@@ -23,6 +23,7 @@ class RemoteGpuHealth:
     """The public, non-sensitive health result of the remote GPU service."""
 
     status: RemoteGpuStatus
+    capabilities: tuple[str, ...] = ()
 
 
 class RemoteGpuGateway(Protocol):
@@ -67,7 +68,25 @@ class HttpRemoteGpuGateway:
             payload = response.json()
             status = payload.get("status") if isinstance(payload, dict) else None
             if status in {"ready", "degraded", "unavailable"}:
-                return RemoteGpuHealth(status=status)
+                return RemoteGpuHealth(
+                    status=status,
+                    capabilities=_parse_capabilities(payload.get("capabilities")),
+                )
         except (httpx.HTTPError, TypeError, ValueError):
             pass
         return RemoteGpuHealth(status="unavailable")
+
+
+def _parse_capabilities(value: object) -> tuple[str, ...]:
+    """Keep only stable, non-sensitive capability names from remote health."""
+
+    if not isinstance(value, list):
+        return ()
+    capabilities: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        normalized = item.strip()
+        if normalized and normalized not in capabilities:
+            capabilities.append(normalized)
+    return tuple(capabilities)

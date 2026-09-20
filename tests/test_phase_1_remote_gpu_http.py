@@ -24,7 +24,10 @@ def test_health_uses_shared_client_with_https_bearer_auth_and_stable_path() -> N
     async def verify() -> None:
         async def handler(request: httpx.Request) -> httpx.Response:
             requests.append(request)
-            return httpx.Response(200, json={"status": "ready"})
+            return httpx.Response(
+                200,
+                json={"status": "ready", "capabilities": ["embed", "pdf_extract"]},
+            )
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
             gateway = HttpRemoteGpuGateway(build_settings(), http_client=client)
@@ -32,6 +35,7 @@ def test_health_uses_shared_client_with_https_bearer_auth_and_stable_path() -> N
             health = await gateway.health()
 
         assert health.status == "ready"
+        assert health.capabilities == ("embed", "pdf_extract")
 
     asyncio.run(verify())
     assert len(requests) == 1
@@ -51,6 +55,7 @@ def test_health_preserves_only_the_supported_remote_statuses() -> None:
             health = await gateway.health()
 
         assert health.status == status
+        assert health.capabilities == ()
 
     for status in ("ready", "degraded", "unavailable"):
         asyncio.run(verify(status))
@@ -67,6 +72,7 @@ def test_health_returns_safe_unavailable_status_for_http_or_contract_failure() -
             health = await gateway.health()
 
         assert health.status == "unavailable"
+        assert health.capabilities == ()
 
     for response in (
         httpx.Response(401, json={"detail": "unauthorized"}),
@@ -88,5 +94,27 @@ def test_health_returns_safe_unavailable_status_when_transport_fails() -> None:
             health = await gateway.health()
 
         assert health.status == "unavailable"
+
+    asyncio.run(verify())
+
+
+def test_health_filters_malformed_and_duplicate_capabilities_without_leaking_payloads() -> None:
+    async def verify() -> None:
+        async def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                json={
+                    "status": "ready",
+                    "capabilities": ["embed", "", "embed", 42, "  pdf_extract  "],
+                },
+            )
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            gateway = HttpRemoteGpuGateway(build_settings(), http_client=client)
+
+            health = await gateway.health()
+
+        assert health.status == "ready"
+        assert health.capabilities == ("embed", "pdf_extract")
 
     asyncio.run(verify())

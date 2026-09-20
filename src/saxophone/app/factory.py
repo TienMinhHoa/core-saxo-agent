@@ -87,11 +87,12 @@ def create_app(
     app.state.container = container
 
     @app.get("/api/v1/health")
-    async def health() -> dict[str, str]:
+    async def health() -> dict[str, object]:
         remote_gpu = await container.remote_gpu_gateway.health()
         return {
             "app": "ready",
             "remote_gpu": remote_gpu.status,
+            "remote_gpu_capabilities": list(remote_gpu.capabilities),
             **_DISABLED_CAPABILITIES,
         }
 
