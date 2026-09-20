@@ -186,3 +186,20 @@ def test_litellm_client_canonicalizes_endpoint_whitespace_and_trailing_slash() -
     )
 
     assert client.endpoint == "https://model-service.test/v1"
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "https://user:password@model-service.test/v1",
+        "https://:password@model-service.test/v1",
+        "https://user@model-service.test/v1",
+    ],
+)
+def test_litellm_client_rejects_endpoint_userinfo(endpoint: str) -> None:
+    with pytest.raises(ValueError, match="endpoint must not contain user information"):
+        LiteLLMModelClient(
+            endpoint,
+            bearer_token="secret",
+            http_client=httpx.AsyncClient(),
+        )

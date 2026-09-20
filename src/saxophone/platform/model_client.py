@@ -222,6 +222,8 @@ class LiteLLMModelClient:
         parsed_endpoint = httpx.URL(normalized_endpoint)
         if parsed_endpoint.scheme not in {"http", "https"} or not parsed_endpoint.host:
             raise ValueError("endpoint must be an absolute HTTP(S) URL")
+        if parsed_endpoint.username or parsed_endpoint.password:
+            raise ValueError("endpoint must not contain user information")
         self._endpoint = normalized_endpoint
         self._http_client = http_client
         self._headers = {"Authorization": f"Bearer {bearer_token.strip()}"}
