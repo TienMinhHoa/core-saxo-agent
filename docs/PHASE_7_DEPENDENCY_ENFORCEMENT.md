@@ -15,10 +15,12 @@ feature parity cùng quyết định migration.
   SDK provider (`chromadb`, `openai`, `httpx`, `gradio`, Paddle/PaddleX, Torch).
 - Các application use case chính không được import provider SDK; adapter ở
   `saxophone.platform` hoặc module adapter riêng là ranh giới được phép.
+- Toàn bộ package `saxophone` được quét AST để chặn import `paddle`, `paddlex`,
+  `torch`, `transformers`; backend không kéo local GPU runtime.
 
 ## Bằng chứng kiểm chứng
 
-- Targeted: `uv run pytest tests/test_phase_7_dependency_enforcement.py -q`
+- Targeted: `uv run pytest tests/test_phase_7_dependency_enforcement.py -q` (3 tests)
 - Full offline suite: chạy sau khi test mới được thêm; không bao gồm live
   model-service/Chroma smoke.
 - Quy tắc này chỉ kiểm tra import tĩnh; chưa chứng minh build image hoặc live

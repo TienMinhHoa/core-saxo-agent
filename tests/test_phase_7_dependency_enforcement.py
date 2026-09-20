@@ -10,6 +10,7 @@ SOURCE_ROOT = Path(__file__).parents[1] / "src" / "saxophone"
 FORBIDDEN_PROVIDER_ROOTS = frozenset(
     {"chromadb", "gradio", "httpx", "openai", "paddle", "paddlex", "torch"}
 )
+LOCAL_GPU_RUNTIME_ROOTS = frozenset({"paddle", "paddlex", "torch", "transformers"})
 
 
 def _import_roots(path: Path) -> set[str]:
@@ -44,6 +45,18 @@ def test_application_use_cases_do_not_import_provider_sdks() -> None:
         str(path.relative_to(SOURCE_ROOT)): sorted(_import_roots(path) & FORBIDDEN_PROVIDER_ROOTS)
         for path in use_case_files
         if _import_roots(path) & FORBIDDEN_PROVIDER_ROOTS
+    }
+
+    assert violations == {}
+
+
+def test_backend_package_does_not_import_local_gpu_runtime() -> None:
+    violations = {
+        str(path.relative_to(SOURCE_ROOT)): sorted(
+            _import_roots(path) & LOCAL_GPU_RUNTIME_ROOTS
+        )
+        for path in SOURCE_ROOT.rglob("*.py")
+        if _import_roots(path) & LOCAL_GPU_RUNTIME_ROOTS
     }
 
     assert violations == {}
