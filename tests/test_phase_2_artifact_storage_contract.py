@@ -68,6 +68,19 @@ def test_put_is_atomic_and_does_not_leave_temporary_files(tmp_path: Path) -> Non
     ]
 
 
+def test_get_rejects_tampered_payload_against_immutable_metadata(tmp_path: Path) -> None:
+    repository = LocalArtifactRepository(tmp_path)
+    artifact = _artifact()
+
+    asyncio.run(repository.put(artifact, b"1234567"))
+    (tmp_path / "document-123" / "manifest" / "extract-v1").write_bytes(
+        b"tampered"
+    )
+
+    with pytest.raises(ValueError, match="size_bytes|sha256"):
+        asyncio.run(repository.get(artifact))
+
+
 def test_local_repository_bounds_concurrent_blocking_writes(tmp_path: Path) -> None:
     repository = LocalArtifactRepository(
         tmp_path,

@@ -82,10 +82,12 @@ class LocalArtifactRepository:
 
     async def get(self, artifact: ArtifactRef) -> bytes:
         path = self._path_for(artifact)
-        return await anyio.to_thread.run_sync(
+        payload = await anyio.to_thread.run_sync(
             path.read_bytes,
             limiter=self._io_limiter,
         )
+        self._validate_payload(artifact, payload)
+        return payload
 
     def _path_for(self, artifact: ArtifactRef) -> Path:
         relative = Path(artifact.artifact_id) / artifact.version
