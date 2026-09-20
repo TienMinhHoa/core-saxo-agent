@@ -11,8 +11,10 @@ from saxophone.documents.models import ArtifactKind, ArtifactRef
 from saxophone.documents.ports import ArtifactRepository
 from saxophone.extraction.models import PdfExtractionResult
 from saxophone.ingestion.models import EmbeddingRecord
-from saxophone.ingestion.use_cases import IndexDocument
+from saxophone.ingestion.use_cases import IngestDocument, IndexDocument
 from saxophone.retrieval.models import EvidenceBundle
+from saxophone.tagging.models import TaggedParagraph
+from saxophone.workflows.ingest_extracted_document import IngestExtractedDocument
 from saxophone.workflows.process_document import ProcessAndPersistDocument, ProcessDocument
 
 
@@ -121,6 +123,17 @@ class FakeEmbeddingProvider:
                 vector=(0.9, 0.8),
             )
             for chunk_id, _ in chunks
+        )
+
+
+class FakeTagAndPersist:
+    async def execute(self, paragraph, *, tagging_profile, resolution_profile):
+        return TaggedParagraph(
+            paragraph_id=paragraph.paragraph_id,
+            text=paragraph.text,
+            generated_tags=("music",),
+            tags=("music",),
+            status="completed",
         )
 
 
@@ -298,6 +311,72 @@ def test_process_and_ingest_route_runs_persisted_markdown_through_indexing() -> 
     assert body["ingestion"]["indexed"] is True
     assert body["ingestion"]["chunk_count"] == 1
     assert vector_index.records[0].search_text == "A source paragraph."
+
+
+def test_process_and_ingest_route_preserves_tagging_before_indexing() -> None:
+    markdown = b"## Intro\nA source paragraph."
+    result = PdfExtractionResult(
+        document_ref="doc-1",
+        source_version="source-v1",
+        markdown=_artifact("markdown", ArtifactKind.MARKDOWN, markdown),
+        layout=_artifact("layout", ArtifactKind.LAYOUT),
+        manifest=_artifact("manifest", ArtifactKind.EXTRACTION_MANIFEST),
+        coordinates=(),
+        model_profile="extractor-v1",
+    )
+    extractor = FakePdfExtractor(result, [])
+    artifacts = MultiArtifactRepository({"source": b"source", "markdown": markdown}, [])
+    vector_index = FakeVectorIndex()
+    ingestion = IngestExtractedDocument(
+        artifacts,
+        ingest_document=IngestDocument(
+            FakeTagAndPersist(),
+            IndexDocument(vector_index, FakeEmbeddingProvider()),
+        ),
+    )
+    app = create_app(
+        settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=FakeRemoteGpuGateway(),
+            model_client=FakeModelClient(),
+            pdf_extractor=extractor,
+            artifact_repository=artifacts,
+            ingest_extracted_document=ingestion,
+            process_and_persist_document=ProcessAndPersistDocument(
+                ProcessDocument(artifacts, extractor),
+                FakeExtractionPayloads(markdown),
+                artifacts,
+            ),
+        ),
+    )
+
+    response = TestClient(app).post(
+        "/api/v1/documents/doc-1/process-and-ingest",
+        json={
+            "source": {
+                "artifact_id": "source",
+                "version": "v1",
+                "kind": "source_pdf",
+                "media_type": "application/pdf",
+                "sha256": "41cf6794ba4200b839c53531555f0f3998df4cbb01a4d5cb0b94e3ca5e23947d",
+                "size_bytes": 6,
+            },
+            "source_version": "source-v1",
+            "correlation_id": "corr-1",
+            "model_profile": "extractor-v1",
+            "chunking_profile": "header-v1",
+            "tagging_profile": "tags-v1",
+            "resolution_profile": "resolve-v1",
+            "embedding_profile": "embed-v1",
+            "index_profile": "index-v1",
+            "access_scope": "tenant-a",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ingestion"]["tagged_paragraph_count"] == 1
+    assert vector_index.records[0].metadata["tags"] == ("music",)
 
 
 def test_document_process_route_rejects_source_that_workflow_cannot_verify() -> None:
