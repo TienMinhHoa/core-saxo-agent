@@ -13,6 +13,8 @@ from typing import Callable, Mapping, Protocol
 
 import httpx
 
+from saxophone.platform.observability import EventSink, StructuredEvent
+
 
 class ModelValidationError(ValueError):
     """Raised when an external model boundary DTO is unsafe or incomplete."""
@@ -123,6 +125,7 @@ class LiteLLMModelClient:
         circuit_breaker_failure_threshold: int = 0,
         circuit_breaker_cooldown_seconds: float = 30.0,
         monotonic_clock: Callable[[], float] = time.monotonic,
+        event_sink: EventSink | None = None,
     ) -> None:
         if not endpoint.strip():
             raise ValueError("endpoint must not be empty")
@@ -151,6 +154,7 @@ class LiteLLMModelClient:
         self._circuit_breaker_failure_threshold = circuit_breaker_failure_threshold
         self._circuit_breaker_cooldown_seconds = circuit_breaker_cooldown_seconds
         self._monotonic_clock = monotonic_clock
+        self._event_sink = event_sink
         self._consecutive_failures = 0
         self._circuit_opened_at: float | None = None
 
@@ -183,6 +187,8 @@ class LiteLLMModelClient:
         return self._circuit_breaker_cooldown_seconds
 
     async def invoke(self, request: ModelRequest) -> ModelResponse:
+        started_at = self._monotonic_clock()
+        attempt_count = 0
         payload = {
             "model": request.model,
             "task_type": request.task.value,
@@ -190,7 +196,22 @@ class LiteLLMModelClient:
             "metadata": dict(request.metadata),
             "response_format": request.response_schema,
         }
-        response = await self._post_with_retry(payload, idempotency_key=request.idempotency_key)
+        try:
+            response, attempt_count = await self._post_with_retry(
+                payload,
+                idempotency_key=request.idempotency_key,
+            )
+        except Exception as error:
+            self._emit_event(
+                request,
+                name="model.request.failed",
+                attempt=max(attempt_count, 1),
+                started_at=started_at,
+                result="failure",
+                reason_code=type(error).__name__,
+                output_count=0,
+            )
+            raise
         try:
             payload = response.json()
         except ValueError as error:
@@ -206,20 +227,30 @@ class LiteLLMModelClient:
             model=model,
             response_schema=response_schema,
         )
-        return ModelResponse(
+        model_response = ModelResponse(
             task=task,
             model=model,
             response_schema=response_schema,
             output=_required_mapping(payload, "output"),
             source_version=_required_text(payload, "source_version"),
         )
+        self._emit_event(
+            request,
+            name="model.request.completed",
+            attempt=max(attempt_count, 1),
+            started_at=started_at,
+            result="success",
+            reason_code=None,
+            output_count=len(model_response.output),
+        )
+        return model_response
 
     async def _post_with_retry(
         self,
         payload: Mapping[str, object],
         *,
         idempotency_key: str | None,
-    ) -> httpx.Response:
+    ) -> tuple[httpx.Response, int]:
         self._ensure_circuit_closed()
         attempts = self._max_attempts if idempotency_key is not None else 1
         headers = dict(self._headers)
@@ -242,7 +273,7 @@ class LiteLLMModelClient:
                 if response.status_code not in {408, 429, 500, 502, 503, 504}:
                     response.raise_for_status()
                     self._record_success()
-                    return response
+                    return response, attempt
                 response.raise_for_status()
             except httpx.RequestError:
                 self._record_retryable_failure()
@@ -268,6 +299,40 @@ class LiteLLMModelClient:
             if retry_delay:
                 await asyncio.sleep(retry_delay)
         raise AssertionError("retry loop must return or raise")
+
+    def _emit_event(
+        self,
+        request: ModelRequest,
+        *,
+        name: str,
+        attempt: int,
+        started_at: float,
+        result: str,
+        reason_code: str | None,
+        output_count: int,
+    ) -> None:
+        if self._event_sink is None:
+            return
+        correlation_id = str(
+            request.metadata.get("correlation_id")
+            or request.idempotency_key
+            or "model-request"
+        )
+        self._event_sink.emit(
+            StructuredEvent(
+                name=name,
+                correlation_id=correlation_id,
+                task=request.task.value,
+                model=request.model,
+                attempt=attempt,
+                duration_ms=round(max(self._monotonic_clock() - started_at, 0.0) * 1000, 3),
+                input_count=len(request.input),
+                output_count=output_count,
+                result=result,
+                reason_code=reason_code,
+            )
+        )
+
     def _ensure_circuit_closed(self) -> None:
         if self._circuit_opened_at is None:
             return

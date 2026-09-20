@@ -13,6 +13,7 @@ from saxophone.platform.model_client import (
     ModelTask,
     ModelValidationError,
 )
+from saxophone.platform.observability import InMemoryEventSink
 
 
 def _request() -> ModelRequest:
@@ -74,6 +75,67 @@ async def test_litellm_client_sends_typed_envelope_and_maps_response() -> None:
         "metadata": {"source_version": "retrieval-v1"},
         "response_format": "answer-v1",
     }
+
+
+@pytest.mark.anyio
+async def test_litellm_client_emits_safe_success_event_with_attempt_count() -> None:
+    sink = InMemoryEventSink()
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "task_type": "answer_generate",
+                "model": "answer-model-v1",
+                "response_format": "answer-v1",
+                "output": {"answer": "Use long tones."},
+                "source_version": "model-source-v1",
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        await LiteLLMModelClient(
+            "https://model.example.test/v1/invoke",
+            http_client=http_client,
+            bearer_token="secret-token",
+            event_sink=sink,
+        ).invoke(_request())
+
+    event = sink.events[0].as_dict()
+    assert event["name"] == "model.request.completed"
+    assert event["correlation_id"] == "answer-test-key"
+    assert event["task"] == "answer_generate"
+    assert event["model"] == "answer-model-v1"
+    assert event["attempt"] == 1
+    assert event["duration_ms"] >= 0
+    assert event["input_count"] == 1
+    assert event["output_count"] == 1
+    assert event["result"] == "success"
+
+
+@pytest.mark.anyio
+async def test_litellm_client_emits_safe_failure_event_without_response_payload() -> None:
+    sink = InMemoryEventSink()
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"detail": "invalid token"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        with pytest.raises(httpx.HTTPStatusError):
+            await LiteLLMModelClient(
+                "https://model.example.test/v1/invoke",
+                http_client=http_client,
+                bearer_token="secret-token",
+                event_sink=sink,
+            ).invoke(_request())
+
+    event = sink.events[0].as_dict()
+    assert event["name"] == "model.request.failed"
+    assert event["correlation_id"] == "answer-test-key"
+    assert event["attempt"] == 1
+    assert event["result"] == "failure"
+    assert event["reason_code"] == "HTTPStatusError"
+    assert "response" not in event
 
 
 @pytest.mark.anyio
