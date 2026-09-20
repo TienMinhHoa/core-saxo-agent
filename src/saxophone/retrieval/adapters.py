@@ -49,6 +49,7 @@ class ChromaSemanticRetriever(ChunkRetriever):
             return []
         if not isinstance(query, str) or not query.strip():
             raise ValueError("query must not be blank")
+        validated_filters = _validated_chroma_filters(filters)
 
         vectors = await anyio.to_thread.run_sync(
             partial(self._embedding_provider.embed, [query.strip()]),
@@ -60,7 +61,7 @@ class ChromaSemanticRetriever(ChunkRetriever):
             partial(
                 self._collection.query,
                 query_embeddings=[vectors[0]],
-                where=dict(filters or {}),
+                where=validated_filters,
                 n_results=limit,
                 include=["documents", "metadatas", "distances"],
             ),
@@ -330,6 +331,28 @@ def _require_canonical_version(value: object) -> None:
         raise ValueError("retrieval_version must not be blank")
     if value != value.strip() or unicodedata.normalize("NFC", value) != value:
         raise ValueError("retrieval_version must contain a canonical value")
+
+
+def _validated_chroma_filters(
+    filters: Mapping[str, object] | None,
+) -> dict[str, object]:
+    """Validate the scalar ``where`` projection before embedding or Chroma I/O."""
+    if filters is None:
+        return {}
+    if not isinstance(filters, Mapping):
+        raise ValueError("filters must be a mapping of non-blank keys to scalar values")
+    validated = dict(filters)
+    if any(not isinstance(key, str) or not key.strip() for key in validated):
+        raise ValueError("filters keys must be non-blank strings")
+    if any(not _is_chroma_filter_scalar(value) for value in validated.values()):
+        raise ValueError("filters values must be finite scalar values")
+    return validated
+
+
+def _is_chroma_filter_scalar(value: object) -> bool:
+    if isinstance(value, bool) or isinstance(value, str):
+        return True
+    return isinstance(value, (int, float)) and math.isfinite(value)
 
 
 def _terms(query: str) -> tuple[str, ...]:

@@ -93,6 +93,49 @@ async def test_chroma_retriever_rejects_non_integer_limits_before_io(limit: obje
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
+    "filters",
+    [
+        [],
+        {" ": "public"},
+        {"access_scope": ["public"]},
+        {"access_scope": float("nan")},
+    ],
+)
+async def test_chroma_retriever_rejects_invalid_filters_before_io(filters: object) -> None:
+    class _FailIfCalled:
+        def embed(self, texts: list[str]) -> list[list[float]]:
+            raise AssertionError("embedding should not be called")
+
+    retriever = ChromaSemanticRetriever(_FailIfCalled(), _FailIfCalled())
+
+    with pytest.raises(ValueError, match="filters"):
+        await retriever.search("ignored", filters=filters)  # type: ignore[arg-type]
+
+
+@pytest.mark.anyio
+async def test_chroma_retriever_forwards_valid_scalar_filters() -> None:
+    class _Provider:
+        def embed(self, texts: list[str]) -> list[list[float]]:
+            return [[0.1, 0.2]]
+
+    class _Collection:
+        def query(self, **kwargs: object) -> dict[str, list[list[object]]]:
+            assert kwargs["where"] == {"access_scope": "public", "page": 2}
+            return {
+                "ids": [[]],
+                "documents": [[]],
+                "metadatas": [[]],
+                "distances": [[]],
+            }
+
+    retriever = ChromaSemanticRetriever(_Collection(), _Provider())
+    assert await retriever.search(
+        "find scales", filters={"access_scope": "public", "page": 2}
+    ) == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
     "result",
     [
         {"ids": ["chunk-1"]},
