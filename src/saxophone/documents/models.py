@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from enum import StrEnum
 
-from saxophone.documents.policies import is_safe_artifact_reference
+from saxophone.documents.policies import is_safe_artifact_reference, is_safe_media_type
 
 
 class ArtifactKind(StrEnum):
@@ -45,7 +45,8 @@ class ArtifactRef:
             raise ValueError("version must be a safe relative reference")
         if not isinstance(self.kind, ArtifactKind):
             raise ValueError("kind must be an ArtifactKind")
-        _require_non_blank("media_type", self.media_type)
+        if not is_safe_media_type(self.media_type):
+            raise ValueError("media_type must be a valid MIME type")
         if not isinstance(self.sha256, str) or not re.fullmatch(
             r"[0-9a-f]{64}", self.sha256
         ):

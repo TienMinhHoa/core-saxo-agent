@@ -52,3 +52,15 @@ def is_image_media_type(media_type: object) -> bool:
         return False
     main_type = media_type.split(";", 1)[0].strip().lower()
     return main_type.startswith("image/") and len(main_type) > len("image/")
+
+
+def is_safe_media_type(media_type: object) -> bool:
+    """Return whether a media type has a safe type/subtype structure."""
+
+    if not isinstance(media_type, str) or not media_type or media_type != media_type.strip():
+        return False
+    main_type = media_type.split(";", 1)[0].strip()
+    parts = main_type.split("/")
+    if len(parts) != 2 or not all(parts):
+        return False
+    return not any(character.isspace() for character in main_type)

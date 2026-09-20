@@ -33,6 +33,10 @@ def test_artifact_reference_is_immutable_and_keeps_versioned_identity() -> None:
         ("kind", "extraction_manifest"),
         ("media_type", 123),
         ("media_type", ""),
+        ("media_type", "application"),
+        ("media_type", "application/json/xml"),
+        ("media_type", " application/json"),
+        ("media_type", "application /json"),
         ("sha256", "not-a-sha256"),
         ("size_bytes", True),
         ("size_bytes", 1.5),
@@ -114,3 +118,16 @@ def test_artifact_reference_rejects_non_string_sha256_without_type_error(
             sha256=sha256,  # type: ignore[arg-type]
             size_bytes=128,
         )
+
+
+def test_artifact_reference_accepts_mime_parameters() -> None:
+    artifact = ArtifactRef(
+        artifact_id="document-123/manifest",
+        version="extract-v1",
+        kind=ArtifactKind.EXTRACTION_MANIFEST,
+        media_type="application/json; charset=utf-8",
+        sha256="a" * 64,
+        size_bytes=128,
+    )
+
+    assert artifact.media_type == "application/json; charset=utf-8"
