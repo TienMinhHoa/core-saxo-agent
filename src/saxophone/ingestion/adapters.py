@@ -385,6 +385,14 @@ class ChromaVectorIndex(VectorIndex):
 
     @staticmethod
     def _metadata(record: ChunkIndexRecord) -> dict[str, object]:
+        reserved_keys = {
+            "document_ref",
+            "source_version",
+            "embedding_profile",
+            "access_scope",
+        }
+        if reserved_keys.intersection(record.metadata):
+            raise ValueError("Chroma metadata contains reserved keys")
         projected = {
             key: _chroma_metadata_value(value)
             for key, value in record.metadata.items()

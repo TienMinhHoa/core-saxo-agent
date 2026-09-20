@@ -330,6 +330,35 @@ async def test_chroma_upsert_rejects_unsupported_metadata_before_provider_io(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "reserved_key",
+    ["document_ref", "source_version", "embedding_profile", "access_scope"],
+)
+async def test_chroma_upsert_rejects_metadata_reserved_key_before_provider_io(
+    reserved_key: str,
+) -> None:
+    class _CollectionThatMustNotBeCalled:
+        def upsert(self, **kwargs):
+            raise AssertionError("reserved metadata reached Chroma")
+
+    index = ChromaVectorIndex(_CollectionThatMustNotBeCalled())
+    record = _index_record()
+    invalid_record = ChunkIndexRecord(
+        chunk_id=record.chunk_id,
+        document_ref=record.document_ref,
+        source_version=record.source_version,
+        search_text=record.search_text,
+        embedding=record.embedding,
+        embedding_profile=record.embedding_profile,
+        access_scope=record.access_scope,
+        metadata={reserved_key: "caller-value"},
+    )
+
+    with pytest.raises(ValueError, match="reserved"):
+        await index.upsert_chunks([invalid_record])
+
+
+@pytest.mark.anyio
 async def test_chroma_upsert_projects_nested_tuple_metadata_without_provider_error() -> None:
     collection = _FakeChromaCollection()
     index = ChromaVectorIndex(collection)
