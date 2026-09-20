@@ -136,6 +136,30 @@ async def test_chroma_retriever_forwards_valid_scalar_filters() -> None:
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
+    "vectors",
+    [[], [[]], [[0.1, float("nan")]], [[True, 0.2]], [[0.1], [0.2]]],
+)
+async def test_chroma_retriever_rejects_malformed_embedding_output_before_chroma_io(
+    vectors: object,
+) -> None:
+    class _Provider:
+        def embed(self, texts: list[str]) -> object:
+            return vectors
+
+    class _CollectionThatMustNotBeCalled:
+        def query(self, **kwargs: object) -> object:
+            raise AssertionError("malformed embedding output reached Chroma")
+
+    retriever = ChromaSemanticRetriever(
+        _CollectionThatMustNotBeCalled(), _Provider(), retrieval_version="chroma-v1"
+    )
+
+    with pytest.raises(ValueError, match="embedding provider output"):
+        await retriever.search("find scales")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
     "result",
     [
         {"ids": ["chunk-1"]},

@@ -55,12 +55,11 @@ class ChromaSemanticRetriever(ChunkRetriever):
             partial(self._embedding_provider.embed, [query.strip()]),
             limiter=self._io_limiter,
         )
-        if not vectors:
-            return []
+        query_vector = _validated_embedding_output(vectors)
         result = await anyio.to_thread.run_sync(
             partial(
                 self._collection.query,
-                query_embeddings=[vectors[0]],
+                query_embeddings=[query_vector],
                 where=validated_filters,
                 n_results=limit,
                 include=["documents", "metadatas", "distances"],
@@ -347,6 +346,23 @@ def _validated_chroma_filters(
     if any(not _is_chroma_filter_scalar(value) for value in validated.values()):
         raise ValueError("filters values must be finite scalar values")
     return validated
+
+
+def _validated_embedding_output(value: object) -> list[float]:
+    """Validate the single query vector before crossing into Chroma I/O."""
+    if not isinstance(value, list) or len(value) != 1:
+        raise ValueError("embedding provider output must contain exactly one vector")
+    vector = value[0]
+    if not isinstance(vector, list) or not vector:
+        raise ValueError("embedding provider output must contain one non-empty vector")
+    if any(
+        isinstance(item, bool)
+        or not isinstance(item, (int, float))
+        or not math.isfinite(item)
+        for item in vector
+    ):
+        raise ValueError("embedding provider output must contain finite numbers")
+    return [float(item) for item in vector]
 
 
 def _is_chroma_filter_scalar(value: object) -> bool:
