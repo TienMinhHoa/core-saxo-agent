@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import json
 from dataclasses import dataclass
 
 from fastapi.testclient import TestClient
@@ -14,7 +16,13 @@ from saxophone.ingestion.adapters import InMemoryEmbeddingReuseStore
 from saxophone.ingestion.models import EmbeddingRecord
 from saxophone.ingestion.use_cases import IngestDocument, IndexDocument
 from saxophone.retrieval.models import EvidenceBundle
-from saxophone.tagging.models import TaggedParagraph
+from saxophone.tagging.models import (
+    TagConflictResolution,
+    TagGenerationResult,
+    TagResolution,
+    TaggedParagraph,
+)
+from saxophone.tagging.persistence import JsonTagCatalogRepository, JsonTaggedParagraphRepository
 from saxophone.workflows.ingest_extracted_document import IngestExtractedDocument
 from saxophone.workflows.process_document import ProcessAndPersistDocument, ProcessDocument
 
@@ -135,6 +143,28 @@ class FakeTagAndPersist:
             generated_tags=("music",),
             tags=("music",),
             status="completed",
+        )
+
+
+class FakeTagGenerator:
+    async def generate(self, request):
+        return TagGenerationResult(
+            paragraph_id=request.paragraph.paragraph_id,
+            tags=("Harmony definition",),
+            tagging_profile=request.tagging_profile,
+        )
+
+
+class FakeTagConflictResolver:
+    async def resolve(self, request):
+        return TagConflictResolution(
+            paragraph_id=request.paragraph_id,
+            generated_tags=request.generated_tags,
+            existing_tags=tuple(candidate.tag for candidate in request.existing_tags),
+            resolutions=tuple(
+                TagResolution(tag, "keep_new", tag) for tag in request.generated_tags
+            ),
+            resolution_profile=request.resolution_profile,
         )
 
 
@@ -378,6 +408,77 @@ def test_process_and_ingest_route_preserves_tagging_before_indexing() -> None:
     body = response.json()
     assert body["ingestion"]["tagged_paragraph_count"] == 1
     assert vector_index.records[0].metadata["tags"] == ("music",)
+
+
+def test_process_and_ingest_route_persists_tagged_paragraph_and_catalog(tmp_path) -> None:
+    markdown = b"## Intro\nA source paragraph."
+    result = PdfExtractionResult(
+        document_ref="doc-1",
+        source_version="source-v1",
+        markdown=_artifact("markdown", ArtifactKind.MARKDOWN, markdown),
+        layout=_artifact("layout", ArtifactKind.LAYOUT),
+        manifest=_artifact("manifest", ArtifactKind.EXTRACTION_MANIFEST),
+        coordinates=(),
+        model_profile="extractor-v1",
+    )
+    extractor = FakePdfExtractor(result, [])
+    artifacts = MultiArtifactRepository({"source": b"source", "markdown": markdown}, [])
+    vector_index = FakeVectorIndex()
+    tagged_repository = JsonTaggedParagraphRepository(tmp_path / "tagged-paragraphs")
+    catalog_repository = JsonTagCatalogRepository(tmp_path / "tag-catalog.json")
+    app = create_app(
+        AppSettings.from_environment({**VALID_ENVIRONMENT, "SAXO_DATA_ROOT": str(tmp_path)}),
+        overrides=AppOverrides(
+            remote_gpu_gateway=FakeRemoteGpuGateway(),
+            model_client=FakeModelClient(),
+            pdf_extractor=extractor,
+            artifact_repository=artifacts,
+            vector_index=vector_index,
+            embedding_provider=FakeEmbeddingProvider(),
+            tag_generator=FakeTagGenerator(),
+            tag_conflict_resolver=FakeTagConflictResolver(),
+            tagged_paragraph_repository=tagged_repository,
+            tag_catalog_repository=catalog_repository,
+            process_and_persist_document=ProcessAndPersistDocument(
+                ProcessDocument(artifacts, extractor),
+                FakeExtractionPayloads(markdown),
+                artifacts,
+            ),
+        ),
+    )
+
+    response = TestClient(app).post(
+        "/api/v1/documents/doc-1/process-and-ingest",
+        json={
+            "source": {
+                "artifact_id": "source",
+                "version": "v1",
+                "kind": "source_pdf",
+                "media_type": "application/pdf",
+                "sha256": "41cf6794ba4200b839c53531555f0f3998df4cbb01a4d5cb0b94e3ca5e23947d",
+                "size_bytes": 6,
+            },
+            "source_version": "source-v1",
+            "correlation_id": "corr-1",
+            "model_profile": "extractor-v1",
+            "chunking_profile": "header-v1",
+            "tagging_profile": "tags-v1",
+            "resolution_profile": "resolve-v1",
+            "embedding_profile": "embed-v1",
+            "index_profile": "index-v1",
+            "access_scope": "tenant-a",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ingestion"]["tagged_paragraph_count"] == 1
+    assert asyncio.run(catalog_repository.list()) == ("Harmony definition",)
+    sidecars = list((tmp_path / "tagged-paragraphs").glob("*.json"))
+    assert len(sidecars) == 1
+    assert json.loads(sidecars[0].read_text(encoding="utf-8"))["tags"] == [
+        "Harmony definition",
+    ]
 
 
 def test_document_process_route_rejects_source_that_workflow_cannot_verify() -> None:
