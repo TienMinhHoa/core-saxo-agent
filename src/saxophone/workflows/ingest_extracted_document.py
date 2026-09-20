@@ -27,8 +27,6 @@ class IngestExtractedDocument:
     ) -> None:
         if index_document is None and ingest_document is None:
             raise ValueError("an index or ingestion workflow must be configured")
-        if index_document is not None and ingest_document is not None:
-            raise ValueError("configure either index or ingestion workflow, not both")
         self._artifacts = artifacts
         self._index_document = index_document
         self._ingest_document = ingest_document
@@ -67,7 +65,7 @@ class IngestExtractedDocument:
             source_version=result.source_version,
             access_scope=access_scope,
         )
-        if self._ingest_document is not None:
+        if self._ingest_document is not None and tagging_profile != "none-v1":
             paragraphs = tuple(
                 paragraph
                 for chunk in chunks

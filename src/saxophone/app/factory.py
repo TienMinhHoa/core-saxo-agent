@@ -17,7 +17,7 @@ from saxophone.extraction.ports import PdfExtractor
 from saxophone.extraction.remote import RemotePdfExtractor
 from saxophone.ingestion.adapters import RemoteEmbeddingProvider
 from saxophone.ingestion.ports import EmbeddingProvider, VectorIndex
-from saxophone.ingestion.use_cases import IndexDocument
+from saxophone.ingestion.use_cases import IngestDocument, IndexDocument
 from saxophone.platform.artifacts import LocalArtifactRepository
 from saxophone.platform.model_client import LiteLLMModelClient, ModelClient
 from saxophone.platform.remote_gpu import (
@@ -26,7 +26,9 @@ from saxophone.platform.remote_gpu import (
 )
 from saxophone.retrieval.use_cases import RetrieveEvidence
 from saxophone.tagging.persistence import JsonTagCatalogRepository, JsonTaggedParagraphRepository
-from saxophone.tagging.ports import TagCatalogRepository, TaggedParagraphRepository
+from saxophone.tagging.adapters import RemoteParagraphTagger, RemoteTagConflictResolver
+from saxophone.tagging.ports import TagCatalogRepository, TagConflictResolver, TagGenerator, TaggedParagraphRepository
+from saxophone.tagging.use_cases import TagAndPersistParagraph, TagParagraph
 from saxophone.interfaces.api import build_capability_router
 from saxophone.workflows.process_document import ProcessAndPersistDocument, ProcessDocument
 from saxophone.workflows.ingest_extracted_document import IngestExtractedDocument
@@ -59,6 +61,8 @@ class AppContainer:
     ingest_extracted_document: IngestExtractedDocument | None = None
     tagged_paragraph_repository: TaggedParagraphRepository | None = None
     tag_catalog_repository: TagCatalogRepository | None = None
+    tag_generator: TagGenerator | None = None
+    tag_conflict_resolver: TagConflictResolver | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +83,8 @@ class AppOverrides:
     ingest_extracted_document: IngestExtractedDocument | None = None
     tagged_paragraph_repository: TaggedParagraphRepository | None = None
     tag_catalog_repository: TagCatalogRepository | None = None
+    tag_generator: TagGenerator | None = None
+    tag_conflict_resolver: TagConflictResolver | None = None
 
 
 def create_app(
@@ -133,6 +139,12 @@ def create_app(
         tag_catalog_repository = JsonTagCatalogRepository(
             settings.data_root / "tag-catalog.json",
         )
+    tag_generator = resolved_overrides.tag_generator or RemoteParagraphTagger(
+        model_client, model=settings.litellm_model_profile,
+    )
+    tag_conflict_resolver = resolved_overrides.tag_conflict_resolver or RemoteTagConflictResolver(
+        model_client, model=settings.litellm_model_profile,
+    )
     process_document = resolved_overrides.process_document
     if process_document is None:
         process_document = ProcessDocument(artifact_repository, pdf_extractor)
@@ -151,9 +163,15 @@ def create_app(
         )
     ingest_extracted_document = resolved_overrides.ingest_extracted_document
     if ingest_extracted_document is None and index_document is not None:
+        tag_and_persist = TagAndPersistParagraph(
+            TagParagraph(tag_generator, tag_conflict_resolver),
+            tagged_paragraph_repository,
+            tag_catalog_repository,
+        )
         ingest_extracted_document = IngestExtractedDocument(
             artifact_repository,
             index_document,
+            ingest_document=IngestDocument(tag_and_persist, index_document),
         )
 
     container = AppContainer(
@@ -172,6 +190,8 @@ def create_app(
         ingest_extracted_document=ingest_extracted_document,
         tagged_paragraph_repository=tagged_paragraph_repository,
         tag_catalog_repository=tag_catalog_repository,
+        tag_generator=tag_generator,
+        tag_conflict_resolver=tag_conflict_resolver,
     )
 
     @asynccontextmanager
