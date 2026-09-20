@@ -47,6 +47,7 @@ class RemoteParagraphTagger(TagGenerator):
                 },
                 metadata={"tagging_profile": request.tagging_profile},
                 response_schema=self._response_schema,
+                idempotency_key=f"tag-{paragraph.paragraph_id}-{request.tagging_profile}",
             ),
         )
         _validate_response(response.task, response.response_schema, ModelTask.PARAGRAPH_TAG, self._response_schema)
@@ -91,6 +92,7 @@ class RemoteTagConflictResolver(TagConflictResolver):
                 },
                 metadata={"resolution_profile": request.resolution_profile},
                 response_schema=self._response_schema,
+                idempotency_key=f"resolve-{request.paragraph_id}-{request.resolution_profile}",
             ),
         )
         _validate_response(response.task, response.response_schema, ModelTask.TAG_RESOLVE, self._response_schema)

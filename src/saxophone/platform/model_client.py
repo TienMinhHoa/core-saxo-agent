@@ -47,6 +47,7 @@ class ModelRequest:
     input: Mapping[str, object]
     metadata: Mapping[str, object]
     response_schema: str
+    idempotency_key: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.model, str) or not self.model.strip():
@@ -55,8 +56,14 @@ class ModelRequest:
             raise ModelValidationError("task must be a ModelTask")
         if not isinstance(self.response_schema, str) or not self.response_schema.strip():
             raise ModelValidationError("response_schema must not be empty")
+        if self.idempotency_key is not None and (
+            not isinstance(self.idempotency_key, str) or not self.idempotency_key.strip()
+        ):
+            raise ModelValidationError("idempotency_key must be non-blank when provided")
         object.__setattr__(self, "model", self.model.strip())
         object.__setattr__(self, "response_schema", self.response_schema.strip())
+        if self.idempotency_key is not None:
+            object.__setattr__(self, "idempotency_key", self.idempotency_key.strip())
         object.__setattr__(self, "input", _immutable_mapping(self.input, "input"))
         object.__setattr__(self, "metadata", _immutable_mapping(self.metadata, "metadata"))
 
@@ -164,7 +171,7 @@ class LiteLLMModelClient:
             "metadata": dict(request.metadata),
             "response_format": request.response_schema,
         }
-        response = await self._post_with_retry(payload)
+        response = await self._post_with_retry(payload, idempotency_key=request.idempotency_key)
         try:
             payload = response.json()
         except ValueError as error:
@@ -188,15 +195,24 @@ class LiteLLMModelClient:
             source_version=_required_text(payload, "source_version"),
         )
 
-    async def _post_with_retry(self, payload: Mapping[str, object]) -> httpx.Response:
+    async def _post_with_retry(
+        self,
+        payload: Mapping[str, object],
+        *,
+        idempotency_key: str | None,
+    ) -> httpx.Response:
         self._ensure_circuit_closed()
-        for attempt in range(1, self._max_attempts + 1):
+        attempts = self._max_attempts if idempotency_key is not None else 1
+        headers = dict(self._headers)
+        if idempotency_key is not None:
+            headers["Idempotency-Key"] = idempotency_key
+        for attempt in range(1, attempts + 1):
             retry_delay = self._retry_backoff_seconds
             response: httpx.Response | None = None
             try:
                 response = await self._http_client.post(
                     self._endpoint,
-                    headers=self._headers,
+                    headers=headers,
                     json=payload,
                     timeout=self._timeout_seconds,
                 )
@@ -207,12 +223,12 @@ class LiteLLMModelClient:
                 response.raise_for_status()
             except httpx.RequestError:
                 self._record_retryable_failure()
-                if attempt == self._max_attempts:
+                if attempt == attempts:
                     raise
             except httpx.HTTPStatusError:
                 if response.status_code in {408, 429, 500, 502, 503, 504}:
                     self._record_retryable_failure()
-                if attempt == self._max_attempts or response.status_code not in {
+                if attempt == attempts or response.status_code not in {
                     408,
                     429,
                     500,

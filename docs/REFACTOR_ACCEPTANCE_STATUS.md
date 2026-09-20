@@ -9,7 +9,7 @@ khi có feature parity và quyết định migration riêng.
 
 - Các capability đích đã có trong package `src/saxophone`: composition root,
   extraction, ingestion, retrieval, chat, tagging, workflow và API adapters.
-- Bằng chứng offline hiện tại: `uv run pytest` đạt **285 passed, 2 skipped**;
+- Bằng chứng offline hiện tại: `uv run pytest` đạt **293 passed, 2 skipped**;
   `compileall` và `git diff --check` đã được chạy ở lát cắt gần nhất.
 - Chưa được phép kết luận production-ready: checkout không có remote
   model-service endpoint/credential để chạy live smoke thật. Trạng thái này
@@ -101,3 +101,15 @@ deployment production.
 - Xác minh toàn bộ suite đạt **290 passed, 2 skipped, 1 warning**; `compileall`
   thành công. Live smoke vẫn bị chặn bởi thiếu endpoint/credential thật.
 - Chi tiết: `docs/ITERATION_12_RETRY_AFTER_FINITE_CONTRACT.md`.
+
+### Iteration 14 — retry model request có idempotency key
+
+- `ModelRequest` hiện có khóa idempotency tùy chọn, được validate và truyền qua
+  header `Idempotency-Key`.
+- `LiteLLMModelClient` chỉ retry theo `max_attempts` khi request có khóa; request
+  không có khóa bị giới hạn một attempt. Các adapter model hiện hành tạo khóa
+  ổn định từ correlation ID hoặc input nghiệp vụ.
+- Chi tiết và lệnh kiểm chứng: `docs/ITERATION_14_IDEMPOTENT_MODEL_RETRY.md`.
+- Xác minh iteration 14: **293 passed, 2 skipped, 1 warning**; `compileall` và
+  `git diff --check` đều thành công. Live smoke vẫn chưa chạy do thiếu endpoint
+  và credential thật.

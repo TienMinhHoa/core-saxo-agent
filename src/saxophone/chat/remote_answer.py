@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping
 
 from saxophone.platform.model_client import (
@@ -43,6 +44,7 @@ class RemoteAnswerGenerator(AnswerGenerator):
             },
             metadata={"source_version": evidence.retrieval_version},
             response_schema=self._response_schema,
+            idempotency_key=_answer_idempotency_key(question, evidence),
         )
         response = await self._model_client.invoke(request)
         if response.task is not ModelTask.ANSWER_GENERATE:
@@ -67,6 +69,13 @@ def _required_text(output: Mapping[str, object], name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ModelValidationError(f"model output {name} must be non-blank")
     return value
+
+
+def _answer_idempotency_key(question: str, evidence: EvidenceBundle) -> str:
+    source = "\n".join(
+        (question, evidence.retrieval_version, *evidence.selected_refs)
+    )
+    return f"answer-{hashlib.sha256(source.encode('utf-8')).hexdigest()}"
 
 
 def _required_mapping(output: Mapping[str, object], name: str) -> Mapping[str, int]:

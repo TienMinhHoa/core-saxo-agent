@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import tempfile
@@ -230,6 +231,7 @@ class RemoteEmbeddingProvider(EmbeddingProvider):
             },
             metadata={"source_version": source_version},
             response_schema="embedding-v1",
+            idempotency_key=_embedding_idempotency_key(chunks, source_version),
         )
         response = await self._client.invoke(request)
         if response.task is not ModelTask.EMBED:
@@ -265,6 +267,15 @@ class RemoteEmbeddingProvider(EmbeddingProvider):
         if actual_ids != expected_ids:
             raise ModelValidationError("embedding response chunk IDs do not match request")
         return tuple(records)
+
+
+def _embedding_idempotency_key(
+    chunks: Sequence[tuple[str, str]], source_version: str
+) -> str:
+    payload = "\n".join(
+        (source_version, *(f"{chunk_id}:{text}" for chunk_id, text in chunks))
+    )
+    return f"embed-{hashlib.sha256(payload.encode('utf-8')).hexdigest()}"
 
 
 class ChromaVectorIndex(VectorIndex):

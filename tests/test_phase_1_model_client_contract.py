@@ -19,9 +19,11 @@ def test_model_request_preserves_typed_task_and_immutable_payload() -> None:
         input={"document_ref": "doc-1"},
         metadata={"source_version": "sha256:abc"},
         response_schema="pdf-extraction-v1",
+        idempotency_key=" correlation-1 ",
     )
 
     assert request.task is ModelTask.PDF_EXTRACT
+    assert request.idempotency_key == "correlation-1"
     assert request.input == {"document_ref": "doc-1"}
     with pytest.raises(TypeError):
         request.input["document_ref"] = "changed"  # type: ignore[index]
@@ -46,6 +48,7 @@ def test_model_response_requires_schema_and_profile_provenance() -> None:
         {"model": "", "task": ModelTask.EMBED, "input": {}, "metadata": {}, "response_schema": "v1"},
         {"model": "embed-v1", "task": ModelTask.EMBED, "input": [], "metadata": {}, "response_schema": "v1"},
         {"model": "embed-v1", "task": ModelTask.EMBED, "input": {}, "metadata": {}, "response_schema": ""},
+        {"model": "embed-v1", "task": ModelTask.EMBED, "input": {}, "metadata": {}, "response_schema": "v1", "idempotency_key": " "},
     ],
 )
 def test_model_request_rejects_invalid_boundary_values(kwargs: dict[str, object]) -> None:

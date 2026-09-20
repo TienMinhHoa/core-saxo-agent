@@ -22,6 +22,7 @@ def _request() -> ModelRequest:
         input={"question": "How?"},
         metadata={"source_version": "retrieval-v1"},
         response_schema="answer-v1",
+        idempotency_key="answer-test-key",
     )
 
 
@@ -52,6 +53,7 @@ async def test_litellm_client_sends_typed_envelope_and_maps_response() -> None:
     assert isinstance(response, ModelResponse)
     assert response.task is ModelTask.ANSWER_GENERATE
     assert requests[0].headers["Authorization"] == "Bearer secret-token"
+    assert requests[0].headers["Idempotency-Key"] == "answer-test-key"
     assert loads(requests[0].content) == {
         "model": "answer-model-v1",
         "task_type": "answer_generate",
@@ -311,6 +313,34 @@ async def test_litellm_client_does_not_retry_contract_or_auth_failures() -> None
                 bearer_token="secret-token",
                 max_attempts=3,
             ).invoke(_request())
+
+    assert attempts == 1
+
+
+@pytest.mark.anyio
+async def test_litellm_client_does_not_retry_without_idempotency_key() -> None:
+    attempts = 0
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        return httpx.Response(503, json={"detail": "busy"})
+
+    request = ModelRequest(
+        model="answer-model-v1",
+        task=ModelTask.ANSWER_GENERATE,
+        input={"question": "How?"},
+        metadata={"source_version": "retrieval-v1"},
+        response_schema="answer-v1",
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        with pytest.raises(httpx.HTTPStatusError):
+            await LiteLLMModelClient(
+                "https://model.example.test/v1/invoke",
+                http_client=http_client,
+                bearer_token="secret-token",
+                max_attempts=3,
+            ).invoke(request)
 
     assert attempts == 1
 

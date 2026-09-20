@@ -49,6 +49,7 @@ class RemotePdfExtractor:
                     "model_profile": request.model_profile,
                 },
                 response_schema=self._response_schema,
+                idempotency_key=request.correlation_id,
             ),
         )
         if response.task is not ModelTask.PDF_EXTRACT:
