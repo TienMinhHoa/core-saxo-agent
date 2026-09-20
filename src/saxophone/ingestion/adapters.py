@@ -367,6 +367,7 @@ class ChromaVectorIndex(VectorIndex):
         validated_limit = _validated_search_limit(limit)
         if validated_limit == 0:
             return []
+        validated_filters = _validated_search_filters(filters)
         validated_vector = _validated_query_vector(
             query_vector,
             expected_dimension=self._embedding_dimension,
@@ -375,7 +376,7 @@ class ChromaVectorIndex(VectorIndex):
             partial(
                 self._collection.query,
             query_embeddings=[validated_vector],
-            where=filters,
+            where=validated_filters,
             n_results=validated_limit,
             include=["documents", "metadatas", "distances"],
             ),
@@ -526,3 +527,19 @@ def _validated_search_limit(limit: int) -> int:
     if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
         raise ValueError("limit must be a non-negative integer")
     return limit
+
+
+def _validated_search_filters(
+    filters: Mapping[str, object] | None,
+) -> dict[str, object] | None:
+    """Validate Chroma's scalar ``where`` projection before provider I/O."""
+    if filters is None:
+        return None
+    if not isinstance(filters, Mapping):
+        raise ValueError("filters must be a mapping of non-blank keys to scalar values")
+    validated = dict(filters)
+    if any(not isinstance(key, str) or not key.strip() for key in validated):
+        raise ValueError("filters keys must be non-blank strings")
+    if any(not _is_valid_chroma_metadata_scalar(value) for value in validated.values()):
+        raise ValueError("filters values must be finite scalar values")
+    return validated

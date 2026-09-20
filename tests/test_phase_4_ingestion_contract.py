@@ -446,6 +446,46 @@ async def test_chroma_search_rejects_query_dimension_before_provider_io() -> Non
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
+    "filters",
+    [
+        [],
+        {" ": "private"},
+        {"access_scope": None},
+        {"page_start": [1, 2]},
+        {"page_start": {"$gt": 1}},
+        {1: "private"},
+    ],
+)
+async def test_chroma_search_rejects_malformed_filters_before_provider_io(filters) -> None:
+    class _CollectionThatMustNotBeCalled:
+        def query(self, **kwargs):
+            raise AssertionError("malformed filters reached Chroma")
+
+    index = ChromaVectorIndex(_CollectionThatMustNotBeCalled())
+
+    with pytest.raises(ValueError, match="filters"):
+        await index.search((0.3, 0.4), filters=filters, limit=1)
+
+
+@pytest.mark.anyio
+async def test_chroma_search_preserves_valid_scalar_filters() -> None:
+    collection = _FakeChromaCollection()
+    index = ChromaVectorIndex(collection)
+
+    await index.search(
+        (0.3, 0.4),
+        filters={"access_scope": "private", "page_start": 2},
+        limit=1,
+    )
+
+    assert collection.query_call["where"] == {
+        "access_scope": "private",
+        "page_start": 2,
+    }
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
     "result",
     [
         {"ids": ["chunk-1"]},
