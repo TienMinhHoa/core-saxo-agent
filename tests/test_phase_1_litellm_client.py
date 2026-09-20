@@ -106,6 +106,27 @@ async def test_litellm_client_rejects_non_absolute_http_endpoint(endpoint: str) 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
+    "endpoint",
+    [
+        "https://model-service.test/v1/invoke?tenant=prod",
+        "https://model-service.test/v1/invoke#fragment",
+        "https://model-service.test:invalid/v1/invoke",
+    ],
+)
+async def test_litellm_client_rejects_endpoint_query_fragment_or_invalid_port(
+    endpoint: str,
+) -> None:
+    async with httpx.AsyncClient() as http_client:
+        with pytest.raises(ValueError, match=r"endpoint must be an HTTP\(S\) URL without query, fragment, or invalid port"):
+            LiteLLMModelClient(
+                endpoint,
+                http_client=http_client,
+                bearer_token="secret-token",
+            )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
     ("field", "value"),
     [
         ("timeout_seconds", "30"),
