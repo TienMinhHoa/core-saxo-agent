@@ -126,6 +126,29 @@ def test_coordinate_rejects_invalid_positions(field: str, value: int) -> None:
         ExtractionCoordinate(**fields)
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("coordinate_space", "raw_raster"),
+        ("page_index", True),
+        ("markdown_line_start", 1.5),
+        ("markdown_line_end", False),
+    ],
+)
+def test_coordinate_rejects_wrong_scalar_types(field: str, value: object) -> None:
+    fields: dict[str, object] = {
+        "coordinate_space": CoordinateSpace.PDF_PAGE,
+        "page_index": 0,
+        "markdown_line_start": 1,
+        "markdown_line_end": 1,
+        "bbox": None,
+    }
+    fields[field] = value
+
+    with pytest.raises(ValueError, match=field):
+        ExtractionCoordinate(**fields)  # type: ignore[arg-type]
+
+
 @pytest.mark.parametrize("bbox", [(float("nan"), 0.0, 1.0, 1.0), (0.0, float("inf"), 1.0, 1.0), (0.0, 1.0, float("-inf"), 1.0)])
 def test_coordinate_rejects_non_finite_bbox_values(bbox: tuple[float, ...]) -> None:
     with pytest.raises(ValueError, match="bbox"):

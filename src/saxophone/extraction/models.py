@@ -29,6 +29,15 @@ class ExtractionCoordinate:
     bbox: tuple[float, float, float, float] | None
 
     def __post_init__(self) -> None:
+        if not isinstance(self.coordinate_space, CoordinateSpace):
+            raise ValueError("coordinate_space must be a CoordinateSpace")
+        for name, value in (
+            ("page_index", self.page_index),
+            ("markdown_line_start", self.markdown_line_start),
+            ("markdown_line_end", self.markdown_line_end),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise ValueError(f"{name} must be an integer")
         if self.page_index < 0:
             raise ValueError("page_index must not be negative")
         if self.markdown_line_start <= 0:
