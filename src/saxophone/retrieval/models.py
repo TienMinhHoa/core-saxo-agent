@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import unicodedata
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Mapping
@@ -62,9 +63,15 @@ class EvidenceBundle:
         for name, refs in (("selected_refs", self.selected_refs), ("image_refs", self.image_refs)):
             if any(not isinstance(ref, str) or not ref.strip() for ref in refs):
                 raise ValueError(f"{name} must contain non-blank refs")
+            if any(ref != ref.strip() for ref in refs):
+                raise ValueError(f"{name} must contain canonical refs")
+            if any(unicodedata.normalize("NFC", ref) != ref for ref in refs):
+                raise ValueError(f"{name} must contain canonical refs")
         hit_refs = tuple(hit.chunk_ref for hit in self.hits)
         if len(set(self.selected_refs)) != len(self.selected_refs):
             raise ValueError("selected_refs must be unique")
+        if len(set(self.image_refs)) != len(self.image_refs):
+            raise ValueError("image_refs must be unique")
         if any(ref not in hit_refs for ref in self.selected_refs):
             raise ValueError("selected_refs must refer to evidence hits")
         if set(self.source_texts) != set(self.selected_refs):

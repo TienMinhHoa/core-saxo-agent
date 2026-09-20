@@ -87,3 +87,28 @@ def test_evidence_bundle_rejects_source_text_not_selected_or_backed_by_a_hit() -
             ("chunk-1",),
             {"chunk-1": "source text", "unselected": "must not cross boundary"},
         )
+
+
+@pytest.mark.parametrize(
+    "image_refs",
+    [
+        (" images/page-1.png",),
+        ("images/page-1.png ",),
+        ("cafe\u0301.png",),
+        ("images/page-1.png", "images/page-1.png"),
+    ],
+)
+def test_evidence_bundle_rejects_non_canonical_or_duplicate_image_refs(
+    image_refs: tuple[str, ...],
+) -> None:
+    hit = _hit("chunk-1")
+
+    with pytest.raises(ValueError, match="canonical|unique"):
+        EvidenceBundle(
+            "find scales",
+            "retrieval-v1",
+            (hit,),
+            ("chunk-1",),
+            {"chunk-1": "source text"},
+            image_refs=image_refs,
+        )
