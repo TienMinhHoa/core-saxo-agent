@@ -9,7 +9,7 @@ khi có feature parity và quyết định migration riêng.
 
 - Các capability đích đã có trong package `src/saxophone`: composition root,
   extraction, ingestion, retrieval, chat, tagging, workflow và API adapters.
-- Bằng chứng offline hiện tại: `uv run pytest` đạt **294 passed, 2 skipped**;
+- Bằng chứng offline hiện tại: `uv run pytest` đạt **314 passed, 2 skipped**;
   `compileall` và `git diff --check` đã được chạy ở lát cắt gần nhất.
 - Chưa được phép kết luận production-ready: checkout không có remote
   model-service endpoint/credential để chạy live smoke thật. Trạng thái này
@@ -61,6 +61,16 @@ deployment production.
 - Xác minh: targeted retrieval tests **9 passed**; toàn bộ suite **287 passed, 2 skipped**. Live model-service smoke vẫn chưa thể chạy vì checkout chưa có endpoint/credential thật.
 
 ## Việc còn lại trước khi đóng refactor
+
+### Iteration 23 - metrics tối thiểu cho structured events
+
+- Đã thêm `EventMetrics` đếm request theo event/task/result và lưu duration theo
+  task; `LoggingEventSink` cập nhật metrics trước khi ghi log.
+- Composition root mặc định tạo và expose metrics qua `AppContainer.metrics`;
+  không thay đổi đường override sink dành cho test.
+- Xác minh iteration 23: targeted **29 passed**; full suite **314 passed, 2
+  skipped, 1 warning**; `compileall` và `git diff --check` thành công.
+- Chi tiết: `docs/ITERATION_23_EVENT_METRICS.md`.
 
 ### Iteration 8 — loại bỏ workflow job lifecycle lỗi thời
 

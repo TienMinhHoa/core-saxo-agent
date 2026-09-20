@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 import logging
+from collections import Counter, defaultdict
 from typing import Protocol
 
 
@@ -61,11 +62,37 @@ class InMemoryEventSink:
         self.events.append(event)
 
 
+class EventMetrics:
+    """Deterministic in-process counters for the minimum observability metrics."""
+
+    def __init__(self) -> None:
+        self._counts: Counter[tuple[str, str, str]] = Counter()
+        self._durations_ms: defaultdict[str, list[float]] = defaultdict(list)
+
+    def observe(self, event: StructuredEvent) -> None:
+        self._counts[(event.name, event.task, event.result)] += 1
+        self._durations_ms[event.task].append(event.duration_ms)
+
+    def count(self, *, name: str, task: str, result: str) -> int:
+        return self._counts[(name, task, result)]
+
+    def durations_ms(self, *, task: str) -> tuple[float, ...]:
+        return tuple(self._durations_ms[task])
+
+
 class LoggingEventSink:
     """Publish safe structured events through the standard logging boundary."""
 
-    def __init__(self, logger: logging.Logger | None = None) -> None:
+    def __init__(
+        self,
+        logger: logging.Logger | None = None,
+        *,
+        metrics: EventMetrics | None = None,
+    ) -> None:
         self._logger = logger or logging.getLogger("saxophone.events")
+        self.metrics = metrics
 
     def emit(self, event: StructuredEvent) -> None:
+        if self.metrics is not None:
+            self.metrics.observe(event)
         self._logger.info(event.name, extra={"structured_event": event.as_dict()})

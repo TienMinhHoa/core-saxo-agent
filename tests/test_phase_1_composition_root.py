@@ -16,7 +16,7 @@ from saxophone.retrieval.models import ChunkHit
 from saxophone.retrieval.use_cases import RetrieveEvidence
 from saxophone.platform.remote_gpu import HttpRemoteGpuGateway, RemoteGpuHealth
 from saxophone.platform.model_client import LiteLLMModelClient
-from saxophone.platform.observability import LoggingEventSink
+from saxophone.platform.observability import EventMetrics, LoggingEventSink
 from saxophone.extraction.remote import RemotePdfExtractor
 from saxophone.extraction.persistence import RepositoryExtractionArtifactPayloadProvider
 from saxophone.ingestion.adapters import FileEmbeddingReuseStore, RemoteEmbeddingProvider
@@ -176,6 +176,8 @@ def test_default_composition_wires_structured_logging_sink_to_model_client() -> 
     container = app.state.container
 
     assert isinstance(container.event_sink, LoggingEventSink)
+    assert isinstance(container.metrics, EventMetrics)
+    assert container.event_sink.metrics is container.metrics
     assert container.model_client._event_sink is container.event_sink
 
 

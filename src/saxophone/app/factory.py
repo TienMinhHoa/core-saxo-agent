@@ -26,7 +26,7 @@ from saxophone.ingestion.use_cases import IngestDocument, IndexDocument
 from saxophone.platform.artifacts import LocalArtifactRepository
 from saxophone.platform.chroma import create_chroma_vector_index
 from saxophone.platform.model_client import LiteLLMModelClient, ModelClient
-from saxophone.platform.observability import EventSink, LoggingEventSink
+from saxophone.platform.observability import EventMetrics, EventSink, LoggingEventSink
 from saxophone.platform.remote_gpu import (
     CachedRemoteGpuGateway,
     HttpRemoteGpuGateway,
@@ -71,6 +71,7 @@ class AppContainer:
     remote_gpu_gateway: RemoteGpuGateway
     model_client: ModelClient
     event_sink: EventSink
+    metrics: EventMetrics | None = None
     http_client: httpx.AsyncClient | None = None
     retrieve_evidence: RetrieveEvidence | None = None
     answer_question: AnswerQuestion | None = None
@@ -129,6 +130,10 @@ def create_app(
     remote_gpu_gateway = resolved_overrides.remote_gpu_gateway
     model_client = resolved_overrides.model_client
     event_sink = resolved_overrides.event_sink or LoggingEventSink()
+    metrics = event_sink.metrics if isinstance(event_sink, LoggingEventSink) else None
+    if metrics is None and resolved_overrides.event_sink is None:
+        metrics = EventMetrics()
+        event_sink = LoggingEventSink(metrics=metrics)
     if remote_gpu_gateway is None or model_client is None:
         http_client = httpx.AsyncClient(verify=settings.remote_gpu_tls_verify)
     if remote_gpu_gateway is None:
@@ -241,6 +246,7 @@ def create_app(
         remote_gpu_gateway=remote_gpu_gateway,
         model_client=model_client,
         event_sink=event_sink,
+        metrics=metrics,
         http_client=http_client,
         retrieve_evidence=retrieve_evidence,
         answer_question=answer_question,

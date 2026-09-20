@@ -4,10 +4,34 @@ import pytest
 import logging
 
 from saxophone.platform.observability import (
+    EventMetrics,
     InMemoryEventSink,
     LoggingEventSink,
     StructuredEvent,
 )
+
+
+def test_event_metrics_counts_results_and_preserves_task_durations() -> None:
+    metrics = EventMetrics()
+    sink = LoggingEventSink(metrics=metrics)
+    event = StructuredEvent(
+        name="model.request.completed",
+        correlation_id="corr-metrics",
+        task="embed",
+        model="profile-v1",
+        attempt=1,
+        duration_ms=4.5,
+        input_count=2,
+        output_count=1,
+        result="success",
+    )
+
+    sink.emit(event)
+
+    assert metrics.count(
+        name="model.request.completed", task="embed", result="success"
+    ) == 1
+    assert metrics.durations_ms(task="embed") == (4.5,)
 
 
 def test_structured_event_keeps_only_safe_typed_fields() -> None:
