@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from types import MappingProxyType
+from typing import Mapping
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +95,62 @@ class IngestionReport:
             raise ValueError("failed_count prevents indexed=True")
         if self.errors and self.indexed:
             raise ValueError("errors prevent indexed=True")
+
+
+@dataclass(frozen=True, slots=True)
+class ChunkIndexRecord:
+    """Validated searchable projection written to a vector index."""
+
+    chunk_id: str
+    document_ref: str
+    source_version: str
+    search_text: str
+    embedding: tuple[float, ...]
+    embedding_profile: str
+    access_scope: str
+    metadata: Mapping[str, object]
+
+    def __post_init__(self) -> None:
+        for name in (
+            "chunk_id",
+            "document_ref",
+            "source_version",
+            "search_text",
+            "embedding_profile",
+            "access_scope",
+        ):
+            _require_non_blank(name, getattr(self, name))
+        if not self.embedding:
+            raise ValueError("embedding must not be empty")
+        if any(not math.isfinite(value) for value in self.embedding):
+            raise ValueError("embedding values must be finite")
+        if not isinstance(self.metadata, Mapping):
+            raise ValueError("metadata must be a mapping")
+        object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
+
+    @property
+    def dimension(self) -> int:
+        return len(self.embedding)
+
+
+@dataclass(frozen=True, slots=True)
+class VectorHit:
+    """Provider-independent result returned by vector search."""
+
+    chunk_id: str
+    document: str
+    metadata: Mapping[str, object]
+    distance: float
+
+    def __post_init__(self) -> None:
+        _require_non_blank("chunk_id", self.chunk_id)
+        if not isinstance(self.document, str):
+            raise ValueError("document must be a string")
+        if not math.isfinite(self.distance):
+            raise ValueError("distance must be finite")
+        if not isinstance(self.metadata, Mapping):
+            raise ValueError("metadata must be a mapping")
+        object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
 
 
 def _require_non_blank(name: str, value: str) -> None:
