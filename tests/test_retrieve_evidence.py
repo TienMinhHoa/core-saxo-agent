@@ -90,6 +90,26 @@ def test_evidence_bundle_rejects_source_text_not_selected_or_backed_by_a_hit() -
 
 
 @pytest.mark.parametrize(
+    "hits",
+    [
+        [_hit("chunk-1")],
+        ("not-a-chunk-hit",),
+    ],
+)
+def test_evidence_bundle_rejects_non_tuple_or_invalid_hits(
+    hits: object,
+) -> None:
+    with pytest.raises(ValueError, match="hits"):
+        EvidenceBundle(
+            "find scales",
+            "retrieval-v1",
+            hits,  # type: ignore[arg-type]
+            ("chunk-1",),
+            {"chunk-1": "source text"},
+        )
+
+
+@pytest.mark.parametrize(
     "image_refs",
     [
         (" images/page-1.png",),

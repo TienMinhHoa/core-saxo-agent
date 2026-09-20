@@ -54,6 +54,10 @@ class EvidenceBundle:
         _require_canonical("query", self.query)
         _require_non_blank("retrieval_version", self.retrieval_version)
         _require_canonical("retrieval_version", self.retrieval_version)
+        if not isinstance(self.hits, tuple):
+            raise ValueError("hits must be a tuple")
+        if any(not isinstance(hit, ChunkHit) for hit in self.hits):
+            raise ValueError("hits must contain ChunkHit values")
         if not isinstance(self.source_texts, Mapping):
             raise ValueError("source_texts must be a mapping")
         for ref, text in self.source_texts.items():
