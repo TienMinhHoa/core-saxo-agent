@@ -261,3 +261,7 @@ async def test_safe_image_artifact_gate_rejects_non_canonical_refs() -> None:
         await gate.validate((" images/page-1.png",))
     with pytest.raises(ValueError, match="safe image reference"):
         await gate.validate(("images/page-1.png ",))
+    with pytest.raises(ValueError, match="safe image reference"):
+        await gate.validate(("images//page-1.png",))
+    with pytest.raises(ValueError, match="safe image reference"):
+        await gate.validate(("images/./page-1.png",))

@@ -58,7 +58,12 @@ def _is_safe_image_reference(image_ref: object) -> bool:
     parsed = urlparse(candidate)
     if parsed.scheme or parsed.netloc or candidate.startswith("/"):
         return False
-    return ".." not in Path(candidate).parts
+    path = Path(candidate)
+    if ".." in path.parts:
+        return False
+    # Keep one canonical relative spelling so equivalent paths cannot bypass
+    # asset allowlists or create duplicate cache keys.
+    return path.as_posix() == candidate
 
 
 class LocalArtifactRepository:
