@@ -58,6 +58,7 @@ class AppContainer:
     pdf_extractor: PdfExtractor | None = None
     embedding_provider: EmbeddingProvider | None = None
     embedding_reuse: EmbeddingReuseStore | None = None
+    vector_index: VectorIndex | None = None
     artifact_repository: ArtifactRepository | None = None
     process_document: ProcessDocument | None = None
     process_and_persist_document: ProcessAndPersistDocument | None = None
@@ -216,6 +217,7 @@ def create_app(
         pdf_extractor=pdf_extractor,
         embedding_provider=embedding_provider,
         embedding_reuse=embedding_reuse,
+        vector_index=resolved_overrides.vector_index,
         artifact_repository=artifact_repository,
         process_document=process_document,
         process_and_persist_document=process_and_persist_document,

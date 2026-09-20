@@ -222,12 +222,13 @@ def test_default_composition_wires_durable_embedding_reuse_store() -> None:
 
 
 def test_indexing_composition_uses_durable_reuse_store_by_default() -> None:
+    vector_index = object()
     app = create_app(
         build_settings(),
         overrides=AppOverrides(
             remote_gpu_gateway=FakeRemoteGpuGateway(status="ready"),
             model_client=FakeModelClient(),
-            vector_index=object(),
+            vector_index=vector_index,
         ),
     )
 
@@ -235,6 +236,7 @@ def test_indexing_composition_uses_durable_reuse_store_by_default() -> None:
 
     assert isinstance(container.embedding_reuse, FileEmbeddingReuseStore)
     assert container.index_document is not None
+    assert container.vector_index is vector_index
     assert container.embedding_reuse.path == (
         build_settings().data_root / "embedding-reuse.json"
     )
