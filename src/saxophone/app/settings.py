@@ -46,6 +46,7 @@ class AppSettings:
         _validate_runtime_boolean(self.remote_gpu_tls_verify, "remote_gpu_tls_verify")
         _parse_remote_gpu_base_url(self.remote_gpu_base_url)
         _parse_required_token(self.remote_gpu_bearer_token)
+        _validate_optional_runtime_text(self.litellm_endpoint, "SAXO_LITELLM_ENDPOINT")
         if self.litellm_endpoint.strip():
             _parse_optional_https_url(
                 self.litellm_endpoint,
@@ -216,6 +217,7 @@ def _parse_chroma_directory(value: str | None) -> Path:
 
 
 def _parse_remote_gpu_base_url(value: str | None) -> str:
+    _validate_optional_runtime_text(value, "SAXO_REMOTE_GPU_BASE_URL")
     if not value or not value.strip():
         raise SettingsValidationError("SAXO_REMOTE_GPU_BASE_URL is required")
     url = value.strip()
@@ -237,6 +239,7 @@ def _parse_remote_gpu_base_url(value: str | None) -> str:
 
 
 def _parse_optional_https_url(value: str | None, *, default: str, variable: str) -> str:
+    _validate_optional_runtime_text(value, variable)
     url = default if value is None or not value.strip() else value.strip()
     parsed = urlsplit(url)
     if (
@@ -258,6 +261,7 @@ def _parse_optional_https_url(value: str | None, *, default: str, variable: str)
 
 
 def _parse_required_token(value: str | None) -> str:
+    _validate_optional_runtime_text(value, "SAXO_REMOTE_GPU_BEARER_TOKEN")
     if not value or not value.strip():
         raise SettingsValidationError("SAXO_REMOTE_GPU_BEARER_TOKEN is required")
     token = value.strip()
@@ -297,17 +301,24 @@ def _parse_non_negative_integer(value: str | None, variable: str) -> int:
 
 
 def _parse_required_text(value: str | None, variable: str) -> str:
+    _validate_optional_runtime_text(value, variable)
     if not value or not value.strip():
         raise SettingsValidationError(f"{variable} must not be empty")
     return value.strip()
 
 
 def _parse_collection_name(value: str | None) -> str:
+    _validate_optional_runtime_text(value, "SAXO_CHROMA_COLLECTION_NAME")
     if value is None or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{1,61}[A-Za-z0-9]", value.strip()):
         raise SettingsValidationError(
             "SAXO_CHROMA_COLLECTION_NAME must be 3-63 characters using letters, numbers, '_' or '-'",
         )
     return value.strip()
+
+
+def _validate_optional_runtime_text(value: object, variable: str) -> None:
+    if value is not None and not isinstance(value, str):
+        raise SettingsValidationError(f"{variable} must be text")
 
 
 def _parse_non_negative_float(
