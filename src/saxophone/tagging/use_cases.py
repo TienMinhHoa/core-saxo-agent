@@ -11,7 +11,12 @@ from .models import (
     TagGenerationRequest,
     TaggedParagraph,
 )
-from .ports import TagConflictResolver, TagGenerator
+from .ports import (
+    TagCatalogRepository,
+    TagConflictResolver,
+    TagGenerator,
+    TaggedParagraphRepository,
+)
 
 
 class TagParagraph:
@@ -53,3 +58,37 @@ class TagParagraph:
             tags=tuple(item.resolved_tag for item in resolution.resolutions),
             status="completed",
         )
+
+
+class TagAndPersistParagraph:
+    """Run tagging and publish its two durable projections."""
+
+    def __init__(
+        self,
+        tag_paragraph: TagParagraph,
+        paragraph_repository: TaggedParagraphRepository,
+        catalog_repository: TagCatalogRepository,
+    ) -> None:
+        self._tag_paragraph = tag_paragraph
+        self._paragraph_repository = paragraph_repository
+        self._catalog_repository = catalog_repository
+
+    async def execute(
+        self,
+        paragraph: ParagraphBlock,
+        *,
+        tagging_profile: str,
+        resolution_profile: str,
+    ) -> TaggedParagraph:
+        existing_tags = tuple(
+            ExistingTagCandidate(tag) for tag in await self._catalog_repository.list()
+        )
+        tagged = await self._tag_paragraph.execute(
+            paragraph,
+            tagging_profile=tagging_profile,
+            resolution_profile=resolution_profile,
+            existing_tags=existing_tags,
+        )
+        await self._paragraph_repository.upsert(tagged)
+        await self._catalog_repository.add(tagged.tags)
+        return tagged
