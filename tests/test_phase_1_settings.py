@@ -366,6 +366,37 @@ def test_direct_settings_construction_rejects_absolute_parent_traversal(
 
 
 @pytest.mark.parametrize(
+    "field_name",
+    ["data_root", "chroma_persist_directory"],
+)
+def test_direct_settings_construction_rejects_ambiguous_windows_paths(
+    field_name: str,
+) -> None:
+    values = {
+        "data_root": Path("runtime/saxophone"),
+        "remote_gpu_base_url": "https://gpu.example.test",
+        "remote_gpu_bearer_token": "secret",
+    }
+    values[field_name] = Path("C:relative")
+
+    with pytest.raises(SettingsValidationError) as error:
+        AppSettings(**values)
+
+    assert field_name in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "variable",
+    ["SAXO_DATA_ROOT", "SAXO_CHROMA_PERSIST_DIRECTORY"],
+)
+def test_from_environment_rejects_drive_relative_paths(variable: str) -> None:
+    with pytest.raises(SettingsValidationError) as error:
+        AppSettings.from_environment({**VALID_ENVIRONMENT, variable: "C:relative"})
+
+    assert variable in str(error.value)
+
+
+@pytest.mark.parametrize(
     "variable",
     ["SAXO_DATA_ROOT", "SAXO_CHROMA_PERSIST_DIRECTORY"],
 )

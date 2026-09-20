@@ -209,6 +209,10 @@ def _parse_data_root(value: str | None) -> Path:
     if not value or not value.strip():
         raise SettingsValidationError("SAXO_DATA_ROOT must not be empty")
     path = Path(value.strip())
+    if path.drive and not path.is_absolute():
+        raise SettingsValidationError("SAXO_DATA_ROOT must not be drive-relative")
+    if path.root and not path.is_absolute():
+        raise SettingsValidationError("SAXO_DATA_ROOT must not be root-relative")
     if ".." in path.parts:
         raise SettingsValidationError("SAXO_DATA_ROOT must not traverse parent directories")
     return path
@@ -218,6 +222,10 @@ def _parse_chroma_directory(value: str | None) -> Path:
     if not value or not value.strip():
         raise SettingsValidationError("SAXO_CHROMA_PERSIST_DIRECTORY must not be empty")
     path = Path(value.strip())
+    if path.drive and not path.is_absolute():
+        raise SettingsValidationError("SAXO_CHROMA_PERSIST_DIRECTORY must not be drive-relative")
+    if path.root and not path.is_absolute():
+        raise SettingsValidationError("SAXO_CHROMA_PERSIST_DIRECTORY must not be root-relative")
     if ".." in path.parts:
         raise SettingsValidationError(
             "SAXO_CHROMA_PERSIST_DIRECTORY must not traverse parent directories",
@@ -378,6 +386,10 @@ def _validate_runtime_path(value: object, field_name: str) -> None:
         raise SettingsValidationError(f"{field_name} must be a filesystem path")
     if value == Path("."):
         raise SettingsValidationError(f"{field_name} must not be empty")
+    if value.drive and not value.is_absolute():
+        raise SettingsValidationError(f"{field_name} must not be drive-relative")
+    if value.root and not value.is_absolute():
+        raise SettingsValidationError(f"{field_name} must not be root-relative")
     if ".." in value.parts:
         raise SettingsValidationError(f"{field_name} must not traverse parent directories")
     if any(ord(character) < 32 or ord(character) == 127 for character in str(value)):
