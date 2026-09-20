@@ -222,3 +222,29 @@ def test_direct_settings_construction_rejects_invalid_float_contracts(
         )
 
     assert field_name in str(error.value)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("remote_gpu_max_in_flight", 0),
+        ("remote_gpu_retention_days", -1),
+        ("litellm_max_attempts", 1.0),
+        ("litellm_circuit_breaker_failure_threshold", True),
+        ("embedding_dimension", "1536"),
+        ("max_upload_bytes", -1),
+    ],
+)
+def test_direct_settings_construction_rejects_invalid_integer_contracts(
+    field_name: str,
+    value: object,
+) -> None:
+    with pytest.raises(SettingsValidationError) as error:
+        AppSettings(
+            data_root=Path("runtime/saxophone"),
+            remote_gpu_base_url="https://gpu.example.test",
+            remote_gpu_bearer_token="secret",
+            **{field_name: value},
+        )
+
+    assert field_name in str(error.value)

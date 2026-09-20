@@ -41,6 +41,22 @@ class AppSettings:
 
     def __post_init__(self) -> None:
         """Keep direct construction subject to the same runtime contract."""
+        for field_name in (
+            "remote_gpu_max_in_flight",
+            "remote_gpu_retention_days",
+            "litellm_max_attempts",
+            "embedding_dimension",
+            "max_upload_bytes",
+        ):
+            _validate_runtime_integer(
+                getattr(self, field_name),
+                field_name,
+                strictly_positive=True,
+            )
+        _validate_runtime_integer(
+            self.litellm_circuit_breaker_failure_threshold,
+            "litellm_circuit_breaker_failure_threshold",
+        )
         _validate_runtime_float(
             self.remote_gpu_health_cache_seconds,
             "remote_gpu_health_cache_seconds",
@@ -317,3 +333,16 @@ def _validate_runtime_float(
         raise SettingsValidationError(f"{field_name} must be {requirement}")
     if maximum is not None and value > maximum:
         raise SettingsValidationError(f"{field_name} must be between 0 and {maximum:g}")
+
+
+def _validate_runtime_integer(
+    value: object,
+    field_name: str,
+    *,
+    strictly_positive: bool = False,
+) -> None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise SettingsValidationError(f"{field_name} must be an integer")
+    if (strictly_positive and value <= 0) or (not strictly_positive and value < 0):
+        requirement = "positive" if strictly_positive else "non-negative"
+        raise SettingsValidationError(f"{field_name} must be a {requirement} integer")
