@@ -25,6 +25,7 @@ from saxophone.ingestion.ports import EmbeddingProvider, EmbeddingReuseStore, Ve
 from saxophone.ingestion.use_cases import IngestDocument, IndexDocument
 from saxophone.platform.artifacts import LocalArtifactRepository
 from saxophone.platform.chroma import create_chroma_vector_index
+from saxophone.platform.concurrency import create_blocking_io_limiter
 from saxophone.platform.model_client import LiteLLMModelClient, ModelClient
 from saxophone.platform.observability import EventMetrics, EventSink, LoggingEventSink
 from saxophone.platform.remote_gpu import (
@@ -126,6 +127,7 @@ def create_app(
     """Compose the sole ASGI application without reading process environment."""
 
     resolved_overrides = overrides or AppOverrides()
+    io_limiter = create_blocking_io_limiter()
     http_client: httpx.AsyncClient | None = None
     remote_gpu_gateway = resolved_overrides.remote_gpu_gateway
     model_client = resolved_overrides.model_client
@@ -177,7 +179,10 @@ def create_app(
 
     artifact_repository = resolved_overrides.artifact_repository
     if artifact_repository is None:
-        artifact_repository = LocalArtifactRepository(settings.data_root / "artifacts")
+        artifact_repository = LocalArtifactRepository(
+            settings.data_root / "artifacts",
+            io_limiter=io_limiter,
+        )
     tagged_paragraph_repository = resolved_overrides.tagged_paragraph_repository
     if tagged_paragraph_repository is None:
         tagged_paragraph_repository = JsonTaggedParagraphRepository(
@@ -209,7 +214,7 @@ def create_app(
         embedding_reuse = FileEmbeddingReuseStore(settings.data_root / "embedding-reuse.json")
     vector_index = resolved_overrides.vector_index
     if vector_index is None and not resolved_overrides.disable_vector_index:
-        vector_index = create_chroma_vector_index(settings)
+        vector_index = create_chroma_vector_index(settings, io_limiter=io_limiter)
     index_document = resolved_overrides.index_document
     if index_document is None and vector_index is not None:
         index_document = IndexDocument(

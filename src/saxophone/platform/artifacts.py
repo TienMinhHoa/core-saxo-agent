@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import os
 import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
+import anyio
+
 from saxophone.documents.models import ArtifactKind, ArtifactRef
 from saxophone.documents.ports import ArtifactRepository, ImageArtifactResolver
+from saxophone.platform.concurrency import create_blocking_io_limiter
 
 
 class SafeImageArtifactGate:
@@ -60,16 +62,30 @@ def _is_safe_image_reference(image_ref: object) -> bool:
 class LocalArtifactRepository:
     """Persist artifacts outside the event loop using atomic replacement."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        io_limiter: anyio.CapacityLimiter | None = None,
+    ) -> None:
         self._root = root.resolve()
+        self._io_limiter = io_limiter or create_blocking_io_limiter()
 
     async def put(self, artifact: ArtifactRef, payload: bytes) -> None:
         self._validate_payload(artifact, payload)
-        await asyncio.to_thread(self._write_atomically, artifact, payload)
+        await anyio.to_thread.run_sync(
+            self._write_atomically,
+            artifact,
+            payload,
+            limiter=self._io_limiter,
+        )
 
     async def get(self, artifact: ArtifactRef) -> bytes:
         path = self._path_for(artifact)
-        return await asyncio.to_thread(path.read_bytes)
+        return await anyio.to_thread.run_sync(
+            path.read_bytes,
+            limiter=self._io_limiter,
+        )
 
     def _path_for(self, artifact: ArtifactRef) -> Path:
         relative = Path(artifact.artifact_id) / artifact.version
