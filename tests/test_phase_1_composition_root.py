@@ -4,6 +4,7 @@ import importlib
 from pathlib import Path
 
 import httpx
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -226,14 +227,14 @@ def test_default_composition_builds_persistent_chroma_vector_index(monkeypatch) 
     calls: list[tuple[str, object]] = []
 
     class FakeCollection:
-        pass
+        metadata = {"embedding_dimension": 1536, "schema_version": "saxo-chunk-v1"}
 
     class FakeClient:
         def __init__(self, *, path: str) -> None:
             calls.append(("client", path))
 
-        def get_or_create_collection(self, *, name: str):
-            calls.append(("collection", name))
+        def get_or_create_collection(self, *, name: str, metadata: dict[str, object]):
+            calls.append(("collection", name, metadata))
             return FakeCollection()
 
     class FakeChroma:
@@ -252,8 +253,34 @@ def test_default_composition_builds_persistent_chroma_vector_index(monkeypatch) 
     assert isinstance(app.state.container.vector_index, ChromaVectorIndex)
     assert calls == [
         ("client", str(settings.chroma_persist_directory)),
-        ("collection", settings.chroma_collection_name),
+        (
+            "collection",
+            settings.chroma_collection_name,
+            {"embedding_dimension": settings.embedding_dimension, "schema_version": "saxo-chunk-v1"},
+        ),
     ]
+
+
+def test_default_composition_rejects_existing_chroma_dimension_mismatch(monkeypatch) -> None:
+    class FakeCollection:
+        metadata = {"embedding_dimension": 768, "schema_version": "saxo-chunk-v1"}
+
+    class FakeClient:
+        def __init__(self, *, path: str) -> None:
+            pass
+
+        def get_or_create_collection(self, *, name: str, metadata: dict[str, object]):
+            return FakeCollection()
+
+    class FakeChroma:
+        PersistentClient = FakeClient
+
+    monkeypatch.setitem(__import__("sys").modules, "chromadb", FakeChroma)
+
+    settings = AppSettings.from_environment(VALID_ENVIRONMENT)
+
+    with pytest.raises(ValueError, match="embedding dimension"):
+        create_app(settings)
 
 
 def test_indexing_composition_uses_durable_reuse_store_by_default() -> None:
