@@ -24,6 +24,8 @@ from saxophone.platform.remote_gpu import (
     RemoteGpuGateway,
 )
 from saxophone.retrieval.use_cases import RetrieveEvidence
+from saxophone.tagging.persistence import JsonTagCatalogRepository, JsonTaggedParagraphRepository
+from saxophone.tagging.ports import TagCatalogRepository, TaggedParagraphRepository
 from saxophone.interfaces.api import build_capability_router
 from saxophone.workflows.process_document import ProcessDocument
 
@@ -51,6 +53,8 @@ class AppContainer:
     artifact_repository: ArtifactRepository | None = None
     process_document: ProcessDocument | None = None
     index_document: IndexDocument | None = None
+    tagged_paragraph_repository: TaggedParagraphRepository | None = None
+    tag_catalog_repository: TagCatalogRepository | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +71,8 @@ class AppOverrides:
     process_document: ProcessDocument | None = None
     vector_index: VectorIndex | None = None
     index_document: IndexDocument | None = None
+    tagged_paragraph_repository: TaggedParagraphRepository | None = None
+    tag_catalog_repository: TagCatalogRepository | None = None
 
 
 def create_app(
@@ -111,6 +117,16 @@ def create_app(
     artifact_repository = resolved_overrides.artifact_repository
     if artifact_repository is None:
         artifact_repository = LocalArtifactRepository(settings.data_root / "artifacts")
+    tagged_paragraph_repository = resolved_overrides.tagged_paragraph_repository
+    if tagged_paragraph_repository is None:
+        tagged_paragraph_repository = JsonTaggedParagraphRepository(
+            settings.data_root / "tagged-paragraphs",
+        )
+    tag_catalog_repository = resolved_overrides.tag_catalog_repository
+    if tag_catalog_repository is None:
+        tag_catalog_repository = JsonTagCatalogRepository(
+            settings.data_root / "tag-catalog.json",
+        )
     process_document = resolved_overrides.process_document
     if process_document is None:
         process_document = ProcessDocument(artifact_repository, pdf_extractor)
@@ -133,6 +149,8 @@ def create_app(
         artifact_repository=artifact_repository,
         process_document=process_document,
         index_document=index_document,
+        tagged_paragraph_repository=tagged_paragraph_repository,
+        tag_catalog_repository=tag_catalog_repository,
     )
 
     @asynccontextmanager

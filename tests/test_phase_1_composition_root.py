@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+from pathlib import Path
 
 import httpx
 from fastapi import FastAPI
@@ -12,6 +13,10 @@ from saxophone.platform.remote_gpu import HttpRemoteGpuGateway, RemoteGpuHealth
 from saxophone.platform.model_client import LiteLLMModelClient
 from saxophone.extraction.remote import RemotePdfExtractor
 from saxophone.ingestion.adapters import RemoteEmbeddingProvider
+from saxophone.tagging.persistence import (
+    JsonTagCatalogRepository,
+    JsonTaggedParagraphRepository,
+)
 
 
 VALID_ENVIRONMENT = {
@@ -141,6 +146,38 @@ def test_embedding_provider_override_is_kept_in_container() -> None:
     )
 
     assert app.state.container.embedding_provider is provider
+
+
+def test_default_composition_wires_tag_persistence_under_data_root() -> None:
+    app = create_app(build_settings())
+
+    container = app.state.container
+
+    assert isinstance(container.tagged_paragraph_repository, JsonTaggedParagraphRepository)
+    assert isinstance(container.tag_catalog_repository, JsonTagCatalogRepository)
+    assert container.tagged_paragraph_repository.root == (
+        build_settings().data_root / "tagged-paragraphs"
+    ).resolve()
+    assert container.tag_catalog_repository.path == (
+        build_settings().data_root / "tag-catalog.json"
+    ).resolve()
+
+
+def test_tag_persistence_overrides_are_kept_in_container() -> None:
+    paragraph_repository = JsonTaggedParagraphRepository(Path("test-paragraphs"))
+    catalog_repository = JsonTagCatalogRepository(Path("test-tags.json"))
+    app = create_app(
+        build_settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=FakeRemoteGpuGateway(status="ready"),
+            model_client=FakeModelClient(),
+            tagged_paragraph_repository=paragraph_repository,
+            tag_catalog_repository=catalog_repository,
+        ),
+    )
+
+    assert app.state.container.tagged_paragraph_repository is paragraph_repository
+    assert app.state.container.tag_catalog_repository is catalog_repository
 
 
 def test_extraction_override_is_kept_in_container_and_marks_health_ready() -> None:

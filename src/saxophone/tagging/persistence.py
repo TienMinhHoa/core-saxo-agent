@@ -18,6 +18,11 @@ class JsonTaggedParagraphRepository:
     def __init__(self, root: Path) -> None:
         self._root = root.resolve()
 
+    @property
+    def root(self) -> Path:
+        """Return the resolved sidecar root for composition diagnostics."""
+        return self._root
+
     async def upsert(self, paragraph: TaggedParagraph) -> None:
         await asyncio.to_thread(self._write, paragraph)
 
@@ -62,6 +67,11 @@ class JsonTagCatalogRepository:
 
     def __init__(self, path: Path) -> None:
         self._path = path.resolve()
+
+    @property
+    def path(self) -> Path:
+        """Return the resolved catalog path for composition diagnostics."""
+        return self._path
 
     async def add(self, tags: tuple[str, ...]) -> None:
         await asyncio.to_thread(self._add, tags)
