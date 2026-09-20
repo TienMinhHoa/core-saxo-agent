@@ -55,10 +55,11 @@ class IndexDocument:
             list_chunk_ids = getattr(self._vector_index, "list_chunk_ids", None)
             if list_chunk_ids is not None:
                 existing_ids = await list_chunk_ids(document_ref=command.document_ref)
+            await self._vector_index.upsert_chunks(indexed_records)
+            if list_chunk_ids is not None:
                 current_ids = {record.chunk_id for record in indexed_records}
                 stale_ids = tuple(chunk_id for chunk_id in existing_ids if chunk_id not in current_ids)
                 await self._vector_index.delete_chunks(stale_ids)
-            await self._vector_index.upsert_chunks(indexed_records)
         except Exception as error:
             return self._failure_report(
                 command,

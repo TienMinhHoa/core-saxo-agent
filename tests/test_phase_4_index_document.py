@@ -115,7 +115,7 @@ async def test_index_document_reconciles_stale_chunks_for_document() -> None:
 
 @pytest.mark.anyio
 async def test_index_document_reports_partial_failure_without_claiming_indexed() -> None:
-    index = FakeIndex(RuntimeError("vector store unavailable"))
+    index = FakeIndex(RuntimeError("vector store unavailable"), existing_ids=("stale-chunk",))
     provider = FakeEmbeddingProvider((_embedding(),))
 
     report = await IndexDocument(index, provider).execute(_command(), [_record()])
@@ -123,6 +123,7 @@ async def test_index_document_reports_partial_failure_without_claiming_indexed()
     assert report.indexed is False
     assert report.failed_paragraph_count == 1
     assert report.errors == ("vector store unavailable",)
+    assert index.deleted_ids == ()
 
 
 @pytest.mark.anyio
