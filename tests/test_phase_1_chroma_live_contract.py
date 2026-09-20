@@ -89,3 +89,24 @@ def test_chroma_upsert_rejects_embedding_dimension_before_provider_io(tmp_path: 
     finally:
         del index
         gc.collect()
+
+
+def test_chroma_collection_rejects_incompatible_schema_version(tmp_path: Path) -> None:
+    settings = AppSettings(
+        data_root=tmp_path / "data",
+        remote_gpu_base_url="https://gpu.example.test",
+        remote_gpu_bearer_token="test-token",
+        chroma_persist_directory=tmp_path / "chroma",
+        chroma_collection_name="schema_contract",
+        embedding_dimension=3,
+    )
+
+    import chromadb
+
+    client = chromadb.PersistentClient(path=str(settings.chroma_persist_directory))
+    client.get_or_create_collection(
+        name=settings.chroma_collection_name,
+        metadata={"embedding_dimension": 3, "schema_version": "legacy-schema"},
+    )
+    with pytest.raises(ValueError, match="schema version"):
+        create_chroma_vector_index(settings)

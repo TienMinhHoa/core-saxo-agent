@@ -33,6 +33,13 @@ def create_chroma_vector_index(
         raise ValueError(
             "Chroma collection embedding dimension does not match configured embedding dimension"
         )
+    stored_schema_version = metadata.get("schema_version")
+    # Collections created before schema metadata was introduced remain usable;
+    # an explicitly different version is the unsafe case and must fail closed.
+    if stored_schema_version is not None and stored_schema_version != _CHROMA_SCHEMA_VERSION:
+        raise ValueError(
+            "Chroma collection schema version does not match configured schema version"
+        )
     return ChromaVectorIndex(
         collection,
         client=client,
