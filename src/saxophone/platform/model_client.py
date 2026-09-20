@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Mapping, Protocol
+from typing import Callable, Mapping, Protocol
 
 import httpx
 
 
 class ModelValidationError(ValueError):
     """Raised when an external model boundary DTO is unsafe or incomplete."""
+
+
+class ModelCircuitOpenError(RuntimeError):
+    """Raised before transport when the model endpoint is temporarily open."""
 
 
 class ModelTask(StrEnum):
@@ -104,6 +109,9 @@ class LiteLLMModelClient:
         timeout_seconds: float = 30.0,
         max_attempts: int = 1,
         retry_backoff_seconds: float = 0.0,
+        circuit_breaker_failure_threshold: int = 0,
+        circuit_breaker_cooldown_seconds: float = 30.0,
+        monotonic_clock: Callable[[], float] = time.monotonic,
     ) -> None:
         if not endpoint.strip():
             raise ValueError("endpoint must not be empty")
@@ -115,12 +123,21 @@ class LiteLLMModelClient:
             raise ValueError("max_attempts must be positive")
         if retry_backoff_seconds < 0:
             raise ValueError("retry_backoff_seconds must not be negative")
+        if circuit_breaker_failure_threshold < 0:
+            raise ValueError("circuit_breaker_failure_threshold must not be negative")
+        if circuit_breaker_cooldown_seconds <= 0:
+            raise ValueError("circuit_breaker_cooldown_seconds must be positive")
         self._endpoint = endpoint.rstrip("/")
         self._http_client = http_client
         self._headers = {"Authorization": f"Bearer {bearer_token.strip()}"}
         self._timeout_seconds = timeout_seconds
         self._max_attempts = max_attempts
         self._retry_backoff_seconds = retry_backoff_seconds
+        self._circuit_breaker_failure_threshold = circuit_breaker_failure_threshold
+        self._circuit_breaker_cooldown_seconds = circuit_breaker_cooldown_seconds
+        self._monotonic_clock = monotonic_clock
+        self._consecutive_failures = 0
+        self._circuit_opened_at: float | None = None
 
     @property
     def endpoint(self) -> str:
@@ -168,6 +185,7 @@ class LiteLLMModelClient:
         )
 
     async def _post_with_retry(self, payload: Mapping[str, object]) -> httpx.Response:
+        self._ensure_circuit_closed()
         for attempt in range(1, self._max_attempts + 1):
             try:
                 response = await self._http_client.post(
@@ -178,12 +196,16 @@ class LiteLLMModelClient:
                 )
                 if response.status_code not in {408, 429, 500, 502, 503, 504}:
                     response.raise_for_status()
+                    self._record_success()
                     return response
                 response.raise_for_status()
             except httpx.RequestError:
+                self._record_retryable_failure()
                 if attempt == self._max_attempts:
                     raise
             except httpx.HTTPStatusError:
+                if response.status_code in {408, 429, 500, 502, 503, 504}:
+                    self._record_retryable_failure()
                 if attempt == self._max_attempts or response.status_code not in {
                     408,
                     429,
@@ -196,6 +218,26 @@ class LiteLLMModelClient:
             if self._retry_backoff_seconds:
                 await asyncio.sleep(self._retry_backoff_seconds)
         raise AssertionError("retry loop must return or raise")
+
+    def _ensure_circuit_closed(self) -> None:
+        if self._circuit_opened_at is None:
+            return
+        if self._monotonic_clock() - self._circuit_opened_at >= self._circuit_breaker_cooldown_seconds:
+            self._circuit_opened_at = None
+            self._consecutive_failures = 0
+            return
+        raise ModelCircuitOpenError("model circuit is open")
+
+    def _record_success(self) -> None:
+        self._consecutive_failures = 0
+        self._circuit_opened_at = None
+
+    def _record_retryable_failure(self) -> None:
+        if self._circuit_breaker_failure_threshold == 0:
+            return
+        self._consecutive_failures += 1
+        if self._consecutive_failures >= self._circuit_breaker_failure_threshold:
+            self._circuit_opened_at = self._monotonic_clock()
 
 
 def _parse_task(value: object) -> ModelTask:

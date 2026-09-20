@@ -7,6 +7,7 @@ import pytest
 
 from saxophone.platform.model_client import (
     LiteLLMModelClient,
+    ModelCircuitOpenError,
     ModelRequest,
     ModelResponse,
     ModelTask,
@@ -173,3 +174,38 @@ async def test_litellm_client_does_not_retry_contract_or_auth_failures() -> None
             ).invoke(_request())
 
     assert attempts == 1
+
+
+@pytest.mark.anyio
+async def test_litellm_client_opens_circuit_after_retryable_failures_and_recovers() -> None:
+    attempts = 0
+    now = 10.0
+
+    def clock() -> float:
+        return now
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        return httpx.Response(503, json={"detail": "busy"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        client = LiteLLMModelClient(
+            "https://model.example.test/v1/invoke",
+            http_client=http_client,
+            bearer_token="secret-token",
+            circuit_breaker_failure_threshold=2,
+            circuit_breaker_cooldown_seconds=5,
+            monotonic_clock=clock,
+        )
+        for _ in range(2):
+            with pytest.raises(httpx.HTTPStatusError):
+                await client.invoke(_request())
+        with pytest.raises(ModelCircuitOpenError):
+            await client.invoke(_request())
+        assert attempts == 2
+
+        now = 15.0
+        with pytest.raises(httpx.HTTPStatusError):
+            await client.invoke(_request())
+        assert attempts == 3
