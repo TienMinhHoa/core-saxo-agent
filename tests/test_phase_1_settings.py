@@ -168,6 +168,10 @@ def test_from_environment_rejects_invalid_boolean_and_positive_integer_values(
         ("SAXO_LITELLM_RETRY_JITTER_RATIO", "1.1"),
         ("SAXO_LITELLM_CIRCUIT_BREAKER_FAILURE_THRESHOLD", "-1"),
         ("SAXO_LITELLM_CIRCUIT_BREAKER_COOLDOWN_SECONDS", "0"),
+        ("SAXO_REMOTE_GPU_HEALTH_CACHE_SECONDS", "nan"),
+        ("SAXO_REMOTE_GPU_HEALTH_TIMEOUT_SECONDS", "inf"),
+        ("SAXO_LITELLM_TIMEOUT_SECONDS", "-inf"),
+        ("SAXO_LITELLM_RETRY_BACKOFF_SECONDS", "1e999"),
     ],
 )
 def test_from_environment_rejects_invalid_model_retry_configuration(

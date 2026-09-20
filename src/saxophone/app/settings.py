@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import math
 from pathlib import Path
 import re
 from typing import Mapping
@@ -253,7 +254,11 @@ def _parse_non_negative_float(
         number = float(value) if value is not None else -1.0
     except ValueError as error:
         raise SettingsValidationError(f"{variable} must be a non-negative number") from error
-    if (strictly_positive and number <= 0) or (not strictly_positive and number < 0):
+    if (
+        not math.isfinite(number)
+        or (strictly_positive and number <= 0)
+        or (not strictly_positive and number < 0)
+    ):
         requirement = "positive" if strictly_positive else "non-negative"
         raise SettingsValidationError(f"{variable} must be {requirement}")
     return number
