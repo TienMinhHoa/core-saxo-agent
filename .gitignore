@@ -43,6 +43,7 @@ docs/*
 !docs/PHASE_4_CHROMA_ADAPTER_CONTRACT.md
 !docs/PHASE_5_RETRIEVAL_CONTRACT.md
 !docs/PHASE_5_CHROMA_SEMANTIC_ADAPTER.md
+!docs/PHASE_5_RETRIEVE_EVIDENCE_USE_CASE.md
 
 # Logs and temporary files
 *.log
