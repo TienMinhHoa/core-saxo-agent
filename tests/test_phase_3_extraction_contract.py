@@ -136,3 +136,18 @@ def test_coordinate_rejects_non_finite_bbox_values(bbox: tuple[float, ...]) -> N
             markdown_line_end=1,
             bbox=bbox,
         )
+
+
+@pytest.mark.parametrize(
+    "bbox",
+    [(10.0, 20.0, 10.0, 40.0), (10.0, 20.0, 30.0, 20.0), (30.0, 20.0, 10.0, 40.0)],
+)
+def test_coordinate_rejects_degenerate_or_reversed_bbox(bbox: tuple[float, ...]) -> None:
+    with pytest.raises(ValueError, match="bbox"):
+        ExtractionCoordinate(
+            coordinate_space=CoordinateSpace.PDF_PAGE,
+            page_index=0,
+            markdown_line_start=1,
+            markdown_line_end=1,
+            bbox=bbox,
+        )

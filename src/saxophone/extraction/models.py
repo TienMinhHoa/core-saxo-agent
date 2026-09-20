@@ -47,6 +47,9 @@ class ExtractionCoordinate:
                 )
             ):
                 raise ValueError("bbox must contain four non-negative coordinates")
+            left, top, right, bottom = self.bbox
+            if right <= left or bottom <= top:
+                raise ValueError("bbox must have positive width and height")
 
 
 @dataclass(frozen=True, slots=True)
