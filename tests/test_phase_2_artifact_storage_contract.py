@@ -48,6 +48,18 @@ def test_put_rejects_payload_that_does_not_match_declared_size_or_digest(
         asyncio.run(repository.put(_artifact(), b"7654321"))
 
 
+@pytest.mark.parametrize("payload", ["1234567", bytearray(b"1234567"), memoryview(b"1234567")])
+def test_put_rejects_non_bytes_payload_before_storage_io(
+    tmp_path: Path, payload: object
+) -> None:
+    repository = LocalArtifactRepository(tmp_path)
+
+    with pytest.raises(ValueError, match="payload must be bytes"):
+        asyncio.run(repository.put(_artifact(), payload))  # type: ignore[arg-type]
+
+    assert list(tmp_path.rglob("*")) == []
+
+
 def test_repository_does_not_allow_artifact_id_path_traversal() -> None:
     with pytest.raises(ValueError, match="artifact_id"):
         _artifact(artifact_id="../outside")

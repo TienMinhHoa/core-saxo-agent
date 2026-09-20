@@ -119,6 +119,8 @@ class LocalArtifactRepository:
 
 
 def _validate_payload(artifact: ArtifactRef, payload: bytes) -> None:
+    if not isinstance(payload, bytes):
+        raise ValueError("payload must be bytes")
     if len(payload) != artifact.size_bytes:
         raise ValueError("payload size_bytes does not match artifact metadata")
     digest = hashlib.sha256(payload).hexdigest()
