@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from saxophone.ingestion.models import ChunkIndexRecord, EmbeddingRecord, IngestionCommand
+from saxophone.ingestion.models import EmbeddingRecord, IndexInputRecord, IngestionCommand
 from saxophone.ingestion.use_cases import IndexDocument
 
 
@@ -23,13 +23,12 @@ def _record(
     source_version: str = "source-v1",
     embedding_profile: str = "embed-v1",
     access_scope: str = "tenant-a",
-) -> ChunkIndexRecord:
-    return ChunkIndexRecord(
+) -> IndexInputRecord:
+    return IndexInputRecord(
         chunk_id="chunk-1",
         document_ref=document_ref,
         source_version=source_version,
         search_text="A musical phrase",
-        embedding=(0.1, 0.2),
         embedding_profile=embedding_profile,
         access_scope=access_scope,
         metadata={"tags": ["phrase"]},

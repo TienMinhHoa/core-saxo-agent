@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import replace
 
 from saxophone.tagging.models import TaggedParagraph
 
@@ -28,13 +27,13 @@ class IndexDocument:
     async def execute(
         self,
         command: IngestionCommand,
-        records: Sequence[ChunkIndexRecord],
+        records: Sequence[IndexInputRecord],
     ) -> IngestionReport:
         normalized_records = tuple(records)
         self._validate_scope(command, normalized_records)
         tagged_count = sum(1 for record in normalized_records if record.metadata.get("tags"))
         try:
-            embedded_records = await self._embed_records(command, normalized_records)
+            indexed_records = await self._embed_records(command, normalized_records)
         except Exception as error:
             return self._failure_report(
                 command,
@@ -44,13 +43,13 @@ class IndexDocument:
                 error=error,
             )
         try:
-            await self._vector_index.upsert_chunks(embedded_records)
+            await self._vector_index.upsert_chunks(indexed_records)
         except Exception as error:
             return self._failure_report(
                 command,
                 normalized_records,
                 tagged_count=tagged_count,
-                embedded_count=len(embedded_records),
+                embedded_count=len(indexed_records),
                 error=error,
             )
         return IngestionReport(
@@ -72,7 +71,7 @@ class IndexDocument:
     async def _embed_records(
         self,
         command: IngestionCommand,
-        records: Sequence[ChunkIndexRecord],
+        records: Sequence[IndexInputRecord],
     ) -> tuple[ChunkIndexRecord, ...]:
         embeddings = await self._embedding_provider.embed(
             tuple((record.chunk_id, record.search_text) for record in records),
@@ -83,13 +82,24 @@ class IndexDocument:
         embedded: list[ChunkIndexRecord] = []
         for record, embedding in zip(records, embeddings):
             self._validate_embedding(command, record, embedding)
-            embedded.append(replace(record, embedding=embedding.vector))
+            embedded.append(
+                ChunkIndexRecord(
+                    chunk_id=record.chunk_id,
+                    document_ref=record.document_ref,
+                    source_version=record.source_version,
+                    search_text=record.search_text,
+                    embedding=embedding.vector,
+                    embedding_profile=record.embedding_profile,
+                    access_scope=record.access_scope,
+                    metadata=record.metadata,
+                )
+            )
         return tuple(embedded)
 
     @staticmethod
     def _validate_embedding(
         command: IngestionCommand,
-        record: ChunkIndexRecord,
+        record: IndexInputRecord,
         embedding: EmbeddingRecord,
     ) -> None:
         if embedding.chunk_id != record.chunk_id:
@@ -102,7 +112,7 @@ class IndexDocument:
     @staticmethod
     def _failure_report(
         command: IngestionCommand,
-        records: Sequence[ChunkIndexRecord],
+        records: Sequence[IndexInputRecord],
         *,
         tagged_count: int,
         embedded_count: int,
@@ -127,7 +137,7 @@ class IndexDocument:
     @staticmethod
     def _validate_scope(
         command: IngestionCommand,
-        records: Sequence[ChunkIndexRecord],
+        records: Sequence[IndexInputRecord],
     ) -> None:
         for record in records:
             if record.document_ref != command.document_ref:
