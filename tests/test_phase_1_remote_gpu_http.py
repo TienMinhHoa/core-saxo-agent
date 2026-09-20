@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import asyncio
 
 import httpx
 
@@ -124,6 +123,23 @@ def test_health_returns_safe_unavailable_status_when_transport_fails() -> None:
             health = await gateway.health()
 
         assert health.status == "unavailable"
+
+    asyncio.run(verify())
+
+
+def test_health_returns_safe_unavailable_status_for_wrong_transport_response_type() -> None:
+    async def verify() -> None:
+        class BrokenHttpClient:
+            async def get(self, *_args: object, **_kwargs: object) -> object:
+                return object()
+
+        gateway = HttpRemoteGpuGateway(
+            build_settings(), http_client=BrokenHttpClient(), timeout_seconds=5.0  # type: ignore[arg-type]
+        )
+
+        health = await gateway.health()
+
+        assert health == RemoteGpuHealth(status="unavailable")
 
     asyncio.run(verify())
 

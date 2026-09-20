@@ -103,6 +103,8 @@ class HttpRemoteGpuGateway:
                 headers=self._headers,
                 timeout=self._timeout_seconds,
             )
+            if not isinstance(response, httpx.Response):
+                raise TypeError("health transport must return an httpx.Response")
             response.raise_for_status()
             payload = response.json()
             status = payload.get("status") if isinstance(payload, dict) else None
