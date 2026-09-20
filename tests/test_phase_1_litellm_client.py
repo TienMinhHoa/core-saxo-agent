@@ -42,6 +42,20 @@ async def test_litellm_client_rejects_invalid_retry_jitter_ratio(ratio: float) -
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("bearer_token", ["secret\n-token", "secret\r-token", "secret\x00-token"])
+async def test_litellm_client_rejects_control_characters_in_bearer_token(
+    bearer_token: str,
+) -> None:
+    async with httpx.AsyncClient() as http_client:
+        with pytest.raises(ValueError, match="bearer_token must not contain control characters"):
+            LiteLLMModelClient(
+                "https://model.example.test/v1/invoke",
+                http_client=http_client,
+                bearer_token=bearer_token,
+            )
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("field", "value"),
     [

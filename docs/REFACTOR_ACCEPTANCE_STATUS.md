@@ -232,3 +232,12 @@ deployment production.
 - Chi tiết: `docs/ITERATION_63_CHROMA_SOURCE_ROW_CONTRACT.md`.
 - Live model-service smoke và production golden parity vẫn bị chặn do thiếu
   endpoint, credential và catalog production thật.
+### Iteration 166 — bearer token không chứa control character
+
+- `LiteLLMModelClient` reject bearer token có CR, LF, NUL hoặc control
+  character trước khi tạo HTTP header; bổ sung 3 regression cases.
+- Targeted test đạt **3 passed**; full suite, `compileall` và `git diff
+  --check` được chạy sau thay đổi.
+- Live model-service smoke và production parity vẫn bị chặn bởi thiếu
+  endpoint, credential và catalog production thật.
+- Chi tiết: `docs/ITERATION_166_MODEL_CLIENT_BEARER_TOKEN_CONTRACT.md`.
