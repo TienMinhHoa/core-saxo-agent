@@ -18,15 +18,20 @@ def _command() -> IngestionCommand:
     )
 
 
-def _record(document_ref: str = "doc-1", source_version: str = "source-v1") -> ChunkIndexRecord:
+def _record(
+    document_ref: str = "doc-1",
+    source_version: str = "source-v1",
+    embedding_profile: str = "embed-v1",
+    access_scope: str = "tenant-a",
+) -> ChunkIndexRecord:
     return ChunkIndexRecord(
         chunk_id="chunk-1",
         document_ref=document_ref,
         source_version=source_version,
         search_text="A musical phrase",
         embedding=(0.1, 0.2),
-        embedding_profile="embed-v1",
-        access_scope="tenant-a",
+        embedding_profile=embedding_profile,
+        access_scope=access_scope,
         metadata={"tags": ["phrase"]},
     )
 
@@ -75,3 +80,21 @@ async def test_index_document_rejects_cross_document_records_before_index_call()
 
     assert index.records is None
 
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("embedding_profile", "embed-v2", "embedding profile"),
+        ("access_scope", "tenant-b", "access scope"),
+    ],
+)
+async def test_index_document_rejects_records_with_incompatible_index_context(
+    field: str, value: str, message: str
+) -> None:
+    index = FakeIndex()
+
+    with pytest.raises(ValueError, match=message):
+        await IndexDocument(index).execute(_command(), [_record(**{field: value})])
+
+    assert index.records is None

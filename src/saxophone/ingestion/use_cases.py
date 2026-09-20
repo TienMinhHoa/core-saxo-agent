@@ -66,4 +66,7 @@ class IndexDocument:
                 raise ValueError("all records must belong to the command document")
             if record.source_version != command.source_version:
                 raise ValueError("all records must match the command source version")
-
+            if record.embedding_profile != command.embedding_profile:
+                raise ValueError("all records must match the command embedding profile")
+            if record.access_scope != command.access_scope:
+                raise ValueError("all records must match the command access scope")
