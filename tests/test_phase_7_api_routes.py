@@ -40,6 +40,16 @@ class FakeRemoteGpuGateway:
         return RemoteGpuHealth(status="ready", capabilities=("chat",))
 
 
+@dataclass
+class StatusRemoteGpuGateway:
+    status: str
+
+    async def health(self):
+        from saxophone.platform.remote_gpu import RemoteGpuHealth
+
+        return RemoteGpuHealth(status=self.status, capabilities=("chat",))
+
+
 class FakeModelClient:
     async def invoke(self, request):
         raise AssertionError("API route test must not invoke transport")
@@ -664,6 +674,24 @@ def test_health_exposes_architecture_capabilities_without_provider_secrets() -> 
         "chat": "disabled",
     }
     assert "secret-token" not in response.text
+
+
+def test_health_marks_configured_model_capabilities_degraded_when_service_is_unavailable() -> None:
+    app = create_app(
+        settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=StatusRemoteGpuGateway("unavailable"),
+            model_client=FakeModelClient(),
+            disable_vector_index=True,
+        ),
+    )
+
+    response = TestClient(app).get("/api/v1/health")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["model_service"] == "unavailable"
+    assert body["extraction"] == "degraded"
 
 
 def test_source_upload_persists_pdf_and_returns_typed_artifact_reference() -> None:

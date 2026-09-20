@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import AsyncIterator, Final
+from typing import AsyncIterator
 
 import httpx
 from fastapi import FastAPI
@@ -38,12 +38,14 @@ from saxophone.workflows.process_document import ProcessAndPersistDocument, Proc
 from saxophone.workflows.ingest_extracted_document import IngestExtractedDocument
 
 
-_DISABLED_CAPABILITIES: Final = {
-    "extraction": "disabled",
-    "ingestion": "disabled",
-    "retrieval": "disabled",
-    "chat": "disabled",
-}
+def _capability_status(*, configured: bool, model_service_status: str) -> str:
+    """Expose wiring and model-service readiness as one safe capability state."""
+
+    if not configured:
+        return "disabled"
+    if model_service_status == "ready":
+        return "ready"
+    return "degraded"
 
 
 @dataclass(frozen=True, slots=True)
@@ -276,18 +278,22 @@ def create_app(
             "model_service": remote_gpu.status,
             "remote_gpu": remote_gpu.status,
             "remote_gpu_capabilities": list(remote_gpu.capabilities),
-            "extraction": (
-                "ready"
-                if container.pdf_extractor is not None
-                else _DISABLED_CAPABILITIES["extraction"]
+            "extraction": _capability_status(
+                configured=container.pdf_extractor is not None,
+                model_service_status=remote_gpu.status,
             ),
-            "ingestion": (
-                "ready"
-                if container.index_document is not None
-                else _DISABLED_CAPABILITIES["ingestion"]
+            "ingestion": _capability_status(
+                configured=container.index_document is not None,
+                model_service_status=remote_gpu.status,
             ),
-            "retrieval": "ready" if container.retrieve_evidence is not None else "disabled",
-            "chat": "ready" if container.answer_question is not None else "disabled",
+            "retrieval": _capability_status(
+                configured=container.retrieve_evidence is not None,
+                model_service_status=remote_gpu.status,
+            ),
+            "chat": _capability_status(
+                configured=container.answer_question is not None,
+                model_service_status=remote_gpu.status,
+            ),
         }
 
     return app
