@@ -99,3 +99,18 @@ def test_artifact_reference_rejects_negative_size(size_bytes: int) -> None:
             sha256="a" * 64,
             size_bytes=size_bytes,
         )
+
+
+@pytest.mark.parametrize("sha256", [None, 123, b"0" * 64, True])
+def test_artifact_reference_rejects_non_string_sha256_without_type_error(
+    sha256: object,
+) -> None:
+    with pytest.raises(ValueError, match="sha256"):
+        ArtifactRef(
+            artifact_id="document-123/manifest",
+            version="extract-v1",
+            kind=ArtifactKind.EXTRACTION_MANIFEST,
+            media_type="application/json",
+            sha256=sha256,  # type: ignore[arg-type]
+            size_bytes=128,
+        )

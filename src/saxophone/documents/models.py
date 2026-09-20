@@ -46,7 +46,9 @@ class ArtifactRef:
         if not isinstance(self.kind, ArtifactKind):
             raise ValueError("kind must be an ArtifactKind")
         _require_non_blank("media_type", self.media_type)
-        if not re.fullmatch(r"[0-9a-f]{64}", self.sha256):
+        if not isinstance(self.sha256, str) or not re.fullmatch(
+            r"[0-9a-f]{64}", self.sha256
+        ):
             raise ValueError("sha256 must be a lowercase 64-character hexadecimal digest")
         if isinstance(self.size_bytes, bool) or not isinstance(self.size_bytes, int):
             raise ValueError("size_bytes must be an integer")
