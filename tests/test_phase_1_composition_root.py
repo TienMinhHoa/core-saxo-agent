@@ -21,6 +21,7 @@ from saxophone.extraction.remote import RemotePdfExtractor
 from saxophone.extraction.persistence import RepositoryExtractionArtifactPayloadProvider
 from saxophone.ingestion.adapters import FileEmbeddingReuseStore, RemoteEmbeddingProvider
 from saxophone.ingestion.adapters import ChromaVectorIndex
+from saxophone.platform.knowledge import JsonKnowledgeRepository
 from saxophone.tagging.persistence import (
     JsonTagCatalogRepository,
     JsonTaggedParagraphRepository,
@@ -239,6 +240,17 @@ def test_default_composition_wires_durable_embedding_reuse_store() -> None:
 
     assert isinstance(reuse_store, FileEmbeddingReuseStore)
     assert reuse_store.path == (build_settings().data_root / "embedding-reuse.json")
+
+
+def test_default_composition_wires_durable_knowledge_repository_into_indexing() -> None:
+    app = create_app(build_settings())
+
+    container = app.state.container
+
+    assert isinstance(container.knowledge_repository, JsonKnowledgeRepository)
+    assert container.knowledge_repository._io_limiter is container.artifact_repository._io_limiter
+    assert container.index_document is not None
+    assert container.index_document._knowledge_repository is container.knowledge_repository
 
 
 def test_default_composition_builds_persistent_chroma_vector_index(monkeypatch) -> None:

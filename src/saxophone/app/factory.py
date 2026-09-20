@@ -16,7 +16,7 @@ from fastapi.responses import Response
 from saxophone.app.settings import AppSettings
 from saxophone.chat.service import AnswerQuestion
 from saxophone.chat.ports import AnswerGenerator, ImageArtifactGate
-from saxophone.documents.ports import ArtifactRepository
+from saxophone.documents.ports import ArtifactRepository, KnowledgeRepository
 from saxophone.extraction.persistence import RepositoryExtractionArtifactPayloadProvider
 from saxophone.extraction.ports import PdfExtractor
 from saxophone.extraction.remote import RemotePdfExtractor
@@ -26,6 +26,7 @@ from saxophone.ingestion.use_cases import IngestDocument, IndexDocument
 from saxophone.platform.artifacts import LocalArtifactRepository
 from saxophone.platform.chroma import create_chroma_vector_index
 from saxophone.platform.concurrency import create_blocking_io_limiter
+from saxophone.platform.knowledge import JsonKnowledgeRepository
 from saxophone.platform.model_client import LiteLLMModelClient, ModelClient
 from saxophone.platform.observability import EventMetrics, EventSink, LoggingEventSink
 from saxophone.platform.remote_gpu import (
@@ -89,6 +90,7 @@ class AppContainer:
     tag_catalog_repository: TagCatalogRepository | None = None
     tag_generator: TagGenerator | None = None
     tag_conflict_resolver: TagConflictResolver | None = None
+    knowledge_repository: KnowledgeRepository | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +119,7 @@ class AppOverrides:
     tag_catalog_repository: TagCatalogRepository | None = None
     tag_generator: TagGenerator | None = None
     tag_conflict_resolver: TagConflictResolver | None = None
+    knowledge_repository: KnowledgeRepository | None = None
 
 
 def create_app(
@@ -195,6 +198,12 @@ def create_app(
             settings.data_root / "tag-catalog.json",
             io_limiter=io_limiter,
         )
+    knowledge_repository = resolved_overrides.knowledge_repository
+    if knowledge_repository is None:
+        knowledge_repository = JsonKnowledgeRepository(
+            settings.data_root / "knowledge",
+            io_limiter=io_limiter,
+        )
     tag_generator = resolved_overrides.tag_generator or RemoteParagraphTagger(
         model_client, model=settings.litellm_model_profile,
     )
@@ -226,6 +235,7 @@ def create_app(
             vector_index,
             embedding_provider,
             embedding_reuse,
+            knowledge_repository=knowledge_repository,
         )
     ingest_extracted_document = resolved_overrides.ingest_extracted_document
     if ingest_extracted_document is None and index_document is not None:
@@ -274,6 +284,7 @@ def create_app(
         tag_catalog_repository=tag_catalog_repository,
         tag_generator=tag_generator,
         tag_conflict_resolver=tag_conflict_resolver,
+        knowledge_repository=knowledge_repository,
     )
 
     @asynccontextmanager
