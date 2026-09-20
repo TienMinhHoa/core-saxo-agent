@@ -17,6 +17,7 @@ def test_from_environment_uses_safe_defaults() -> None:
     settings = AppSettings.from_environment(VALID_ENVIRONMENT)
 
     assert settings.data_root == Path("runtime/saxophone")
+    assert settings.max_upload_bytes == 200 * 1024 * 1024
     assert settings.remote_gpu_base_url == "https://gpu.example.test"
     assert settings.remote_gpu_tls_verify is True
     assert settings.remote_gpu_max_in_flight == 4
@@ -50,6 +51,7 @@ def test_from_environment_accepts_explicit_typed_values() -> None:
         "SAXO_CHROMA_PERSIST_DIRECTORY": "D:/saxo-data/chroma",
         "SAXO_CHROMA_COLLECTION_NAME": "music_chunks_v2",
         "SAXO_EMBEDDING_DIMENSION": "1024",
+        "SAXO_MAX_UPLOAD_BYTES": "4096",
     })
 
     assert settings.data_root == Path("D:/saxo-data")
@@ -66,6 +68,7 @@ def test_from_environment_accepts_explicit_typed_values() -> None:
     assert settings.chroma_persist_directory == Path("D:/saxo-data/chroma")
     assert settings.chroma_collection_name == "music_chunks_v2"
     assert settings.embedding_dimension == 1024
+    assert settings.max_upload_bytes == 4096
 
 
 @pytest.mark.parametrize(
@@ -78,6 +81,9 @@ def test_from_environment_accepts_explicit_typed_values() -> None:
         ("SAXO_EMBEDDING_DIMENSION", "0"),
         ("SAXO_EMBEDDING_DIMENSION", "-1"),
         ("SAXO_EMBEDDING_DIMENSION", "not-an-integer"),
+        ("SAXO_MAX_UPLOAD_BYTES", "0"),
+        ("SAXO_MAX_UPLOAD_BYTES", "-1"),
+        ("SAXO_MAX_UPLOAD_BYTES", "not-an-integer"),
     ],
 )
 def test_from_environment_rejects_invalid_chroma_and_embedding_configuration(

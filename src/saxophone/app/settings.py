@@ -33,6 +33,7 @@ class AppSettings:
     chroma_persist_directory: Path = Path("runtime/saxophone/chroma")
     chroma_collection_name: str = "saxophone_chunks"
     embedding_dimension: int = 1536
+    max_upload_bytes: int = 200 * 1024 * 1024
 
     @classmethod
     def from_environment(cls, environment: Mapping[str, str]) -> "AppSettings":
@@ -108,6 +109,10 @@ class AppSettings:
             embedding_dimension=_parse_positive_integer(
                 environment.get("SAXO_EMBEDDING_DIMENSION", "1536"),
                 "SAXO_EMBEDDING_DIMENSION",
+            ),
+            max_upload_bytes=_parse_positive_integer(
+                environment.get("SAXO_MAX_UPLOAD_BYTES", str(200 * 1024 * 1024)),
+                "SAXO_MAX_UPLOAD_BYTES",
             ),
         )
 

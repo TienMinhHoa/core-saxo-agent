@@ -82,6 +82,7 @@ def build_capability_router(
     artifact_repository: ArtifactRepository | None = None,
     index_document: IndexDocument | None = None,
     ingest_extracted_document: IngestExtractedDocument | None = None,
+    max_upload_bytes: int = 200 * 1024 * 1024,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1")
 
@@ -148,7 +149,7 @@ def build_capability_router(
                 detail="uploaded file must have media type application/pdf",
             )
         normalized_ref = _normalized_text(document_ref, "document_ref")
-        payload = await file.read()
+        payload = await _read_bounded_upload(file, max_upload_bytes)
         artifact = ArtifactRef(
             artifact_id=f"{normalized_ref}/source",
             version="v1",
@@ -318,3 +319,19 @@ def _normalized_text(value: str, field_name: str) -> str:
     if not normalized:
         raise HTTPException(status_code=422, detail=f"{field_name} must not be blank")
     return normalized
+
+
+async def _read_bounded_upload(file: UploadFile, max_upload_bytes: int) -> bytes:
+    if max_upload_bytes <= 0:
+        raise ValueError("max_upload_bytes must be positive")
+    chunks: list[bytes] = []
+    total = 0
+    while chunk := await file.read(min(1024 * 1024, max_upload_bytes - total + 1)):
+        total += len(chunk)
+        if total > max_upload_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"uploaded file exceeds maximum size of {max_upload_bytes} bytes",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)

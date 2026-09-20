@@ -258,6 +258,7 @@ def create_app(
             artifact_repository=container.artifact_repository,
             index_document=container.index_document,
             ingest_extracted_document=container.ingest_extracted_document,
+            max_upload_bytes=settings.max_upload_bytes,
         ),
     )
 

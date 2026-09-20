@@ -715,6 +715,32 @@ def test_source_upload_rejects_non_pdf_without_persisting() -> None:
     assert artifacts.puts == []
 
 
+def test_source_upload_rejects_payload_over_configured_limit_without_persisting() -> None:
+    artifacts = FakeArtifacts(b"", puts=[])
+    app = create_app(
+        AppSettings.from_environment({
+            **VALID_ENVIRONMENT,
+            "SAXO_MAX_UPLOAD_BYTES": "4",
+        }),
+        overrides=AppOverrides(
+            remote_gpu_gateway=FakeRemoteGpuGateway(),
+            model_client=FakeModelClient(),
+            artifact_repository=artifacts,
+        ),
+    )
+
+    response = TestClient(app).post(
+        "/api/v1/documents/doc-1/source",
+        files={"file": ("source.pdf", b"%PDF-1.7", "application/pdf")},
+    )
+
+    assert response.status_code == 413
+    assert response.json() == {
+        "detail": "uploaded file exceeds maximum size of 4 bytes"
+    }
+    assert artifacts.puts == []
+
+
 def test_document_ingest_route_indexes_chunks_and_returns_report() -> None:
     vector_index = FakeVectorIndex()
     embedding_provider = FakeEmbeddingProvider()
