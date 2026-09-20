@@ -213,3 +213,32 @@ def test_cached_health_reuses_result_until_ttl_expires() -> None:
         assert gateway.calls == 2
 
     asyncio.run(verify())
+
+
+def test_cached_health_coalesces_concurrent_refreshes() -> None:
+    async def verify() -> None:
+        refresh_started = asyncio.Event()
+        release_refresh = asyncio.Event()
+
+        class FakeGateway:
+            calls = 0
+
+            async def health(self) -> RemoteGpuHealth:
+                self.calls += 1
+                refresh_started.set()
+                await release_refresh.wait()
+                return RemoteGpuHealth(status="ready", capabilities=("embed",))
+
+        gateway = FakeGateway()
+        cached = CachedRemoteGpuGateway(gateway, ttl_seconds=5.0, clock=lambda: 100.0)
+        first = asyncio.create_task(cached.health())
+        await refresh_started.wait()
+        second = asyncio.create_task(cached.health())
+        await asyncio.sleep(0)
+        release_refresh.set()
+
+        assert await first == RemoteGpuHealth(status="ready", capabilities=("embed",))
+        assert await second == RemoteGpuHealth(status="ready", capabilities=("embed",))
+        assert gateway.calls == 1
+
+    asyncio.run(verify())
