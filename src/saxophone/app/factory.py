@@ -11,8 +11,10 @@ from fastapi import FastAPI
 
 from saxophone.app.settings import AppSettings
 from saxophone.chat.service import AnswerQuestion
+from saxophone.documents.ports import ArtifactRepository
 from saxophone.extraction.ports import PdfExtractor
 from saxophone.extraction.remote import RemotePdfExtractor
+from saxophone.platform.artifacts import LocalArtifactRepository
 from saxophone.platform.model_client import LiteLLMModelClient, ModelClient
 from saxophone.platform.remote_gpu import (
     HttpRemoteGpuGateway,
@@ -20,6 +22,7 @@ from saxophone.platform.remote_gpu import (
 )
 from saxophone.retrieval.use_cases import RetrieveEvidence
 from saxophone.interfaces.api import build_capability_router
+from saxophone.workflows.process_document import ProcessDocument
 
 
 _DISABLED_CAPABILITIES: Final = {
@@ -41,6 +44,8 @@ class AppContainer:
     retrieve_evidence: RetrieveEvidence | None = None
     answer_question: AnswerQuestion | None = None
     pdf_extractor: PdfExtractor | None = None
+    artifact_repository: ArtifactRepository | None = None
+    process_document: ProcessDocument | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +57,8 @@ class AppOverrides:
     retrieve_evidence: RetrieveEvidence | None = None
     answer_question: AnswerQuestion | None = None
     pdf_extractor: PdfExtractor | None = None
+    artifact_repository: ArtifactRepository | None = None
+    process_document: ProcessDocument | None = None
 
 
 def create_app(
@@ -86,6 +93,13 @@ def create_app(
             model=settings.litellm_model_profile,
         )
 
+    artifact_repository = resolved_overrides.artifact_repository
+    if artifact_repository is None:
+        artifact_repository = LocalArtifactRepository(settings.data_root / "artifacts")
+    process_document = resolved_overrides.process_document
+    if process_document is None:
+        process_document = ProcessDocument(artifact_repository, pdf_extractor)
+
     container = AppContainer(
         settings=settings,
         remote_gpu_gateway=remote_gpu_gateway,
@@ -94,6 +108,8 @@ def create_app(
         retrieve_evidence=resolved_overrides.retrieve_evidence,
         answer_question=resolved_overrides.answer_question,
         pdf_extractor=pdf_extractor,
+        artifact_repository=artifact_repository,
+        process_document=process_document,
     )
 
     @asynccontextmanager
@@ -111,6 +127,7 @@ def create_app(
             retrieve_evidence=container.retrieve_evidence,
             answer_question=container.answer_question,
             pdf_extractor=container.pdf_extractor,
+            process_workflow=container.process_document,
         ),
     )
 

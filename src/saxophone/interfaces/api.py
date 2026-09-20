@@ -11,6 +11,7 @@ from saxophone.chat.models import ChatResult
 from saxophone.documents.models import ArtifactKind, ArtifactRef
 from saxophone.extraction.models import PdfExtractionRequest, PdfExtractionResult
 from saxophone.retrieval.models import EvidenceBundle
+from saxophone.workflows.process_document import ProcessDocument
 
 
 class QueryRequest(BaseModel):
@@ -46,6 +47,7 @@ def build_capability_router(
     retrieve_evidence: Any = None,
     answer_question: Any = None,
     pdf_extractor: Any = None,
+    process_workflow: ProcessDocument | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1")
 
@@ -74,18 +76,27 @@ def build_capability_router(
         document_ref: str,
         request: DocumentProcessRequest,
     ) -> dict[str, object]:
-        if pdf_extractor is None:
+        workflow = process_workflow
+        if workflow is None and pdf_extractor is not None:
+            raise HTTPException(
+                status_code=503,
+                detail="document processing capability is not configured",
+            )
+        if workflow is None:
             raise HTTPException(status_code=503, detail="extraction capability is not configured")
         normalized_ref = _normalized_text(document_ref, "document_ref")
-        result: PdfExtractionResult = await pdf_extractor.extract(
-            PdfExtractionRequest(
-                document_ref=normalized_ref,
-                source=ArtifactRef(**request.source.model_dump()),
-                source_version=request.source_version,
-                correlation_id=request.correlation_id,
-                model_profile=request.model_profile,
-            ),
-        )
+        try:
+            result: PdfExtractionResult = await workflow.execute(
+                PdfExtractionRequest(
+                    document_ref=normalized_ref,
+                    source=ArtifactRef(**request.source.model_dump()),
+                    source_version=request.source_version,
+                    correlation_id=request.correlation_id,
+                    model_profile=request.model_profile,
+                ),
+            )
+        except (FileNotFoundError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
         return _extraction_response(result)
 
     return router

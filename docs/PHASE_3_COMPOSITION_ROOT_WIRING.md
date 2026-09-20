@@ -48,3 +48,26 @@ Ranh gioi con lai:
 Chua co upload endpoint, document processing workflow day du, artifact commit,
 hoac ingestion wiring. Cac viec nay can contract rieng de tranh tron logic vao
 composition root.
+
+### Cap nhat iteration 27 - route dung ProcessDocument
+
+- `AppContainer` compose `LocalArtifactRepository` duoi `SAXO_DATA_ROOT/artifacts`
+  va `ProcessDocument` tu repository cung voi `PdfExtractor`.
+- Route process nhan `ProcessDocument` qua composition root; khong con goi
+  `PdfExtractor` truc tiep, nen source artifact duoc xac minh truoc khi goi
+  model/extraction provider.
+- Loi thieu artifact hoac sai kich thuoc duoc map thanh HTTP 422; route khong
+  de loi persistence noi bo roi thanh 500 khong co thong tin.
+- Them test route voi source hop le va source sai kich thuoc; test xac nhan
+  extractor khong bi goi khi workflow tu choi source.
+
+Bang chung kiem thu iteration 27:
+
+- `uv run pytest tests/test_phase_7_api_routes.py tests/test_phase_3_process_document.py tests/test_phase_1_composition_root.py --basetemp=.pytest-tmp`
+  dat 17 passed, 1 warning.
+
+Ranh gioi con lai:
+
+- Chua co upload endpoint de dua PDF vao `LocalArtifactRepository`.
+- Chua persist cac artifact output cua extraction, ingest/index, hoac tra
+  trang thai indexed; day la cac contract/workflow rieng tiep theo.

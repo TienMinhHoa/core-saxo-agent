@@ -8,8 +8,10 @@ from saxophone.app.factory import AppOverrides, create_app
 from saxophone.app.settings import AppSettings
 from saxophone.chat.models import ChatResult, ChatStatus
 from saxophone.documents.models import ArtifactKind, ArtifactRef
+from saxophone.documents.ports import ArtifactRepository
 from saxophone.extraction.models import PdfExtractionResult
 from saxophone.retrieval.models import EvidenceBundle
+from saxophone.workflows.process_document import ProcessDocument
 
 
 VALID_ENVIRONMENT = {
@@ -60,6 +62,17 @@ class FakePdfExtractor:
         return self.result
 
 
+@dataclass
+class FakeArtifacts(ArtifactRepository):
+    payload: bytes
+
+    async def put(self, artifact: ArtifactRef, payload: bytes) -> None:
+        self.payload = payload
+
+    async def get(self, artifact: ArtifactRef) -> bytes:
+        return self.payload
+
+
 def settings() -> AppSettings:
     return AppSettings.from_environment(VALID_ENVIRONMENT)
 
@@ -88,12 +101,14 @@ def test_document_process_route_delegates_to_typed_extractor() -> None:
         model_profile="extractor-v1",
     )
     extractor = FakePdfExtractor(result, [])
+    workflow = ProcessDocument(FakeArtifacts(b"source"), extractor)
     app = create_app(
         settings(),
         overrides=AppOverrides(
             remote_gpu_gateway=FakeRemoteGpuGateway(),
             model_client=FakeModelClient(),
             pdf_extractor=extractor,
+            process_document=workflow,
         ),
     )
 
@@ -105,8 +120,8 @@ def test_document_process_route_delegates_to_typed_extractor() -> None:
                 "version": "v1",
                 "kind": "source_pdf",
                 "media_type": "application/pdf",
-                "sha256": "".join(["0"] * 64),
-                "size_bytes": 123,
+                "sha256": "41cf6794ba4200b839c53531555f0f3998df4cbb01a4d5cb0b94e3ca5e23947d",
+                "size_bytes": 6,
             },
             "source_version": "source-v1",
             "correlation_id": "corr-1",
@@ -118,6 +133,49 @@ def test_document_process_route_delegates_to_typed_extractor() -> None:
     assert response.json()["document_ref"] == "doc-1"
     assert response.json()["markdown"]["artifact_id"] == "markdown"
     assert extractor.calls == [("doc-1", "corr-1")]
+
+
+def test_document_process_route_rejects_source_that_workflow_cannot_verify() -> None:
+    result = PdfExtractionResult(
+        document_ref="doc-1",
+        source_version="source-v1",
+        markdown=_artifact("markdown", ArtifactKind.MARKDOWN),
+        layout=_artifact("layout", ArtifactKind.LAYOUT),
+        manifest=_artifact("manifest", ArtifactKind.EXTRACTION_MANIFEST),
+        coordinates=(),
+        model_profile="extractor-v1",
+    )
+    extractor = FakePdfExtractor(result, [])
+    workflow = ProcessDocument(FakeArtifacts(b"wrong"), extractor)
+    app = create_app(
+        settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=FakeRemoteGpuGateway(),
+            model_client=FakeModelClient(),
+            pdf_extractor=extractor,
+            process_document=workflow,
+        ),
+    )
+
+    response = TestClient(app).post(
+        "/api/v1/documents/doc-1/process",
+        json={
+            "source": {
+                "artifact_id": "source",
+                "version": "v1",
+                "kind": "source_pdf",
+                "media_type": "application/pdf",
+                "sha256": "41cf6794ba4200b839c53531555f0f3998df4cbb01a4d5cb0b94e3ca5e23947d",
+                "size_bytes": 6,
+            },
+            "source_version": "source-v1",
+            "correlation_id": "corr-1",
+            "model_profile": "extractor-v1",
+        },
+    )
+
+    assert response.status_code == 422
+    assert extractor.calls == []
 
 
 def test_retrieval_route_returns_validated_evidence_projection() -> None:
