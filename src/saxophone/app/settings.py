@@ -416,6 +416,21 @@ def _validate_runtime_path(value: object, field_name: str) -> None:
         raise SettingsValidationError(f"{field_name} must not traverse parent directories")
     if any(ord(character) < 32 or ord(character) == 127 for character in str(value)):
         raise SettingsValidationError(f"{field_name} must not contain control characters")
+    _validate_windows_device_path_components(value, field_name)
+
+
+def _validate_windows_device_path_components(value: Path, field_name: str) -> None:
+    """Reject path segments that Windows resolves as device names."""
+    reserved_names = {"CON", "PRN", "AUX", "NUL"}
+    for component in value.parts:
+        if component == value.anchor:
+            continue
+        normalized = component.rstrip(" .")
+        device_name = normalized.split(".", 1)[0].upper()
+        if device_name in reserved_names or re.fullmatch(r"(?:COM|LPT)[1-9]", device_name):
+            raise SettingsValidationError(
+                f"{field_name} must not contain Windows device name components",
+            )
 
 
 def _validate_runtime_boolean(value: object, field_name: str) -> None:

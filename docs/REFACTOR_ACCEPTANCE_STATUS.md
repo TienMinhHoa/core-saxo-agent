@@ -264,3 +264,14 @@ deployment production.
   `docs/ITERATION_191_SETTINGS_DIRECT_PATH_TRAVERSAL.md`.
 - Live model-service smoke và production golden parity vẫn chưa xác minh do
   checkout thiếu endpoint, credential và catalog production.
+
+### Iteration 198 — safe-path contract cho tên thiết bị Windows
+
+- `AppSettings` fail-closed khi `data_root` hoặc `chroma_persist_directory` có
+  thành phần Windows device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`,
+  `LPT1`-`LPT9`), kể cả tên có extension; contract áp dụng cho direct
+  construction và environment parsing.
+- Regression targeted: **20 passed**; chi tiết tại
+  `docs/ITERATION_198_SETTINGS_WINDOWS_DEVICE_PATH_CONTRACT.md`.
+- Live model-service smoke và production golden parity vẫn chưa xác minh vì
+  checkout thiếu endpoint, credential và catalog production thật.
