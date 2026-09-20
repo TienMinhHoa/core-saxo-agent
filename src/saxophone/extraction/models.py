@@ -87,8 +87,7 @@ class PdfExtractionRequest:
         _require_non_blank("source_version", self.source_version)
         _require_non_blank("correlation_id", self.correlation_id)
         _require_non_blank("model_profile", self.model_profile)
-        if self.source.kind is not ArtifactKind.SOURCE_PDF:
-            raise ValueError("source must have kind source_pdf")
+        _require_kind("source", self.source, ArtifactKind.SOURCE_PDF)
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,8 +116,11 @@ class PdfExtractionResult:
 
 
 def _require_kind(name: str, artifact: ArtifactRef, expected: ArtifactKind) -> None:
+    if not isinstance(artifact, ArtifactRef):
+        raise ValueError(f"{name} must be an ArtifactRef")
     if artifact.kind is not expected:
-        raise ValueError(f"{name} must have kind {expected.value}")
+        suffix = "source_pdf" if expected is ArtifactKind.SOURCE_PDF else expected.value
+        raise ValueError(f"{name} must have kind {suffix}")
 
 
 def _require_non_blank(name: str, value: str) -> None:

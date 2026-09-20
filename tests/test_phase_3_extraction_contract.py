@@ -36,6 +36,17 @@ def test_extraction_request_keeps_provider_independent_input_contract() -> None:
     assert request.model_profile == "pdf-layout-v1"
 
 
+def test_extraction_request_rejects_non_artifact_source() -> None:
+    with pytest.raises(ValueError, match="source must be an ArtifactRef"):
+        PdfExtractionRequest(
+            document_ref="document-123",
+            source={"kind": ArtifactKind.SOURCE_PDF},  # type: ignore[arg-type]
+            source_version="source-v1",
+            correlation_id="request-123",
+            model_profile="pdf-layout-v1",
+        )
+
+
 @pytest.mark.parametrize("field", ["source_version", "correlation_id", "model_profile"])
 @pytest.mark.parametrize("value", [" value", "value ", "value\u0301"])
 def test_extraction_request_rejects_non_canonical_metadata(field: str, value: str) -> None:
@@ -117,6 +128,23 @@ def test_extraction_result_requires_expected_artifact_kinds() -> None:
             coordinates=(),
             model_profile="pdf-layout-v1",
         )
+
+
+@pytest.mark.parametrize("field", ["markdown", "layout", "manifest"])
+def test_extraction_result_rejects_non_artifact_references(field: str) -> None:
+    fields: dict[str, object] = {
+        "document_ref": "document-123",
+        "source_version": "source-v1",
+        "markdown": artifact(ArtifactKind.MARKDOWN),
+        "layout": artifact(ArtifactKind.LAYOUT),
+        "manifest": artifact(ArtifactKind.EXTRACTION_MANIFEST),
+        "coordinates": (),
+        "model_profile": "pdf-layout-v1",
+    }
+    fields[field] = {"kind": "invalid"}
+
+    with pytest.raises(ValueError, match=f"{field} must be an ArtifactRef"):
+        PdfExtractionResult(**fields)  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize("field", ["source_version", "model_profile"])
