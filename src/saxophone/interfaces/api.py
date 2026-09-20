@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from saxophone.chat.models import ChatResult
 from saxophone.documents.models import ArtifactKind, ArtifactRef
+from saxophone.documents.ports import ArtifactRepository
 from saxophone.extraction.models import PdfExtractionRequest, PdfExtractionResult
 from saxophone.retrieval.models import EvidenceBundle
 from saxophone.workflows.process_document import ProcessDocument
@@ -48,6 +50,7 @@ def build_capability_router(
     answer_question: Any = None,
     pdf_extractor: Any = None,
     process_workflow: ProcessDocument | None = None,
+    artifact_repository: ArtifactRepository | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1")
 
@@ -98,6 +101,31 @@ def build_capability_router(
         except (FileNotFoundError, ValueError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         return _extraction_response(result)
+
+    @router.post("/documents/{document_ref}/source", status_code=201)
+    async def upload_source(document_ref: str, file: UploadFile = File(...)) -> dict[str, object]:
+        if artifact_repository is None:
+            raise HTTPException(status_code=503, detail="document storage is not configured")
+        if file.content_type != "application/pdf":
+            raise HTTPException(
+                status_code=415,
+                detail="uploaded file must have media type application/pdf",
+            )
+        normalized_ref = _normalized_text(document_ref, "document_ref")
+        payload = await file.read()
+        artifact = ArtifactRef(
+            artifact_id=f"{normalized_ref}/source",
+            version="v1",
+            kind=ArtifactKind.SOURCE_PDF,
+            media_type="application/pdf",
+            sha256=hashlib.sha256(payload).hexdigest(),
+            size_bytes=len(payload),
+        )
+        try:
+            await artifact_repository.put(artifact, payload)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return _artifact_response(artifact)
 
     return router
 

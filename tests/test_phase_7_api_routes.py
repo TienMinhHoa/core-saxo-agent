@@ -65,9 +65,12 @@ class FakePdfExtractor:
 @dataclass
 class FakeArtifacts(ArtifactRepository):
     payload: bytes
+    puts: list[tuple[ArtifactRef, bytes]] | None = None
 
     async def put(self, artifact: ArtifactRef, payload: bytes) -> None:
         self.payload = payload
+        if self.puts is not None:
+            self.puts.append((artifact, payload))
 
     async def get(self, artifact: ArtifactRef) -> bytes:
         return self.payload
@@ -263,3 +266,52 @@ def test_capability_routes_are_explicitly_unavailable_until_composed() -> None:
 
     assert response.status_code == 503
     assert response.json() == {"detail": "chat capability is not configured"}
+
+
+def test_source_upload_persists_pdf_and_returns_typed_artifact_reference() -> None:
+    artifacts = FakeArtifacts(b"", puts=[])
+    app = create_app(
+        settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=FakeRemoteGpuGateway(),
+            model_client=FakeModelClient(),
+            artifact_repository=artifacts,
+        ),
+    )
+
+    response = TestClient(app).post(
+        "/api/v1/documents/doc-1/source",
+        files={"file": ("source.pdf", b"%PDF-1.7", "application/pdf")},
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["artifact_id"] == "doc-1/source"
+    assert body["version"] == "v1"
+    assert body["kind"] == "source_pdf"
+    assert body["media_type"] == "application/pdf"
+    assert body["size_bytes"] == 8
+    assert len(body["sha256"]) == 64
+    assert artifacts.puts is not None
+    assert artifacts.puts[0][1] == b"%PDF-1.7"
+
+
+def test_source_upload_rejects_non_pdf_without_persisting() -> None:
+    artifacts = FakeArtifacts(b"", puts=[])
+    app = create_app(
+        settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=FakeRemoteGpuGateway(),
+            model_client=FakeModelClient(),
+            artifact_repository=artifacts,
+        ),
+    )
+
+    response = TestClient(app).post(
+        "/api/v1/documents/doc-1/source",
+        files={"file": ("source.txt", b"not pdf", "text/plain")},
+    )
+
+    assert response.status_code == 415
+    assert response.json() == {"detail": "uploaded file must have media type application/pdf"}
+    assert artifacts.puts == []

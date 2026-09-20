@@ -128,6 +128,7 @@ def create_app(
             answer_question=container.answer_question,
             pdf_extractor=container.pdf_extractor,
             process_workflow=container.process_document,
+            artifact_repository=container.artifact_repository,
         ),
     )
 
