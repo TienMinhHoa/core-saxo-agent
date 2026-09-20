@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from functools import partial
+import asyncio
+import re
+from collections.abc import Sequence
 from typing import Any, Mapping
 
 import anyio
@@ -93,8 +96,153 @@ class ChromaSemanticRetriever(ChunkRetriever):
         return hits
 
 
+class InMemoryLexicalRetriever(ChunkRetriever):
+    """Small provider-independent lexical adapter for header/content/tag search."""
+
+    def __init__(
+        self,
+        records: Sequence[ChunkHit],
+        *,
+        retrieval_version: str = "lexical-v1",
+    ) -> None:
+        if not retrieval_version.strip():
+            raise ValueError("retrieval_version must not be blank")
+        self._records = tuple(records)
+        self._retrieval_version = retrieval_version
+
+    async def search(
+        self,
+        query: str,
+        *,
+        filters: Mapping[str, object] | None = None,
+        limit: int = 10,
+    ) -> list[ChunkHit]:
+        if limit < 1:
+            return []
+        terms = _terms(query)
+        if not terms:
+            raise ValueError("query must not be blank")
+        ranked: list[tuple[float, ChunkHit]] = []
+        for record in self._records:
+            if not _matches_filters(record, filters):
+                continue
+            haystack = " ".join(_metadata_text(record.metadata)).lower()
+            matched = sum(term in haystack for term in terms)
+            if not matched:
+                continue
+            score = matched / len(terms)
+            ranked.append(
+                (
+                    score,
+                    ChunkHit(
+                        record.source_ref,
+                        record.chunk_ref,
+                        1,
+                        self._retrieval_version,
+                        record.metadata,
+                        keyword_score=score,
+                    ),
+                )
+            )
+        ranked.sort(key=lambda item: (-item[0], item[1].chunk_ref))
+        return [
+            ChunkHit(
+                hit.source_ref,
+                hit.chunk_ref,
+                rank,
+                hit.retrieval_version,
+                hit.metadata,
+                keyword_score=hit.keyword_score,
+            )
+            for rank, (_, hit) in enumerate(ranked[:limit], start=1)
+        ]
+
+
+class HybridRetriever(ChunkRetriever):
+    """Fuse semantic and lexical rankings with Reciprocal Rank Fusion."""
+
+    def __init__(
+        self,
+        semantic: ChunkRetriever,
+        lexical: ChunkRetriever,
+        *,
+        rrf_k: int = 60,
+        retrieval_version: str = "hybrid-v1",
+    ) -> None:
+        if rrf_k < 1:
+            raise ValueError("rrf_k must be at least 1")
+        if not retrieval_version.strip():
+            raise ValueError("retrieval_version must not be blank")
+        self._semantic = semantic
+        self._lexical = lexical
+        self._rrf_k = rrf_k
+        self._retrieval_version = retrieval_version
+
+    async def search(
+        self,
+        query: str,
+        *,
+        filters: Mapping[str, object] | None = None,
+        limit: int = 10,
+    ) -> list[ChunkHit]:
+        if limit < 1:
+            return []
+        semantic_hits, lexical_hits = await asyncio.gather(
+            self._semantic.search(query, filters=filters, limit=limit),
+            self._lexical.search(query, filters=filters, limit=limit),
+        )
+        merged: dict[str, dict[str, object]] = {}
+        for hits, score_name in ((semantic_hits, "semantic_score"), (lexical_hits, "keyword_score")):
+            for hit in hits:
+                item = merged.setdefault(hit.chunk_ref, {"hit": hit, "fused": 0.0})
+                item["fused"] = float(item["fused"]) + 1 / (self._rrf_k + hit.rank)
+                if score_name == "semantic_score":
+                    item["semantic"] = hit.semantic_score
+                else:
+                    item["keyword"] = hit.keyword_score
+        ordered = sorted(
+            merged.values(), key=lambda item: (-float(item["fused"]), str(item["hit"].chunk_ref))
+        )
+        results: list[ChunkHit] = []
+        for rank, item in enumerate(ordered[:limit], start=1):
+            hit = item["hit"]
+            results.append(
+                ChunkHit(
+                    hit.source_ref,
+                    hit.chunk_ref,
+                    rank,
+                    self._retrieval_version,
+                    hit.metadata,
+                    semantic_score=item.get("semantic"),
+                    keyword_score=item.get("keyword"),
+                    fused_score=float(item["fused"]),
+                )
+            )
+        return results
+
+
 def _first_result_list(value: Any) -> list[Any]:
     if not isinstance(value, list) or not value:
         return []
     first = value[0]
     return first if isinstance(first, list) else []
+
+
+def _terms(query: str) -> tuple[str, ...]:
+    if not isinstance(query, str) or not query.strip():
+        return ()
+    return tuple(dict.fromkeys(re.findall(r"[\w-]+", query.lower())))
+
+
+def _metadata_text(metadata: Mapping[str, object]) -> tuple[str, ...]:
+    values: list[str] = []
+    for value in metadata.values():
+        if isinstance(value, str):
+            values.append(value)
+        elif isinstance(value, (list, tuple, set)):
+            values.extend(item for item in value if isinstance(item, str))
+    return tuple(values)
+
+
+def _matches_filters(hit: ChunkHit, filters: Mapping[str, object] | None) -> bool:
+    return all(hit.metadata.get(key) == value for key, value in (filters or {}).items())

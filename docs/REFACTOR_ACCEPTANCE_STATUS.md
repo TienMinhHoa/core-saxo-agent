@@ -9,7 +9,7 @@ khi có feature parity và quyết định migration riêng.
 
 - Các capability đích đã có trong package `src/saxophone`: composition root,
   extraction, ingestion, retrieval, chat, tagging, workflow và API adapters.
-- Bằng chứng offline hiện tại: `uv run pytest` đạt **284 passed, 2 skipped**;
+- Bằng chứng offline hiện tại: `uv run pytest` đạt **287 passed, 2 skipped**;
   `compileall` và `git diff --check` đã được chạy ở lát cắt gần nhất.
 - Chưa được phép kết luận production-ready: checkout không có remote
   model-service endpoint/credential để chạy live smoke thật. Trạng thái này
@@ -28,10 +28,10 @@ khi có feature parity và quyết định migration riêng.
 | 7 | Process/ingest trả typed result/error, không job lifecycle | Đạt offline | `test_phase_3_process_document.py`, `test_phase_7_process_and_ingest_route.py` |
 | 8 | Retrieval tạo và validate `EvidenceBundle` | Đạt offline | `retrieval/use_cases.py`, `test_retrieve_evidence.py` |
 | 9 | Tagging nằm trong ingestion và dùng `ChunkRetriever` boundary | Đạt offline | `tagging/*`, `test_phase_8_*`, `test_phase_4_ingest_extracted_document.py` |
-| 10 | Hybrid-ready retrieval | Một phần | `retrieval/ports.py` và semantic adapter đã tách; chưa có adapter/fusion hybrid production |
+| 10 | Hybrid-ready retrieval | Đạt offline | `retrieval/adapters.py` có `InMemoryLexicalRetriever` và `HybridRetriever` (RRF); `tests/test_hybrid_retrieval.py` |
 | 11 | Giữ provenance/page/layout/image refs | Đạt offline | extraction models, Chroma sidecar contract và Phase 3/4 tests |
 | 12 | Output model không hợp lệ không fallback im lặng | Đạt offline | `test_phase_1_model_response_json_validation.py` và remote adapter tests |
-| 13 | Unit/contract/integration/API/golden offline | Đạt offline | `uv run pytest`: 284 passed, 2 skipped |
+| 13 | Unit/contract/integration/API/golden offline | Đạt offline | `uv run pytest`: 287 passed, 2 skipped |
 | 14 | Live model-service smoke được báo riêng | Đạt về tài liệu; chưa chạy live | `LIVE_MODEL_SERVICE_SMOKE_STATUS.md` |
 | 15 | Legacy chỉ xóa sau parity và quyết định migration | Đang giữ có chủ đích | `README.md`, `pyproject.toml` extra `legacy-ui`; chưa có parity report để retire |
 | 16 | Runtime đích không phụ thuộc frontend/UI | Đạt offline | `saxophone-api`, `test_phase_7_backend_entrypoint.py` |
@@ -52,6 +52,13 @@ git diff --check
 Các lệnh trên chỉ chứng minh behavior offline và chất lượng checkout. Chúng
 không chứng minh remote model-service thật, credential, TLS/network policy hay
 deployment production.
+
+## Ghi nhận iteration 2
+
+- Đã bổ sung lexical retrieval adapter in-memory, đọc header/content/tags từ metadata và trả về `ChunkHit` provider-independent.
+- Đã bổ sung `HybridRetriever` dùng Reciprocal Rank Fusion; kết quả giữ semantic score, keyword score, fused score và rank mới.
+- Đã thêm unit tests cho lexical matching, RRF merge, filter forwarding và validation `rrf_k`.
+- Xác minh: targeted retrieval tests **9 passed**; toàn bộ suite **287 passed, 2 skipped**. Live model-service smoke vẫn chưa thể chạy vì checkout chưa có endpoint/credential thật.
 
 ## Việc còn lại trước khi đóng refactor
 
