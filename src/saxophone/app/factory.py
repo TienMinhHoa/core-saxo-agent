@@ -110,6 +110,7 @@ def create_app(
         build_capability_router(
             retrieve_evidence=container.retrieve_evidence,
             answer_question=container.answer_question,
+            pdf_extractor=container.pdf_extractor,
         ),
     )
 

@@ -7,6 +7,8 @@ from fastapi.testclient import TestClient
 from saxophone.app.factory import AppOverrides, create_app
 from saxophone.app.settings import AppSettings
 from saxophone.chat.models import ChatResult, ChatStatus
+from saxophone.documents.models import ArtifactKind, ArtifactRef
+from saxophone.extraction.models import PdfExtractionResult
 from saxophone.retrieval.models import EvidenceBundle
 
 
@@ -48,8 +50,74 @@ class FakeAnswerQuestion:
         return self.result
 
 
+@dataclass
+class FakePdfExtractor:
+    result: PdfExtractionResult
+    calls: list[tuple[str, str]]
+
+    async def extract(self, request):
+        self.calls.append((request.document_ref, request.correlation_id))
+        return self.result
+
+
 def settings() -> AppSettings:
     return AppSettings.from_environment(VALID_ENVIRONMENT)
+
+
+def _artifact(artifact_id: str, kind: ArtifactKind) -> ArtifactRef:
+    import hashlib
+
+    return ArtifactRef(
+        artifact_id=artifact_id,
+        version="v1",
+        kind=kind,
+        media_type="application/octet-stream",
+        sha256=hashlib.sha256(artifact_id.encode()).hexdigest(),
+        size_bytes=len(artifact_id),
+    )
+
+
+def test_document_process_route_delegates_to_typed_extractor() -> None:
+    result = PdfExtractionResult(
+        document_ref="doc-1",
+        source_version="source-v1",
+        markdown=_artifact("markdown", ArtifactKind.MARKDOWN),
+        layout=_artifact("layout", ArtifactKind.LAYOUT),
+        manifest=_artifact("manifest", ArtifactKind.EXTRACTION_MANIFEST),
+        coordinates=(),
+        model_profile="extractor-v1",
+    )
+    extractor = FakePdfExtractor(result, [])
+    app = create_app(
+        settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=FakeRemoteGpuGateway(),
+            model_client=FakeModelClient(),
+            pdf_extractor=extractor,
+        ),
+    )
+
+    response = TestClient(app).post(
+        "/api/v1/documents/doc-1/process",
+        json={
+            "source": {
+                "artifact_id": "source",
+                "version": "v1",
+                "kind": "source_pdf",
+                "media_type": "application/pdf",
+                "sha256": "".join(["0"] * 64),
+                "size_bytes": 123,
+            },
+            "source_version": "source-v1",
+            "correlation_id": "corr-1",
+            "model_profile": "extractor-v1",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["document_ref"] == "doc-1"
+    assert response.json()["markdown"]["artifact_id"] == "markdown"
+    assert extractor.calls == [("doc-1", "corr-1")]
 
 
 def test_retrieval_route_returns_validated_evidence_projection() -> None:

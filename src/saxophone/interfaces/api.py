@@ -8,6 +8,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from saxophone.chat.models import ChatResult
+from saxophone.documents.models import ArtifactKind, ArtifactRef
+from saxophone.extraction.models import PdfExtractionRequest, PdfExtractionResult
 from saxophone.retrieval.models import EvidenceBundle
 
 
@@ -23,7 +25,28 @@ class ChatRequest(BaseModel):
     filters: dict[str, object] | None = None
 
 
-def build_capability_router(*, retrieve_evidence: Any = None, answer_question: Any = None) -> APIRouter:
+class ArtifactRequest(BaseModel):
+    artifact_id: str = Field(min_length=1)
+    version: str = Field(min_length=1)
+    kind: ArtifactKind
+    media_type: str = Field(min_length=1)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    size_bytes: int = Field(ge=0)
+
+
+class DocumentProcessRequest(BaseModel):
+    source: ArtifactRequest
+    source_version: str = Field(min_length=1)
+    correlation_id: str = Field(min_length=1)
+    model_profile: str = Field(min_length=1)
+
+
+def build_capability_router(
+    *,
+    retrieve_evidence: Any = None,
+    answer_question: Any = None,
+    pdf_extractor: Any = None,
+) -> APIRouter:
     router = APIRouter(prefix="/api/v1")
 
     @router.post("/retrieval/evidence")
@@ -45,6 +68,25 @@ def build_capability_router(*, retrieve_evidence: Any = None, answer_question: A
             question, filters=request.filters, limit=request.limit
         )
         return _chat_response(result)
+
+    @router.post("/documents/{document_ref}/process")
+    async def process_document(
+        document_ref: str,
+        request: DocumentProcessRequest,
+    ) -> dict[str, object]:
+        if pdf_extractor is None:
+            raise HTTPException(status_code=503, detail="extraction capability is not configured")
+        normalized_ref = _normalized_text(document_ref, "document_ref")
+        result: PdfExtractionResult = await pdf_extractor.extract(
+            PdfExtractionRequest(
+                document_ref=normalized_ref,
+                source=ArtifactRef(**request.source.model_dump()),
+                source_version=request.source_version,
+                correlation_id=request.correlation_id,
+                model_profile=request.model_profile,
+            ),
+        )
+        return _extraction_response(result)
 
     return router
 
@@ -69,6 +111,38 @@ def _chat_response(result: ChatResult) -> dict[str, object]:
         "model_version": result.model_version,
         "token_usage": dict(result.token_usage),
         "cost": result.cost,
+    }
+
+
+def _extraction_response(result: PdfExtractionResult) -> dict[str, object]:
+    return {
+        "document_ref": result.document_ref,
+        "source_version": result.source_version,
+        "model_profile": result.model_profile,
+        "markdown": _artifact_response(result.markdown),
+        "layout": _artifact_response(result.layout),
+        "manifest": _artifact_response(result.manifest),
+        "coordinates": [
+            {
+                "coordinate_space": coordinate.coordinate_space.value,
+                "page_index": coordinate.page_index,
+                "markdown_line_start": coordinate.markdown_line_start,
+                "markdown_line_end": coordinate.markdown_line_end,
+                "bbox": coordinate.bbox,
+            }
+            for coordinate in result.coordinates
+        ],
+    }
+
+
+def _artifact_response(artifact: ArtifactRef) -> dict[str, object]:
+    return {
+        "artifact_id": artifact.artifact_id,
+        "version": artifact.version,
+        "kind": artifact.kind.value,
+        "media_type": artifact.media_type,
+        "sha256": artifact.sha256,
+        "size_bytes": artifact.size_bytes,
     }
 
 
