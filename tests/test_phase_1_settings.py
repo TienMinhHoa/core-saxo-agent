@@ -248,3 +248,33 @@ def test_direct_settings_construction_rejects_invalid_integer_contracts(
         )
 
     assert field_name in str(error.value)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value", "error_marker"),
+    [
+        ("remote_gpu_base_url", "http://gpu.example.test", "SAXO_REMOTE_GPU_BASE_URL"),
+        ("remote_gpu_base_url", "https://token@gpu.example.test", "SAXO_REMOTE_GPU_BASE_URL"),
+        ("remote_gpu_base_url", "https://gpu.example.test?trace=true", "SAXO_REMOTE_GPU_BASE_URL"),
+        ("remote_gpu_bearer_token", "   ", "SAXO_REMOTE_GPU_BEARER_TOKEN"),
+        ("remote_gpu_bearer_token", "token\nforged-header: yes", "SAXO_REMOTE_GPU_BEARER_TOKEN"),
+        ("litellm_endpoint", "http://llm.example.test/v1/invoke", "SAXO_LITELLM_ENDPOINT"),
+        ("litellm_model_profile", "   ", "SAXO_LITELLM_MODEL_PROFILE"),
+        ("chroma_collection_name", "bad name", "SAXO_CHROMA_COLLECTION_NAME"),
+    ],
+)
+def test_direct_settings_construction_rejects_invalid_textual_contracts(
+    field_name: str,
+    value: str,
+    error_marker: str,
+) -> None:
+    values = {
+        "data_root": Path("runtime/saxophone"),
+        "remote_gpu_base_url": "https://gpu.example.test",
+        "remote_gpu_bearer_token": "secret",
+    }
+    values[field_name] = value
+    with pytest.raises(SettingsValidationError) as error:
+        AppSettings(**values)
+
+    assert error_marker in str(error.value)

@@ -41,6 +41,16 @@ class AppSettings:
 
     def __post_init__(self) -> None:
         """Keep direct construction subject to the same runtime contract."""
+        _parse_remote_gpu_base_url(self.remote_gpu_base_url)
+        _parse_required_token(self.remote_gpu_bearer_token)
+        if self.litellm_endpoint.strip():
+            _parse_optional_https_url(
+                self.litellm_endpoint,
+                default=self.remote_gpu_base_url,
+                variable="SAXO_LITELLM_ENDPOINT",
+            )
+        _parse_required_text(self.litellm_model_profile, "SAXO_LITELLM_MODEL_PROFILE")
+        _parse_collection_name(self.chroma_collection_name)
         for field_name in (
             "remote_gpu_max_in_flight",
             "remote_gpu_retention_days",
@@ -247,7 +257,12 @@ def _parse_optional_https_url(value: str | None, *, default: str, variable: str)
 def _parse_required_token(value: str | None) -> str:
     if not value or not value.strip():
         raise SettingsValidationError("SAXO_REMOTE_GPU_BEARER_TOKEN is required")
-    return value.strip()
+    token = value.strip()
+    if any(ord(character) < 32 or ord(character) == 127 for character in token):
+        raise SettingsValidationError(
+            "SAXO_REMOTE_GPU_BEARER_TOKEN must not contain control characters",
+        )
+    return token
 
 
 def _parse_boolean(value: str | None, variable: str) -> bool:
