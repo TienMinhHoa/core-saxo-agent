@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import json
+import os
+import tempfile
 from functools import partial
+from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 import anyio
@@ -42,6 +46,114 @@ class InMemoryEmbeddingReuseStore(EmbeddingReuseStore):
             record.source_version,
             record.embedding_profile,
             record.search_text,
+        )
+
+
+class FileEmbeddingReuseStore(EmbeddingReuseStore):
+    """Durable single-process embedding cache with atomic JSON replacement.
+
+    The file stores only validated ``ChunkIndexRecord`` projections. A missing
+    file means an empty cache; malformed persisted data fails loudly so a
+    corrupted cache cannot silently change indexing behavior.
+    """
+
+    def __init__(self, path: str | Path) -> None:
+        self._path = Path(path)
+        if self._path.name in {"", ".", ".."}:
+            raise ValueError("embedding reuse store path must name a file")
+
+    async def find(self, records: Sequence[IndexInputRecord]) -> Mapping[str, ChunkIndexRecord]:
+        requested = tuple(records)
+        stored = await anyio.to_thread.run_sync(self._read)
+        return {
+            record.chunk_id: stored[key]
+            for record in requested
+            if (key := self._key(record)) in stored
+        }
+
+    async def save(self, records: Sequence[ChunkIndexRecord]) -> None:
+        new_records = tuple(records)
+        if not new_records:
+            return
+        await anyio.to_thread.run_sync(partial(self._save, new_records))
+
+    def _read(self) -> dict[tuple[str, str, str, str], ChunkIndexRecord]:
+        if not self._path.exists():
+            return {}
+        try:
+            payload = json.loads(self._path.read_text(encoding="utf-8"))
+            if not isinstance(payload, list):
+                raise ValueError("payload must be a list")
+            records = [self._decode(item) for item in payload]
+        except (KeyError, OSError, json.JSONDecodeError, TypeError, ValueError) as error:
+            raise ValueError(f"embedding reuse store is corrupt: {self._path}") from error
+        return {self._key(record): record for record in records}
+
+    def _save(self, records: Sequence[ChunkIndexRecord]) -> None:
+        merged = self._read()
+        for record in records:
+            merged[self._key(record)] = record
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        fd, temporary_name = tempfile.mkstemp(
+            prefix=f".{self._path.name}.", suffix=".tmp", dir=self._path.parent
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as temporary:
+                json.dump(
+                    [self._encode(record) for record in merged.values()],
+                    temporary,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                )
+                temporary.flush()
+                os.fsync(temporary.fileno())
+            os.replace(temporary_name, self._path)
+        except BaseException:
+            try:
+                os.unlink(temporary_name)
+            except FileNotFoundError:
+                pass
+            raise
+
+    @staticmethod
+    def _key(record: IndexInputRecord | ChunkIndexRecord) -> tuple[str, str, str, str]:
+        return (
+            record.chunk_id,
+            record.source_version,
+            record.embedding_profile,
+            record.search_text,
+        )
+
+    @staticmethod
+    def _encode(record: ChunkIndexRecord) -> dict[str, object]:
+        return {
+            "chunk_id": record.chunk_id,
+            "document_ref": record.document_ref,
+            "source_version": record.source_version,
+            "search_text": record.search_text,
+            "embedding": list(record.embedding),
+            "embedding_profile": record.embedding_profile,
+            "access_scope": record.access_scope,
+            "metadata": dict(record.metadata),
+        }
+
+    @staticmethod
+    def _decode(item: object) -> ChunkIndexRecord:
+        if not isinstance(item, dict):
+            raise ValueError("record must be a mapping")
+        embedding = item.get("embedding")
+        metadata = item.get("metadata")
+        if not isinstance(embedding, list) or not isinstance(metadata, dict):
+            raise ValueError("record embedding and metadata are invalid")
+        return ChunkIndexRecord(
+            chunk_id=item["chunk_id"],
+            document_ref=item["document_ref"],
+            source_version=item["source_version"],
+            search_text=item["search_text"],
+            embedding=tuple(embedding),
+            embedding_profile=item["embedding_profile"],
+            access_scope=item["access_scope"],
+            metadata=metadata,
         )
 
 

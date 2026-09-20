@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from saxophone.ingestion.models import EmbeddingRecord, IndexInputRecord, IngestionCommand
-from saxophone.ingestion.adapters import InMemoryEmbeddingReuseStore
+from saxophone.ingestion.adapters import FileEmbeddingReuseStore, InMemoryEmbeddingReuseStore
 from saxophone.ingestion.use_cases import IndexDocument
 
 
@@ -197,3 +197,36 @@ async def test_index_document_reembeds_when_source_text_changes() -> None:
 
     assert report.reused_embedding_count == 0
     assert second_provider.calls == [((('chunk-1', 'A changed musical phrase'),), "source-v1")]
+
+
+@pytest.mark.anyio
+async def test_file_embedding_reuse_store_survives_new_instance(tmp_path) -> None:
+    path = tmp_path / "embedding-reuse.json"
+    first_store = FileEmbeddingReuseStore(path)
+    first_provider = FakeEmbeddingProvider((_embedding(),))
+
+    first = await IndexDocument(FakeIndex(), first_provider, first_store).execute(
+        _command(), [_record()]
+    )
+
+    assert first.indexed is True
+    second_store = FileEmbeddingReuseStore(path)
+    second_provider = FakeEmbeddingProvider(
+        error=AssertionError("restart must reuse persisted embedding")
+    )
+    second = await IndexDocument(FakeIndex(), second_provider, second_store).execute(
+        _command(), [_record()]
+    )
+
+    assert second.indexed is True
+    assert second.embedded_count == 0
+    assert second.reused_embedding_count == 1
+
+
+@pytest.mark.anyio
+async def test_file_embedding_reuse_store_rejects_corrupt_payload(tmp_path) -> None:
+    path = tmp_path / "embedding-reuse.json"
+    path.write_text("{not-json", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="embedding reuse store"):
+        await FileEmbeddingReuseStore(path).find([_record()])
