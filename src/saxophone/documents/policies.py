@@ -7,6 +7,11 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 
+_MIME_TOKEN_CHARACTERS = frozenset(
+    "!#$%&'*+-.^_`|~"
+)
+
+
 def is_safe_artifact_reference(artifact_id: object) -> bool:
     """Return whether an artifact identity is safe for backend-owned storage."""
 
@@ -70,4 +75,12 @@ def is_safe_media_type(media_type: object) -> bool:
     parts = main_type.split("/")
     if len(parts) != 2 or not all(parts):
         return False
-    return not any(character.isspace() for character in main_type)
+    return all(_is_mime_token(part) for part in parts)
+
+
+def _is_mime_token(value: str) -> bool:
+    return all(
+        character.isascii()
+        and (character.isalnum() or character in _MIME_TOKEN_CHARACTERS)
+        for character in value
+    )
