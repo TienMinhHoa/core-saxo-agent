@@ -148,6 +148,17 @@ deployment production.
 3. Khi hai điều trên đã có bằng chứng, cập nhật lại bảng này rồi mới đánh dấu
    stop condition là hoàn tất.
 
+### Iteration 76 — Chroma upsert khong chap nhan ID trung
+
+- Siết `ChromaVectorIndex.upsert_chunks()` fail-closed khi cùng một
+  `chunk_id` xuất hiện nhiều lần trong một batch, trước khi gọi provider.
+- Bổ sung regression test chứng minh batch trùng ID không tạo provider I/O;
+  chi tiết tại `docs/ITERATION_76_CHROMA_UPSERT_UNIQUE_IDS.md`.
+- Xác minh offline: targeted **41 passed**; full suite **427 passed, 2
+  skipped, 1 warning**; `compileall` và `git diff --check` thành công.
+- Live model-service smoke và production golden parity vẫn bị chặn bởi thiếu
+  endpoint, credential và catalog production thật.
+
 ### Iteration 11 — tôn trọng Retry-After của model-service
 
 - `LiteLLMModelClient` đọc header `Retry-After` dạng số giây cho response

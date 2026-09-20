@@ -322,6 +322,9 @@ class ChromaVectorIndex(VectorIndex):
     async def upsert_chunks(self, records: Sequence[ChunkIndexRecord]) -> None:
         if not records:
             return
+        chunk_ids = [record.chunk_id for record in records]
+        if len(chunk_ids) != len(set(chunk_ids)):
+            raise ValueError("Chroma upsert chunk IDs must be unique")
         if self._embedding_dimension is not None:
             invalid = next(
                 (record for record in records if record.dimension != self._embedding_dimension),

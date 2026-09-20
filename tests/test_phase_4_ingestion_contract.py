@@ -281,6 +281,19 @@ async def test_chroma_adapter_runs_upsert_delete_and_search_through_async_port()
 
 
 @pytest.mark.anyio
+async def test_chroma_upsert_rejects_duplicate_chunk_ids_before_provider_io() -> None:
+    class _CollectionThatMustNotBeCalled:
+        def upsert(self, **kwargs):
+            raise AssertionError("duplicate IDs reached Chroma")
+
+    index = ChromaVectorIndex(_CollectionThatMustNotBeCalled())
+    record = _index_record()
+
+    with pytest.raises(ValueError, match="unique"):
+        await index.upsert_chunks([record, record])
+
+
+@pytest.mark.anyio
 async def test_chroma_search_passes_shared_blocking_io_limiter(monkeypatch) -> None:
     collection = _FakeChromaCollection()
     limiter = object()
