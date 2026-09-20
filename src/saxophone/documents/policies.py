@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unicodedata
 from pathlib import Path
+import re
 from urllib.parse import urlparse
 
 
@@ -24,7 +25,24 @@ def is_safe_artifact_reference(artifact_id: object) -> bool:
     if any(character in artifact_id for character in ("\\", "\x00", ":")):
         return False
     parts = artifact_id.split("/")
-    return bool(parts) and all(part not in {"", ".", ".."} for part in parts)
+    return bool(parts) and all(
+        part not in {"", ".", ".."} and _is_safe_windows_storage_component(part)
+        for part in parts
+    )
+
+
+def _is_safe_windows_storage_component(component: str) -> bool:
+    """Keep artifact identities portable when local storage runs on Windows."""
+
+    if component.endswith((" ", ".")):
+        return False
+    if any(character in component for character in '<>"|?*'):
+        return False
+    normalized = component.rstrip(" .")
+    device_name = normalized.split(".", 1)[0].upper()
+    return device_name not in {"CON", "PRN", "AUX", "NUL"} and not re.fullmatch(
+        r"(?:COM|LPT)[1-9]", device_name
+    )
 
 
 def is_safe_document_reference(document_ref: object) -> bool:

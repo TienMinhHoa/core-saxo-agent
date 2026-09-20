@@ -113,6 +113,37 @@ def test_artifact_reference_rejects_path_escaping_or_noncanonical_identity(
 @pytest.mark.parametrize(
     ("field", "value"),
     [
+        ("artifact_id", "document/report."),
+        ("artifact_id", "document/report "),
+        ("artifact_id", "document/report?.json"),
+        ("artifact_id", "document/CON/report"),
+        ("artifact_id", "document/archive/COM1.txt"),
+        ("version", "extract-v1."),
+        ("version", "extract-v1 "),
+        ("version", "extract?stable"),
+        ("version", "LPT1"),
+    ],
+)
+def test_artifact_reference_rejects_windows_unsafe_storage_components(
+    field: str, value: str
+) -> None:
+    fields = {
+        "artifact_id": "document-123/manifest",
+        "version": "extract-v1",
+        "kind": ArtifactKind.EXTRACTION_MANIFEST,
+        "media_type": "application/json",
+        "sha256": "a" * 64,
+        "size_bytes": 128,
+    }
+    fields[field] = value
+
+    with pytest.raises(ValueError, match=field):
+        ArtifactRef(**fields)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
         ("artifact_id", "document/cafe\u0301/manifest"),
         ("version", "extract-cafe\u0301-v1"),
     ],
