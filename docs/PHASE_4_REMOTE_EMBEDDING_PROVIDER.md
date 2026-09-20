@@ -23,8 +23,15 @@ uv run pytest tests/test_phase_4_remote_embedding_provider.py -q
 3 passed
 
 uv run pytest -q
-162 passed, 2 skipped, 1 warning
+164 passed, 2 skipped, 1 warning
 ```
+
+## Bo sung iteration 35: composition root
+
+`RemoteEmbeddingProvider` da duoc lap vao `AppContainer`. Production dung chung
+`ModelClient` va model profile tu `AppSettings`; test co the thay the qua
+`AppOverrides`. Ingestion health van chua bat `ready` vi `IndexDocument` chua
+duoc compose cung provider trong pipeline day du.
 
 Test bao phủ mapping thành công, output thiếu vector và response có chunk thừa.
 Chưa có live model-service smoke hoặc composition-root wiring cho ingestion; đó

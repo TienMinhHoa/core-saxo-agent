@@ -14,6 +14,8 @@ from saxophone.chat.service import AnswerQuestion
 from saxophone.documents.ports import ArtifactRepository
 from saxophone.extraction.ports import PdfExtractor
 from saxophone.extraction.remote import RemotePdfExtractor
+from saxophone.ingestion.adapters import RemoteEmbeddingProvider
+from saxophone.ingestion.ports import EmbeddingProvider
 from saxophone.platform.artifacts import LocalArtifactRepository
 from saxophone.platform.model_client import LiteLLMModelClient, ModelClient
 from saxophone.platform.remote_gpu import (
@@ -44,6 +46,7 @@ class AppContainer:
     retrieve_evidence: RetrieveEvidence | None = None
     answer_question: AnswerQuestion | None = None
     pdf_extractor: PdfExtractor | None = None
+    embedding_provider: EmbeddingProvider | None = None
     artifact_repository: ArtifactRepository | None = None
     process_document: ProcessDocument | None = None
 
@@ -57,6 +60,7 @@ class AppOverrides:
     retrieve_evidence: RetrieveEvidence | None = None
     answer_question: AnswerQuestion | None = None
     pdf_extractor: PdfExtractor | None = None
+    embedding_provider: EmbeddingProvider | None = None
     artifact_repository: ArtifactRepository | None = None
     process_document: ProcessDocument | None = None
 
@@ -93,6 +97,13 @@ def create_app(
             model=settings.litellm_model_profile,
         )
 
+    embedding_provider = resolved_overrides.embedding_provider
+    if embedding_provider is None:
+        embedding_provider = RemoteEmbeddingProvider(
+            model_client,
+            model=settings.litellm_model_profile,
+        )
+
     artifact_repository = resolved_overrides.artifact_repository
     if artifact_repository is None:
         artifact_repository = LocalArtifactRepository(settings.data_root / "artifacts")
@@ -108,6 +119,7 @@ def create_app(
         retrieve_evidence=resolved_overrides.retrieve_evidence,
         answer_question=resolved_overrides.answer_question,
         pdf_extractor=pdf_extractor,
+        embedding_provider=embedding_provider,
         artifact_repository=artifact_repository,
         process_document=process_document,
     )

@@ -27,6 +27,11 @@ class RemoteEmbeddingProvider(EmbeddingProvider):
         self._client = client
         self._model = model.strip()
 
+    @property
+    def model(self) -> str:
+        """Configured remote model profile, exposed for composition diagnostics."""
+        return self._model
+
     async def embed(
         self,
         chunks: Sequence[tuple[str, str]],

@@ -11,6 +11,7 @@ from saxophone.app.settings import AppSettings
 from saxophone.platform.remote_gpu import HttpRemoteGpuGateway, RemoteGpuHealth
 from saxophone.platform.model_client import LiteLLMModelClient
 from saxophone.extraction.remote import RemotePdfExtractor
+from saxophone.ingestion.adapters import RemoteEmbeddingProvider
 
 
 VALID_ENVIRONMENT = {
@@ -117,6 +118,29 @@ def test_default_composition_wires_remote_pdf_extractor_to_shared_model_client()
 
     assert isinstance(extractor, RemotePdfExtractor)
     assert extractor.model == build_settings().litellm_model_profile
+
+
+def test_default_composition_wires_remote_embedding_provider_to_shared_model_client() -> None:
+    app = create_app(build_settings())
+
+    provider = app.state.container.embedding_provider
+
+    assert isinstance(provider, RemoteEmbeddingProvider)
+    assert provider.model == build_settings().litellm_model_profile
+
+
+def test_embedding_provider_override_is_kept_in_container() -> None:
+    provider = RemoteEmbeddingProvider(FakeModelClient(), model="test-embedding")
+    app = create_app(
+        build_settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=FakeRemoteGpuGateway(status="ready"),
+            model_client=FakeModelClient(),
+            embedding_provider=provider,
+        ),
+    )
+
+    assert app.state.container.embedding_provider is provider
 
 
 def test_extraction_override_is_kept_in_container_and_marks_health_ready() -> None:
