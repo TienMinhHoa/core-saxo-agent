@@ -216,12 +216,15 @@ class LiteLLMModelClient:
                     502,
                     503,
                     504,
-                }:
+                    }:
                     raise
-            if self._retry_backoff_seconds:
-                await asyncio.sleep(self._retry_backoff_seconds)
+            retry_delay = _retry_delay_seconds(
+                response,
+                fallback=self._retry_backoff_seconds,
+            )
+            if retry_delay:
+                await asyncio.sleep(retry_delay)
         raise AssertionError("retry loop must return or raise")
-
     def _ensure_circuit_closed(self) -> None:
         if self._circuit_opened_at is None:
             return
@@ -241,6 +244,21 @@ class LiteLLMModelClient:
         self._consecutive_failures += 1
         if self._consecutive_failures >= self._circuit_breaker_failure_threshold:
             self._circuit_opened_at = self._monotonic_clock()
+
+
+def _retry_delay_seconds(response: httpx.Response, *, fallback: float) -> float:
+    """Prefer a valid server delay while retaining the local retry floor."""
+
+    retry_after = response.headers.get("Retry-After")
+    if retry_after is None:
+        return fallback
+    try:
+        server_delay = float(retry_after)
+    except ValueError:
+        return fallback
+    if server_delay < 0:
+        return fallback
+    return max(fallback, server_delay)
 
 
 def _parse_task(value: object) -> ModelTask:

@@ -79,3 +79,14 @@ deployment production.
    deprecate legacy catalog/UI.
 3. Khi hai điều trên đã có bằng chứng, cập nhật lại bảng này rồi mới đánh dấu
    stop condition là hoàn tất.
+
+### Iteration 11 — tôn trọng Retry-After của model-service
+
+- `LiteLLMModelClient` đọc header `Retry-After` dạng số giây cho response
+  transient; delay hiệu dụng là `max` giữa server delay và local backoff.
+- Regression test được bổ sung trong `test_phase_1_litellm_client.py`; retry
+  vẫn bị giới hạn bởi `max_attempts` và không áp dụng cho lỗi contract/auth.
+- Xác minh offline: **286 passed, 2 skipped, 1 warning**; `compileall` và
+  `git diff --check` đều thành công.
+- Live model-service smoke vẫn chưa chạy vì checkout chưa có endpoint/credential
+  thật; chi tiết lát thay đổi ở `ITERATION_11_RETRY_AFTER_CONTRACT.md`.
