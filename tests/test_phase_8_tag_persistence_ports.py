@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 
 from saxophone.tagging.models import TaggedParagraph
+from saxophone.tagging.persistence import JsonTagCatalogRepository, JsonTaggedParagraphRepository
 from saxophone.tagging.ports import TagCatalogRepository, TaggedParagraphRepository
 
 
@@ -71,6 +73,40 @@ def test_tagged_paragraph_repository_reports_missing_records() -> None:
 
 def test_tag_catalog_is_deterministic_and_deduplicated() -> None:
     catalog: TagCatalogRepository = _TagCatalog()
+
+    asyncio.run(catalog.add(("Harmony definition", "Chord construction")))
+    asyncio.run(catalog.add(("Harmony definition",)))
+
+    assert asyncio.run(catalog.list()) == ("Chord construction", "Harmony definition")
+
+
+def test_json_tagged_paragraph_repository_round_trips_and_replaces(tmp_path) -> None:
+    repository = JsonTaggedParagraphRepository(tmp_path / "paragraphs")
+    original = _paragraph()
+    replacement = _paragraph(text="Updated harmony source")
+
+    asyncio.run(repository.upsert(original))
+    assert asyncio.run(repository.get(original.paragraph_id)) == original
+    asyncio.run(repository.upsert(replacement))
+
+    assert asyncio.run(repository.get(original.paragraph_id)) == replacement
+
+
+def test_json_tagged_paragraph_repository_rejects_tampered_identity(tmp_path) -> None:
+    repository = JsonTaggedParagraphRepository(tmp_path / "paragraphs")
+    paragraph = _paragraph()
+    asyncio.run(repository.upsert(paragraph))
+    stored = next((tmp_path / "paragraphs").glob("*.json"))
+    payload = json.loads(stored.read_text(encoding="utf-8"))
+    payload["paragraph_id"] = "other"
+    stored.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="paragraph ID"):
+        asyncio.run(repository.get(paragraph.paragraph_id))
+
+
+def test_json_tag_catalog_is_atomic_and_deterministic(tmp_path) -> None:
+    catalog = JsonTagCatalogRepository(tmp_path / "tags.json")
 
     asyncio.run(catalog.add(("Harmony definition", "Chord construction")))
     asyncio.run(catalog.add(("Harmony definition",)))
