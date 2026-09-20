@@ -4,6 +4,7 @@ from json import loads
 
 import httpx
 import pytest
+import anyio
 
 from saxophone.platform.model_client import (
     LiteLLMModelClient,
@@ -13,7 +14,7 @@ from saxophone.platform.model_client import (
     ModelTask,
     ModelValidationError,
 )
-from saxophone.platform.observability import InMemoryEventSink
+from saxophone.platform.observability import EventMetrics, InMemoryEventSink
 
 
 def _request() -> ModelRequest:
@@ -111,6 +112,39 @@ async def test_litellm_client_emits_safe_success_event_with_attempt_count() -> N
     assert event["input_count"] == 1
     assert event["output_count"] == 1
     assert event["result"] == "success"
+
+
+@pytest.mark.anyio
+async def test_litellm_client_propagates_cancellation_without_retry_or_stuck_metrics() -> None:
+    started = anyio.Event()
+    request_count = 0
+    metrics = EventMetrics()
+    sink = InMemoryEventSink()
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+        started.set()
+        await anyio.sleep_forever()
+        raise AssertionError("the cancelled model request must not return")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        client = LiteLLMModelClient(
+            "https://model.example.test/v1/invoke",
+            http_client=http_client,
+            bearer_token="secret-token",
+            max_attempts=3,
+            event_sink=sink,
+            metrics=metrics,
+        )
+        async with anyio.create_task_group() as task_group:
+            task_group.start_soon(client.invoke, _request())
+            await started.wait()
+            task_group.cancel_scope.cancel()
+
+    assert request_count == 1
+    assert metrics.in_flight(task="answer_generate") == 0
+    assert sink.events == []
 
 
 @pytest.mark.anyio
