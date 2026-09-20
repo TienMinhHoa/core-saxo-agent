@@ -10,6 +10,7 @@ from saxophone.app.factory import AppContainer, AppOverrides, create_app
 from saxophone.app.settings import AppSettings
 from saxophone.platform.remote_gpu import HttpRemoteGpuGateway, RemoteGpuHealth
 from saxophone.platform.model_client import LiteLLMModelClient
+from saxophone.extraction.remote import RemotePdfExtractor
 
 
 VALID_ENVIRONMENT = {
@@ -31,6 +32,11 @@ class FakeRemoteGpuGateway:
 class FakeModelClient:
     async def invoke(self, request):
         raise AssertionError("composition test must not invoke the model")
+
+
+class FakePdfExtractor:
+    async def extract(self, request):
+        raise AssertionError("composition test must not invoke extraction")
 
 
 def build_settings() -> AppSettings:
@@ -104,6 +110,30 @@ def test_default_composition_uses_litellm_settings_for_model_client() -> None:
     assert client.retry_backoff_seconds == 0.25
 
 
+def test_default_composition_wires_remote_pdf_extractor_to_shared_model_client() -> None:
+    app = create_app(build_settings())
+
+    extractor = app.state.container.pdf_extractor
+
+    assert isinstance(extractor, RemotePdfExtractor)
+    assert extractor.model == build_settings().litellm_model_profile
+
+
+def test_extraction_override_is_kept_in_container_and_marks_health_ready() -> None:
+    extractor = FakePdfExtractor()
+    app = create_app(
+        build_settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=FakeRemoteGpuGateway(status="ready"),
+            model_client=FakeModelClient(),
+            pdf_extractor=extractor,
+        ),
+    )
+
+    assert app.state.container.pdf_extractor is extractor
+    assert TestClient(app).get("/api/v1/health").json()["extraction"] == "ready"
+
+
 def test_health_uses_override_and_returns_stable_disabled_capabilities() -> None:
     gateway = FakeRemoteGpuGateway(status="degraded")
     app = create_app(
@@ -121,7 +151,7 @@ def test_health_uses_override_and_returns_stable_disabled_capabilities() -> None
         "app": "ready",
         "remote_gpu": "degraded",
         "remote_gpu_capabilities": ["embed"],
-        "extraction": "disabled",
+        "extraction": "ready",
         "ingestion": "disabled",
         "retrieval": "disabled",
         "chat": "disabled",

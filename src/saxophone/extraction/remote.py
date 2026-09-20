@@ -27,6 +27,11 @@ class RemotePdfExtractor:
         self._model = model
         self._response_schema = response_schema
 
+    @property
+    def model(self) -> str:
+        """Return the configured remote model profile used for extraction."""
+        return self._model
+
     async def extract(self, request: PdfExtractionRequest) -> PdfExtractionResult:
         response = await self._model_client.invoke(
             ModelRequest(

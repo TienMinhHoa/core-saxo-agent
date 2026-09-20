@@ -11,6 +11,8 @@ from fastapi import FastAPI
 
 from saxophone.app.settings import AppSettings
 from saxophone.chat.service import AnswerQuestion
+from saxophone.extraction.ports import PdfExtractor
+from saxophone.extraction.remote import RemotePdfExtractor
 from saxophone.platform.model_client import LiteLLMModelClient, ModelClient
 from saxophone.platform.remote_gpu import (
     HttpRemoteGpuGateway,
@@ -38,6 +40,7 @@ class AppContainer:
     http_client: httpx.AsyncClient | None = None
     retrieve_evidence: RetrieveEvidence | None = None
     answer_question: AnswerQuestion | None = None
+    pdf_extractor: PdfExtractor | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +51,7 @@ class AppOverrides:
     model_client: ModelClient | None = None
     retrieve_evidence: RetrieveEvidence | None = None
     answer_question: AnswerQuestion | None = None
+    pdf_extractor: PdfExtractor | None = None
 
 
 def create_app(
@@ -75,6 +79,13 @@ def create_app(
             retry_backoff_seconds=settings.litellm_retry_backoff_seconds,
         )
 
+    pdf_extractor = resolved_overrides.pdf_extractor
+    if pdf_extractor is None:
+        pdf_extractor = RemotePdfExtractor(
+            model_client,
+            model=settings.litellm_model_profile,
+        )
+
     container = AppContainer(
         settings=settings,
         remote_gpu_gateway=remote_gpu_gateway,
@@ -82,6 +93,7 @@ def create_app(
         http_client=http_client,
         retrieve_evidence=resolved_overrides.retrieve_evidence,
         answer_question=resolved_overrides.answer_question,
+        pdf_extractor=pdf_extractor,
     )
 
     @asynccontextmanager
@@ -108,7 +120,11 @@ def create_app(
             "app": "ready",
             "remote_gpu": remote_gpu.status,
             "remote_gpu_capabilities": list(remote_gpu.capabilities),
-            "extraction": _DISABLED_CAPABILITIES["extraction"],
+            "extraction": (
+                "ready"
+                if container.pdf_extractor is not None
+                else _DISABLED_CAPABILITIES["extraction"]
+            ),
             "ingestion": _DISABLED_CAPABILITIES["ingestion"],
             "retrieval": "ready" if container.retrieve_evidence is not None else "disabled",
             "chat": "ready" if container.answer_question is not None else "disabled",
