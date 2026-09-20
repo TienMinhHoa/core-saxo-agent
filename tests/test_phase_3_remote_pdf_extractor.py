@@ -64,6 +64,68 @@ def test_remote_pdf_extractor_maps_typed_model_result() -> None:
     assert client.request.metadata["correlation_id"] == "corr-1"
 
 
+def test_remote_pdf_extractor_maps_json_artifact_envelopes() -> None:
+    class FakeClient:
+        async def invoke(self, request: ModelRequest) -> ModelResponse:
+            return ModelResponse(
+                task=ModelTask.PDF_EXTRACT,
+                model="extractor-v1",
+                response_schema="pdf-extraction-v1",
+                output={
+                    name: {
+                        "artifact_id": name,
+                        "version": "v1",
+                        "kind": kind.value,
+                        "media_type": media_type,
+                        "sha256": hashlib.sha256(name.encode()).hexdigest(),
+                        "size_bytes": len(name),
+                    }
+                    for name, kind, media_type in (
+                        ("markdown", ArtifactKind.MARKDOWN, "text/markdown"),
+                        ("layout", ArtifactKind.LAYOUT, "application/json"),
+                        ("manifest", ArtifactKind.EXTRACTION_MANIFEST, "application/json"),
+                    )
+                },
+                source_version="source-v1",
+            )
+
+    result = asyncio.run(
+        RemotePdfExtractor(FakeClient(), model="extractor-v1").extract(_request())
+    )
+
+    assert result.markdown.artifact_id == "markdown"
+    assert result.markdown.kind is ArtifactKind.MARKDOWN
+    assert result.markdown.media_type == "text/markdown"
+    assert result.layout.media_type == "application/json"
+
+
+@pytest.mark.parametrize("field", ["kind", "sha256", "size_bytes"])
+def test_remote_pdf_extractor_rejects_invalid_json_artifact_metadata(field: str) -> None:
+    class FakeClient:
+        async def invoke(self, request: ModelRequest) -> ModelResponse:
+            artifact = {
+                "artifact_id": "markdown",
+                "version": "v1",
+                "kind": ArtifactKind.MARKDOWN.value,
+                "media_type": "text/markdown",
+                "sha256": hashlib.sha256(b"markdown").hexdigest(),
+                "size_bytes": len("markdown"),
+            }
+            artifact[field] = {
+                "kind": "not-an-artifact"
+            } if field == "kind" else ("not-a-digest" if field == "sha256" else -1)
+            return ModelResponse(
+                task=ModelTask.PDF_EXTRACT,
+                model="extractor-v1",
+                response_schema="pdf-extraction-v1",
+                output={"markdown": artifact},
+                source_version="source-v1",
+            )
+
+    with pytest.raises(ValueError, match=field):
+        asyncio.run(RemotePdfExtractor(FakeClient(), model="extractor-v1").extract(_request()))
+
+
 @pytest.mark.parametrize("field", ["markdown", "layout", "manifest"])
 def test_remote_pdf_extractor_rejects_missing_artifact(field: str) -> None:
     class FakeClient:

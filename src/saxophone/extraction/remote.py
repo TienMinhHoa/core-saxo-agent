@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from saxophone.documents.models import ArtifactKind, ArtifactRef
 from saxophone.platform.model_client import ModelClient, ModelRequest, ModelTask
 
 from .models import PdfExtractionRequest, PdfExtractionResult
@@ -66,10 +67,25 @@ class RemotePdfExtractor:
         )
 
 
-def _required_artifact(output: Mapping[str, object], name: str):
+def _required_artifact(output: Mapping[str, object], name: str) -> ArtifactRef:
     value = output.get(name)
-    from saxophone.documents.models import ArtifactRef
-
-    if not isinstance(value, ArtifactRef):
-        raise ValueError(f"model output {name} must be an ArtifactRef")
-    return value
+    if isinstance(value, ArtifactRef):
+        return value
+    if not isinstance(value, Mapping):
+        raise ValueError(f"model output {name} must be an artifact mapping")
+    try:
+        kind = ArtifactKind(value["kind"])
+        return ArtifactRef(
+            artifact_id=value["artifact_id"],
+            version=value["version"],
+            kind=kind,
+            media_type=value["media_type"],
+            sha256=value["sha256"],
+            size_bytes=value["size_bytes"],
+        )
+    except KeyError as error:
+        raise ValueError(f"model output {name} is missing {error.args[0]}") from error
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            f"model output {name} has invalid artifact metadata: {error}"
+        ) from error
