@@ -217,6 +217,7 @@ def build_capability_router(
                 detail="extracted document ingestion capability is not configured",
             )
         normalized_ref = _normalized_text(document_ref, "document_ref")
+        _require_safe_document_reference(normalized_ref)
         try:
             result = await process_and_persist_workflow.execute(
                 PdfExtractionRequest(

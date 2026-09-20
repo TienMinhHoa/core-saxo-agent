@@ -406,6 +406,64 @@ def test_process_and_ingest_route_runs_persisted_markdown_through_indexing() -> 
     assert vector_index.records[0].search_text == "A source paragraph."
 
 
+def test_process_and_ingest_route_rejects_unsafe_document_ref_before_workflow() -> None:
+    markdown = b"## Intro\nA source paragraph."
+    result = PdfExtractionResult(
+        document_ref="doc-1",
+        source_version="source-v1",
+        markdown=_artifact("markdown", ArtifactKind.MARKDOWN, markdown),
+        layout=_artifact("layout", ArtifactKind.LAYOUT),
+        manifest=_artifact("manifest", ArtifactKind.EXTRACTION_MANIFEST),
+        coordinates=(),
+        model_profile="extractor-v1",
+    )
+    extractor = FakePdfExtractor(result, [])
+    artifacts = MultiArtifactRepository({"source": b"source", "markdown": markdown}, [])
+    vector_index = FakeVectorIndex()
+    app = create_app(
+        settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=FakeRemoteGpuGateway(),
+            model_client=FakeModelClient(),
+            pdf_extractor=extractor,
+            artifact_repository=artifacts,
+            vector_index=vector_index,
+            embedding_provider=FakeEmbeddingProvider(),
+            process_and_persist_document=ProcessAndPersistDocument(
+                ProcessDocument(artifacts, extractor),
+                FakeExtractionPayloads(markdown),
+                artifacts,
+            ),
+        ),
+    )
+
+    response = TestClient(app).post(
+        "/api/v1/documents/..%5Coutside/process-and-ingest",
+        json={
+            "source": {
+                "artifact_id": "source",
+                "version": "v1",
+                "kind": "source_pdf",
+                "media_type": "application/pdf",
+                "sha256": "41cf6794ba4200b839c53531555f0f3998df4cbb01a4d5cb0b94e3ca5e23947d",
+                "size_bytes": 6,
+            },
+            "source_version": "source-v1",
+            "correlation_id": "corr-1",
+            "model_profile": "extractor-v1",
+            "chunking_profile": "header-v1",
+            "embedding_profile": "embed-v1",
+            "index_profile": "index-v1",
+            "access_scope": "tenant-a",
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "unsafe document_ref"}
+    assert extractor.calls == []
+    assert vector_index.records == ()
+
+
 def test_process_and_ingest_route_preserves_tagging_before_indexing() -> None:
     markdown = b"## Intro\nA source paragraph."
     result = PdfExtractionResult(
