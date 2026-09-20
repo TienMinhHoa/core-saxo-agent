@@ -131,7 +131,7 @@ def build_capability_router(
             )
         if workflow is None:
             raise HTTPException(status_code=503, detail="extraction capability is not configured")
-        normalized_ref = _normalized_text(document_ref, "document_ref")
+        normalized_ref = _normalized_reference(document_ref, "document_ref")
         _require_safe_document_reference(normalized_ref)
         try:
             result: PdfExtractionResult = await workflow.execute(
@@ -156,7 +156,7 @@ def build_capability_router(
                 status_code=415,
                 detail="uploaded file must have media type application/pdf",
             )
-        normalized_ref = _normalized_text(document_ref, "document_ref")
+        normalized_ref = _normalized_reference(document_ref, "document_ref")
         _require_safe_document_reference(normalized_ref)
         payload = await _read_bounded_upload(file, max_upload_bytes)
         if b"%PDF-" not in payload[:1024]:
@@ -185,7 +185,7 @@ def build_capability_router(
                 status_code=503,
                 detail="asset resolution capability is not configured",
             )
-        normalized_ref = _normalized_text(asset_ref, "asset_ref")
+        normalized_ref = _normalized_reference(asset_ref, "asset_ref")
         if not is_safe_relative_image_reference(normalized_ref):
             raise HTTPException(status_code=422, detail="unsafe image reference")
         try:
@@ -216,7 +216,7 @@ def build_capability_router(
                 status_code=503,
                 detail="extracted document ingestion capability is not configured",
             )
-        normalized_ref = _normalized_text(document_ref, "document_ref")
+        normalized_ref = _normalized_reference(document_ref, "document_ref")
         _require_safe_document_reference(normalized_ref)
         try:
             result = await process_and_persist_workflow.execute(
@@ -248,7 +248,7 @@ def build_capability_router(
     ) -> dict[str, object]:
         if index_document is None:
             raise HTTPException(status_code=503, detail="ingestion capability is not configured")
-        normalized_ref = _normalized_text(document_ref, "document_ref")
+        normalized_ref = _normalized_reference(document_ref, "document_ref")
         _require_safe_document_reference(normalized_ref)
         command = IngestionCommand(
             document_ref=normalized_ref,
@@ -358,6 +358,15 @@ def _normalized_text(value: str, field_name: str) -> str:
     normalized = value.strip()
     if not normalized:
         raise HTTPException(status_code=422, detail=f"{field_name} must not be blank")
+    return normalized
+
+
+def _normalized_reference(value: str, field_name: str) -> str:
+    """Normalize a route reference without accepting non-canonical whitespace."""
+
+    normalized = _normalized_text(value, field_name)
+    if normalized != value:
+        raise HTTPException(status_code=422, detail=f"unsafe {field_name}")
     return normalized
 
 

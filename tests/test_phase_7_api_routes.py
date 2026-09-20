@@ -897,6 +897,26 @@ def test_source_upload_rejects_document_ref_that_could_escape_artifact_root() ->
     assert artifacts.puts == []
 
 
+def test_source_upload_rejects_non_canonical_document_ref_whitespace() -> None:
+    artifacts = FakeArtifacts(b"", puts=[])
+    app = create_app(
+        settings(),
+        overrides=AppOverrides(
+            model_client=FakeModelClient(),
+            artifact_repository=artifacts,
+        ),
+    )
+
+    response = TestClient(app).post(
+        "/api/v1/documents/%20doc-1%20/source",
+        files={"file": ("source.pdf", b"%PDF-1.7", "application/pdf")},
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "unsafe document_ref"}
+    assert artifacts.puts == []
+
+
 def test_source_upload_rejects_non_pdf_without_persisting() -> None:
     artifacts = FakeArtifacts(b"", puts=[])
     app = create_app(
@@ -1036,6 +1056,34 @@ def test_asset_route_rejects_traversal_before_resolver() -> None:
 
     assert response.status_code == 422
     assert response.json() == {"detail": "unsafe image reference"}
+    assert resolver.calls == []
+
+
+def test_asset_route_rejects_non_canonical_reference_whitespace() -> None:
+    resolver = FakeImageArtifactResolver(
+        artifact=ArtifactRef(
+            artifact_id="doc-1/images/page-1.png",
+            version="image-v1",
+            kind=ArtifactKind.IMAGE,
+            media_type="image/png",
+            sha256=hashlib.sha256(b"png-bytes").hexdigest(),
+            size_bytes=len(b"png-bytes"),
+        ),
+        calls=[],
+    )
+    app = create_app(
+        settings(),
+        overrides=AppOverrides(
+            model_client=FakeModelClient(),
+            artifact_repository=FakeArtifacts(b"png-bytes"),
+            image_artifact_resolver=resolver,
+        ),
+    )
+
+    response = TestClient(app).get("/api/v1/assets/%20doc-1/images/page-1.png")
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "unsafe asset_ref"}
     assert resolver.calls == []
 
 
