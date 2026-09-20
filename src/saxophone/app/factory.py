@@ -15,7 +15,7 @@ from saxophone.documents.ports import ArtifactRepository
 from saxophone.extraction.persistence import RepositoryExtractionArtifactPayloadProvider
 from saxophone.extraction.ports import PdfExtractor
 from saxophone.extraction.remote import RemotePdfExtractor
-from saxophone.ingestion.adapters import InMemoryEmbeddingReuseStore, RemoteEmbeddingProvider
+from saxophone.ingestion.adapters import FileEmbeddingReuseStore, RemoteEmbeddingProvider
 from saxophone.ingestion.ports import EmbeddingProvider, EmbeddingReuseStore, VectorIndex
 from saxophone.ingestion.use_cases import IngestDocument, IndexDocument
 from saxophone.platform.artifacts import LocalArtifactRepository
@@ -157,16 +157,16 @@ def create_app(
             RepositoryExtractionArtifactPayloadProvider(artifact_repository),
             artifact_repository,
         )
+    embedding_reuse = resolved_overrides.embedding_reuse
+    if embedding_reuse is None:
+        embedding_reuse = FileEmbeddingReuseStore(settings.data_root / "embedding-reuse.json")
     index_document = resolved_overrides.index_document
     if index_document is None and resolved_overrides.vector_index is not None:
-        embedding_reuse = resolved_overrides.embedding_reuse or InMemoryEmbeddingReuseStore()
         index_document = IndexDocument(
             resolved_overrides.vector_index,
             embedding_provider,
             embedding_reuse,
         )
-    else:
-        embedding_reuse = resolved_overrides.embedding_reuse
     ingest_extracted_document = resolved_overrides.ingest_extracted_document
     if ingest_extracted_document is None and index_document is not None:
         tag_and_persist = TagAndPersistParagraph(

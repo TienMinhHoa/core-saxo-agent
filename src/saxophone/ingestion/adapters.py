@@ -62,6 +62,11 @@ class FileEmbeddingReuseStore(EmbeddingReuseStore):
         if self._path.name in {"", ".", ".."}:
             raise ValueError("embedding reuse store path must name a file")
 
+    @property
+    def path(self) -> Path:
+        """Path owned by this adapter, exposed for composition diagnostics."""
+        return self._path
+
     async def find(self, records: Sequence[IndexInputRecord]) -> Mapping[str, ChunkIndexRecord]:
         requested = tuple(records)
         stored = await anyio.to_thread.run_sync(self._read)

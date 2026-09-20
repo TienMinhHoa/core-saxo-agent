@@ -13,7 +13,7 @@ from saxophone.platform.remote_gpu import HttpRemoteGpuGateway, RemoteGpuHealth
 from saxophone.platform.model_client import LiteLLMModelClient
 from saxophone.extraction.remote import RemotePdfExtractor
 from saxophone.extraction.persistence import RepositoryExtractionArtifactPayloadProvider
-from saxophone.ingestion.adapters import RemoteEmbeddingProvider
+from saxophone.ingestion.adapters import FileEmbeddingReuseStore, RemoteEmbeddingProvider
 from saxophone.tagging.persistence import (
     JsonTagCatalogRepository,
     JsonTaggedParagraphRepository,
@@ -145,6 +145,34 @@ def test_default_composition_wires_remote_embedding_provider_to_shared_model_cli
 
     assert isinstance(provider, RemoteEmbeddingProvider)
     assert provider.model == build_settings().litellm_model_profile
+
+
+def test_default_composition_wires_durable_embedding_reuse_store() -> None:
+    app = create_app(build_settings())
+
+    reuse_store = app.state.container.embedding_reuse
+
+    assert isinstance(reuse_store, FileEmbeddingReuseStore)
+    assert reuse_store.path == (build_settings().data_root / "embedding-reuse.json")
+
+
+def test_indexing_composition_uses_durable_reuse_store_by_default() -> None:
+    app = create_app(
+        build_settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=FakeRemoteGpuGateway(status="ready"),
+            model_client=FakeModelClient(),
+            vector_index=object(),
+        ),
+    )
+
+    container = app.state.container
+
+    assert isinstance(container.embedding_reuse, FileEmbeddingReuseStore)
+    assert container.index_document is not None
+    assert container.embedding_reuse.path == (
+        build_settings().data_root / "embedding-reuse.json"
+    )
 
 
 def test_embedding_provider_override_is_kept_in_container() -> None:
