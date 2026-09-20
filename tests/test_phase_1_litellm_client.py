@@ -118,6 +118,22 @@ async def test_litellm_client_rejects_transport_without_callable_post(http_clien
 
 
 @pytest.mark.anyio
+async def test_litellm_client_rejects_sync_transport_post_result() -> None:
+    class SyncTransport:
+        def post(self, *_args: object, **_kwargs: object) -> httpx.Response:
+            return httpx.Response(200)
+
+    client = LiteLLMModelClient(
+        "https://model.example.test/v1/invoke",
+        http_client=SyncTransport(),  # type: ignore[arg-type]
+        bearer_token="secret-token",
+    )
+
+    with pytest.raises(ValueError, match="http_client.post must return an awaitable"):
+        await client.invoke(_request())
+
+
+@pytest.mark.anyio
 async def test_litellm_client_sends_typed_envelope_and_maps_response() -> None:
     requests: list[httpx.Request] = []
 

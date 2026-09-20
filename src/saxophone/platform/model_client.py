@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import math
 import random
 import time
@@ -339,12 +340,15 @@ class LiteLLMModelClient:
             )
             response: httpx.Response | None = None
             try:
-                response = await self._http_client.post(
+                post_result = self._http_client.post(
                     self._endpoint,
                     headers=headers,
                     json=payload,
                     timeout=self._timeout_seconds,
                 )
+                if not inspect.isawaitable(post_result):
+                    raise ValueError("http_client.post must return an awaitable")
+                response = await post_result
                 if response.status_code not in {408, 429, 500, 502, 503, 504}:
                     response.raise_for_status()
                     self._record_success()
