@@ -308,27 +308,39 @@ class LiteLLMModelClient:
                 )
                 raise
             try:
-                payload = response.json()
-            except ValueError as error:
-                raise ModelValidationError("model response JSON is invalid") from error
-            if not isinstance(payload, Mapping):
-                raise ModelValidationError("model response must be a mapping")
-            task = _parse_task(payload.get("task_type"))
-            model = _required_text(payload, "model")
-            response_schema = _required_text(payload, "response_format")
-            _validate_response_identity(
-                request,
-                task=task,
-                model=model,
-                response_schema=response_schema,
-            )
-            model_response = ModelResponse(
-                task=task,
-                model=model,
-                response_schema=response_schema,
-                output=_required_mapping(payload, "output"),
-                source_version=_required_text(payload, "source_version"),
-            )
+                try:
+                    payload = response.json()
+                except ValueError as error:
+                    raise ModelValidationError("model response JSON is invalid") from error
+                if not isinstance(payload, Mapping):
+                    raise ModelValidationError("model response must be a mapping")
+                task = _parse_task(payload.get("task_type"))
+                model = _required_text(payload, "model")
+                response_schema = _required_text(payload, "response_format")
+                _validate_response_identity(
+                    request,
+                    task=task,
+                    model=model,
+                    response_schema=response_schema,
+                )
+                model_response = ModelResponse(
+                    task=task,
+                    model=model,
+                    response_schema=response_schema,
+                    output=_required_mapping(payload, "output"),
+                    source_version=_required_text(payload, "source_version"),
+                )
+            except ModelValidationError as error:
+                self._emit_event(
+                    request,
+                    name="model.request.failed",
+                    attempt=max(attempt_count, 1),
+                    started_at=started_at,
+                    result="failure",
+                    reason_code=type(error).__name__,
+                    output_count=0,
+                )
+                raise
             self._emit_event(
                 request,
                 name="model.request.completed",

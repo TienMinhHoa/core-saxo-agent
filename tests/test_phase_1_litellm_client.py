@@ -379,6 +379,40 @@ async def test_litellm_client_rejects_invalid_typed_response() -> None:
 
 
 @pytest.mark.anyio
+async def test_litellm_client_emits_failure_event_for_invalid_typed_response() -> None:
+    sink = InMemoryEventSink()
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "task_type": "wrong-task",
+                "model": "answer-model-v1",
+                "response_format": "answer-v1",
+                "output": {"answer": "unsafe to map"},
+                "source_version": "model-source-v1",
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        with pytest.raises(ModelValidationError):
+            await LiteLLMModelClient(
+                "https://model.example.test/v1/invoke",
+                http_client=http_client,
+                bearer_token="secret-token",
+                event_sink=sink,
+            ).invoke(_request())
+
+    event = sink.events[0].as_dict()
+    assert event["name"] == "model.request.failed"
+    assert event["attempt"] == 1
+    assert event["result"] == "failure"
+    assert event["reason_code"] == "ModelValidationError"
+    assert event["output_count"] == 0
+    assert "output" not in event
+
+
+@pytest.mark.anyio
 async def test_litellm_client_maps_malformed_json_to_model_validation_error() -> None:
     async def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, content=b"not-json", headers={"content-type": "application/json"})
