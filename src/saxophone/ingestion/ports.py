@@ -5,7 +5,19 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Mapping, Sequence
 
-from .models import ChunkIndexRecord, EmbeddingRecord, VectorHit
+from .models import ChunkIndexRecord, EmbeddingRecord, IndexInputRecord, VectorHit
+
+
+class EmbeddingReuseStore(ABC):
+    """Async port for reusing vectors whose source projection is unchanged."""
+
+    @abstractmethod
+    async def find(self, records: Sequence[IndexInputRecord]) -> Mapping[str, ChunkIndexRecord]:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def save(self, records: Sequence[ChunkIndexRecord]) -> None:
+        raise NotImplementedError
 
 
 class EmbeddingProvider(ABC):

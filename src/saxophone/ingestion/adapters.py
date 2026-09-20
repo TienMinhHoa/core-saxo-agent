@@ -14,8 +14,35 @@ from saxophone.platform.model_client import (
     ModelValidationError,
 )
 
-from .models import ChunkIndexRecord, EmbeddingRecord, VectorHit
-from .ports import EmbeddingProvider, VectorIndex
+from .models import ChunkIndexRecord, EmbeddingRecord, IndexInputRecord, VectorHit
+from .ports import EmbeddingProvider, EmbeddingReuseStore, VectorIndex
+
+
+class InMemoryEmbeddingReuseStore(EmbeddingReuseStore):
+    """Process-local cache keyed by the exact source projection and model profile."""
+
+    def __init__(self) -> None:
+        self._records: dict[tuple[str, str, str, str], ChunkIndexRecord] = {}
+
+    async def find(self, records: Sequence[IndexInputRecord]) -> Mapping[str, ChunkIndexRecord]:
+        return {
+            record.chunk_id: self._records[key]
+            for record in records
+            if (key := self._key(record)) in self._records
+        }
+
+    async def save(self, records: Sequence[ChunkIndexRecord]) -> None:
+        for record in records:
+            self._records[self._key(record)] = record
+
+    @staticmethod
+    def _key(record: IndexInputRecord | ChunkIndexRecord) -> tuple[str, str, str, str]:
+        return (
+            record.chunk_id,
+            record.source_version,
+            record.embedding_profile,
+            record.search_text,
+        )
 
 
 class RemoteEmbeddingProvider(EmbeddingProvider):

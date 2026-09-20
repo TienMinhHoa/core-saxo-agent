@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from saxophone.ingestion.models import EmbeddingRecord, IndexInputRecord, IngestionCommand
+from saxophone.ingestion.adapters import InMemoryEmbeddingReuseStore
 from saxophone.ingestion.use_cases import IndexDocument
 
 
@@ -154,3 +155,45 @@ async def test_index_document_rejects_embedding_scope_before_index_call(embeddin
     assert report.indexed is False
     assert report.embedded_count == 0
     assert index.records is None
+
+
+@pytest.mark.anyio
+async def test_index_document_reuses_unchanged_embedding_without_calling_provider() -> None:
+    index = FakeIndex()
+    provider = FakeEmbeddingProvider(error=AssertionError("unchanged record must not be embedded"))
+    reuse_store = InMemoryEmbeddingReuseStore()
+    cached = await IndexDocument(index, FakeEmbeddingProvider((_embedding(),)), reuse_store).execute(
+        _command(), [_record()]
+    )
+    assert cached.indexed is True
+
+    report = await IndexDocument(index, provider, reuse_store).execute(_command(), [_record()])
+
+    assert report.indexed is True
+    assert report.embedded_count == 0
+    assert report.reused_embedding_count == 1
+    assert provider.calls == []
+
+
+@pytest.mark.anyio
+async def test_index_document_reembeds_when_source_text_changes() -> None:
+    index = FakeIndex()
+    first_provider = FakeEmbeddingProvider((_embedding(vector=(0.9, 0.8)),))
+    reuse_store = InMemoryEmbeddingReuseStore()
+    await IndexDocument(index, first_provider, reuse_store).execute(_command(), [_record()])
+
+    changed = IndexInputRecord(
+        chunk_id="chunk-1",
+        document_ref="doc-1",
+        source_version="source-v1",
+        search_text="A changed musical phrase",
+        embedding_profile="embed-v1",
+        access_scope="tenant-a",
+        metadata={"tags": ["phrase"]},
+    )
+    second_provider = FakeEmbeddingProvider((_embedding(vector=(0.1, 0.2)),))
+
+    report = await IndexDocument(index, second_provider, reuse_store).execute(_command(), [changed])
+
+    assert report.reused_embedding_count == 0
+    assert second_provider.calls == [((('chunk-1', 'A changed musical phrase'),), "source-v1")]

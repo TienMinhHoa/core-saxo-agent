@@ -15,8 +15,8 @@ from saxophone.documents.ports import ArtifactRepository
 from saxophone.extraction.persistence import RepositoryExtractionArtifactPayloadProvider
 from saxophone.extraction.ports import PdfExtractor
 from saxophone.extraction.remote import RemotePdfExtractor
-from saxophone.ingestion.adapters import RemoteEmbeddingProvider
-from saxophone.ingestion.ports import EmbeddingProvider, VectorIndex
+from saxophone.ingestion.adapters import InMemoryEmbeddingReuseStore, RemoteEmbeddingProvider
+from saxophone.ingestion.ports import EmbeddingProvider, EmbeddingReuseStore, VectorIndex
 from saxophone.ingestion.use_cases import IngestDocument, IndexDocument
 from saxophone.platform.artifacts import LocalArtifactRepository
 from saxophone.platform.model_client import LiteLLMModelClient, ModelClient
@@ -54,6 +54,7 @@ class AppContainer:
     answer_question: AnswerQuestion | None = None
     pdf_extractor: PdfExtractor | None = None
     embedding_provider: EmbeddingProvider | None = None
+    embedding_reuse: EmbeddingReuseStore | None = None
     artifact_repository: ArtifactRepository | None = None
     process_document: ProcessDocument | None = None
     process_and_persist_document: ProcessAndPersistDocument | None = None
@@ -75,6 +76,7 @@ class AppOverrides:
     answer_question: AnswerQuestion | None = None
     pdf_extractor: PdfExtractor | None = None
     embedding_provider: EmbeddingProvider | None = None
+    embedding_reuse: EmbeddingReuseStore | None = None
     artifact_repository: ArtifactRepository | None = None
     process_document: ProcessDocument | None = None
     process_and_persist_document: ProcessAndPersistDocument | None = None
@@ -157,10 +159,14 @@ def create_app(
         )
     index_document = resolved_overrides.index_document
     if index_document is None and resolved_overrides.vector_index is not None:
+        embedding_reuse = resolved_overrides.embedding_reuse or InMemoryEmbeddingReuseStore()
         index_document = IndexDocument(
             resolved_overrides.vector_index,
             embedding_provider,
+            embedding_reuse,
         )
+    else:
+        embedding_reuse = resolved_overrides.embedding_reuse
     ingest_extracted_document = resolved_overrides.ingest_extracted_document
     if ingest_extracted_document is None and index_document is not None:
         tag_and_persist = TagAndPersistParagraph(
@@ -183,6 +189,7 @@ def create_app(
         answer_question=resolved_overrides.answer_question,
         pdf_extractor=pdf_extractor,
         embedding_provider=embedding_provider,
+        embedding_reuse=embedding_reuse,
         artifact_repository=artifact_repository,
         process_document=process_document,
         process_and_persist_document=process_and_persist_document,

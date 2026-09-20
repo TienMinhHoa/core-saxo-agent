@@ -16,15 +16,21 @@ from .models import (
     IngestionReport,
     IngestionSourceChunk,
 )
-from .ports import EmbeddingProvider, VectorIndex
+from .ports import EmbeddingProvider, EmbeddingReuseStore, VectorIndex
 
 
 class IndexDocument:
     """Publish one document's searchable chunks through the vector-index port."""
 
-    def __init__(self, vector_index: VectorIndex, embedding_provider: EmbeddingProvider) -> None:
+    def __init__(
+        self,
+        vector_index: VectorIndex,
+        embedding_provider: EmbeddingProvider,
+        embedding_reuse: EmbeddingReuseStore | None = None,
+    ) -> None:
         self._vector_index = vector_index
         self._embedding_provider = embedding_provider
+        self._embedding_reuse = embedding_reuse
 
     async def execute(
         self,
@@ -35,13 +41,14 @@ class IndexDocument:
         self._validate_scope(command, normalized_records)
         tagged_count = sum(1 for record in normalized_records if record.metadata.get("tags"))
         try:
-            indexed_records = await self._embed_records(command, normalized_records)
+            indexed_records, reused_count = await self._embed_records(command, normalized_records)
         except Exception as error:
             return self._failure_report(
                 command,
                 normalized_records,
                 tagged_count=tagged_count,
                 embedded_count=0,
+                reused_count=0,
                 error=error,
             )
         try:
@@ -52,6 +59,7 @@ class IndexDocument:
                 normalized_records,
                 tagged_count=tagged_count,
                 embedded_count=len(indexed_records),
+                reused_count=reused_count,
                 error=error,
             )
         return IngestionReport(
@@ -61,8 +69,8 @@ class IndexDocument:
             paragraph_count=len(normalized_records),
             tagged_paragraph_count=tagged_count,
             failed_paragraph_count=0,
-            embedded_count=len(normalized_records),
-            reused_embedding_count=0,
+            embedded_count=len(normalized_records) - reused_count,
+            reused_embedding_count=reused_count,
             skipped_count=0,
             index_version=command.index_profile,
             indexed=True,
@@ -74,29 +82,35 @@ class IndexDocument:
         self,
         command: IngestionCommand,
         records: Sequence[IndexInputRecord],
-    ) -> tuple[ChunkIndexRecord, ...]:
-        embeddings = await self._embedding_provider.embed(
-            tuple((record.chunk_id, record.search_text) for record in records),
-            source_version=command.source_version,
+    ) -> tuple[tuple[ChunkIndexRecord, ...], int]:
+        cached = (
+            dict(await self._embedding_reuse.find(records))
+            if self._embedding_reuse is not None
+            else {}
         )
-        if len(embeddings) != len(records):
+        missing = tuple(record for record in records if record.chunk_id not in cached)
+        embeddings = await self._embedding_provider.embed(
+            tuple((record.chunk_id, record.search_text) for record in missing),
+            source_version=command.source_version,
+        ) if missing else ()
+        if len(embeddings) != len(missing):
             raise ValueError("embedding count does not match chunk count")
-        embedded: list[ChunkIndexRecord] = []
-        for record, embedding in zip(records, embeddings):
+        for record, embedding in zip(missing, embeddings):
             self._validate_embedding(command, record, embedding)
-            embedded.append(
-                ChunkIndexRecord(
-                    chunk_id=record.chunk_id,
-                    document_ref=record.document_ref,
-                    source_version=record.source_version,
-                    search_text=record.search_text,
-                    embedding=embedding.vector,
-                    embedding_profile=record.embedding_profile,
-                    access_scope=record.access_scope,
-                    metadata=record.metadata,
-                )
+            cached[record.chunk_id] = ChunkIndexRecord(
+                chunk_id=record.chunk_id,
+                document_ref=record.document_ref,
+                source_version=record.source_version,
+                search_text=record.search_text,
+                embedding=embedding.vector,
+                embedding_profile=record.embedding_profile,
+                access_scope=record.access_scope,
+                metadata=record.metadata,
             )
-        return tuple(embedded)
+        resolved = tuple(cached[record.chunk_id] for record in records)
+        if self._embedding_reuse is not None and missing:
+            await self._embedding_reuse.save(tuple(cached[record.chunk_id] for record in missing))
+        return resolved, len(records) - len(missing)
 
     @staticmethod
     def _validate_embedding(
@@ -118,6 +132,7 @@ class IndexDocument:
         *,
         tagged_count: int,
         embedded_count: int,
+        reused_count: int,
         error: Exception,
     ) -> IngestionReport:
         return IngestionReport(
@@ -128,7 +143,7 @@ class IndexDocument:
             tagged_paragraph_count=tagged_count,
             failed_paragraph_count=len(records),
             embedded_count=embedded_count,
-            reused_embedding_count=0,
+            reused_embedding_count=reused_count,
             skipped_count=0,
             index_version=command.index_profile,
             indexed=False,
