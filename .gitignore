@@ -50,6 +50,7 @@ docs/*
 !docs/PHASE_6_REMOTE_ANSWER_GENERATOR.md
 !docs/PHASE_1_LITELLM_CLIENT.md
 !docs/PHASE_1_LITELLM_RETRY_POLICY.md
+!docs/PHASE_1_COMPOSITION_ROOT_MODEL_CLIENT.md
 
 # Logs and temporary files
 *.log

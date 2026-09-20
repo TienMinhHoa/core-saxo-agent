@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from saxophone.app.factory import AppContainer, AppOverrides, create_app
 from saxophone.app.settings import AppSettings
 from saxophone.platform.remote_gpu import HttpRemoteGpuGateway, RemoteGpuHealth
+from saxophone.platform.model_client import LiteLLMModelClient
 
 
 VALID_ENVIRONMENT = {
@@ -25,6 +26,11 @@ class FakeRemoteGpuGateway:
     async def health(self) -> RemoteGpuHealth:
         self.health_requests += 1
         return RemoteGpuHealth(status=self.status)
+
+
+class FakeModelClient:
+    async def invoke(self, request):
+        raise AssertionError("composition test must not invoke the model")
 
 
 def build_settings() -> AppSettings:
@@ -46,13 +52,21 @@ def test_runtime_modules_import_without_reading_environment_or_starting_provider
 
 def test_create_app_composes_fastapi_and_exposes_container() -> None:
     gateway = FakeRemoteGpuGateway(status="ready")
+    model_client = FakeModelClient()
 
-    app = create_app(build_settings(), overrides=AppOverrides(remote_gpu_gateway=gateway))
+    app = create_app(
+        build_settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=gateway,
+            model_client=model_client,
+        ),
+    )
 
     assert isinstance(app, FastAPI)
     assert isinstance(app.state.container, AppContainer)
     assert app.state.container.settings == build_settings()
     assert app.state.container.remote_gpu_gateway is gateway
+    assert app.state.container.model_client is model_client
 
 
 def test_default_composition_owns_one_http_client_and_closes_it_with_lifespan() -> None:
@@ -61,6 +75,7 @@ def test_default_composition_owns_one_http_client_and_closes_it_with_lifespan() 
     container = app.state.container
 
     assert isinstance(container.remote_gpu_gateway, HttpRemoteGpuGateway)
+    assert isinstance(container.model_client, LiteLLMModelClient)
     assert isinstance(container.http_client, httpx.AsyncClient)
     assert not container.http_client.is_closed
 
@@ -72,7 +87,13 @@ def test_default_composition_owns_one_http_client_and_closes_it_with_lifespan() 
 
 def test_health_uses_override_and_returns_stable_disabled_capabilities() -> None:
     gateway = FakeRemoteGpuGateway(status="degraded")
-    app = create_app(build_settings(), overrides=AppOverrides(remote_gpu_gateway=gateway))
+    app = create_app(
+        build_settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=gateway,
+            model_client=FakeModelClient(),
+        ),
+    )
 
     response = TestClient(app).get("/api/v1/health")
 
@@ -90,7 +111,13 @@ def test_health_uses_override_and_returns_stable_disabled_capabilities() -> None
 
 def test_health_preserves_unavailable_remote_gpu_status() -> None:
     gateway = FakeRemoteGpuGateway(status="unavailable")
-    app = create_app(build_settings(), overrides=AppOverrides(remote_gpu_gateway=gateway))
+    app = create_app(
+        build_settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=gateway,
+            model_client=FakeModelClient(),
+        ),
+    )
 
     response = TestClient(app).get("/api/v1/health")
 
@@ -100,7 +127,13 @@ def test_health_preserves_unavailable_remote_gpu_status() -> None:
 
 def test_health_does_not_disclose_connection_secrets_or_local_paths() -> None:
     gateway = FakeRemoteGpuGateway(status="ready")
-    app = create_app(build_settings(), overrides=AppOverrides(remote_gpu_gateway=gateway))
+    app = create_app(
+        build_settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=gateway,
+            model_client=FakeModelClient(),
+        ),
+    )
 
     response = TestClient(app).get("/api/v1/health")
 

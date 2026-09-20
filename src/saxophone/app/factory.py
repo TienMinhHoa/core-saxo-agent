@@ -10,6 +10,7 @@ import httpx
 from fastapi import FastAPI
 
 from saxophone.app.settings import AppSettings
+from saxophone.platform.model_client import LiteLLMModelClient, ModelClient
 from saxophone.platform.remote_gpu import (
     HttpRemoteGpuGateway,
     RemoteGpuGateway,
@@ -30,6 +31,7 @@ class AppContainer:
 
     settings: AppSettings
     remote_gpu_gateway: RemoteGpuGateway
+    model_client: ModelClient
     http_client: httpx.AsyncClient | None = None
 
 
@@ -38,6 +40,7 @@ class AppOverrides:
     """Explicit test-only substitutions for infrastructure ports."""
 
     remote_gpu_gateway: RemoteGpuGateway | None = None
+    model_client: ModelClient | None = None
 
 
 def create_app(
@@ -50,13 +53,22 @@ def create_app(
     resolved_overrides = overrides or AppOverrides()
     http_client: httpx.AsyncClient | None = None
     remote_gpu_gateway = resolved_overrides.remote_gpu_gateway
-    if remote_gpu_gateway is None:
+    model_client = resolved_overrides.model_client
+    if remote_gpu_gateway is None or model_client is None:
         http_client = httpx.AsyncClient()
+    if remote_gpu_gateway is None:
         remote_gpu_gateway = HttpRemoteGpuGateway(settings, http_client=http_client)
+    if model_client is None:
+        model_client = LiteLLMModelClient(
+            f"{settings.remote_gpu_base_url.rstrip('/')}/v1/invoke",
+            http_client=http_client,
+            bearer_token=settings.remote_gpu_bearer_token,
+        )
 
     container = AppContainer(
         settings=settings,
         remote_gpu_gateway=remote_gpu_gateway,
+        model_client=model_client,
         http_client=http_client,
     )
 
