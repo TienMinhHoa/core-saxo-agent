@@ -120,6 +120,8 @@ class HttpRemoteGpuGateway:
     ) -> None:
         if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be finite and positive")
+        if not callable(getattr(http_client, "get", None)):
+            raise TypeError("http_client.get must be callable")
         self._health_url = f"{settings.remote_gpu_base_url.rstrip('/')}/v1/health"
         self._http_client = http_client
         self._headers = {"Authorization": f"Bearer {settings.remote_gpu_bearer_token}"}

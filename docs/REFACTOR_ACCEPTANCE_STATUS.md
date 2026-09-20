@@ -244,3 +244,12 @@ deployment production.
 - Iteration 182: `RemoteGpuHealth` da co runtime guard cho status va
   capability (unique, non-blank, khong control character); targeted test **18
   passed**. Live model-service smoke va production parity van chua xac minh.
+
+### Iteration 183 — dependency HTTP client của remote health
+
+- `HttpRemoteGpuGateway` fail-fast neu `http_client.get` khong callable, tranh
+  loi runtime muon trong `health()`.
+- Regression test TDD da chung minh dependency sai bi tu choi tai constructor;
+  chi tiet tai `docs/ITERATION_183_REMOTE_HEALTH_HTTP_CLIENT_CONTRACT.md`.
+- Live model-service smoke va production parity van chua xac minh do checkout
+  thieu endpoint, credential va production catalog.

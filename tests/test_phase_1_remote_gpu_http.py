@@ -98,6 +98,22 @@ def test_health_rejects_non_finite_timeout() -> None:
             raise AssertionError("non-finite timeout values must be rejected")
 
 
+def test_health_rejects_http_client_without_callable_get() -> None:
+    class InvalidHttpClient:
+        get = None
+
+    try:
+        HttpRemoteGpuGateway(
+            build_settings(),
+            http_client=InvalidHttpClient(),  # type: ignore[arg-type]
+            timeout_seconds=5.0,
+        )
+    except TypeError as error:
+        assert str(error) == "http_client.get must be callable"
+    else:
+        raise AssertionError("a non-callable HTTP client get dependency must be rejected")
+
+
 def test_health_preserves_only_the_supported_remote_statuses() -> None:
     async def verify(status: str) -> None:
         async def handler(_request: httpx.Request) -> httpx.Response:

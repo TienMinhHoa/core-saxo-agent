@@ -135,6 +135,9 @@ def test_default_composition_applies_remote_gpu_tls_verification_setting(monkeyp
         async def post(self, *args, **kwargs):
             raise AssertionError("composition test must not perform model I/O")
 
+        async def get(self, *args, **kwargs):
+            raise AssertionError("composition test must not perform health I/O")
+
         async def aclose(self) -> None:
             self.is_closed = True
 
