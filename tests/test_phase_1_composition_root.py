@@ -18,6 +18,7 @@ from saxophone.platform.model_client import LiteLLMModelClient
 from saxophone.extraction.remote import RemotePdfExtractor
 from saxophone.extraction.persistence import RepositoryExtractionArtifactPayloadProvider
 from saxophone.ingestion.adapters import FileEmbeddingReuseStore, RemoteEmbeddingProvider
+from saxophone.ingestion.adapters import ChromaVectorIndex
 from saxophone.tagging.persistence import (
     JsonTagCatalogRepository,
     JsonTaggedParagraphRepository,
@@ -221,6 +222,40 @@ def test_default_composition_wires_durable_embedding_reuse_store() -> None:
     assert reuse_store.path == (build_settings().data_root / "embedding-reuse.json")
 
 
+def test_default_composition_builds_persistent_chroma_vector_index(monkeypatch) -> None:
+    calls: list[tuple[str, object]] = []
+
+    class FakeCollection:
+        pass
+
+    class FakeClient:
+        def __init__(self, *, path: str) -> None:
+            calls.append(("client", path))
+
+        def get_or_create_collection(self, *, name: str):
+            calls.append(("collection", name))
+            return FakeCollection()
+
+    class FakeChroma:
+        PersistentClient = FakeClient
+
+    monkeypatch.setitem(__import__("sys").modules, "chromadb", FakeChroma)
+
+    settings = AppSettings.from_environment({
+        **VALID_ENVIRONMENT,
+        "SAXO_CHROMA_PERSIST_DIRECTORY": "D:/saxo-data/chroma",
+        "SAXO_CHROMA_COLLECTION_NAME": "music_chunks_v2",
+    })
+
+    app = create_app(settings)
+
+    assert isinstance(app.state.container.vector_index, ChromaVectorIndex)
+    assert calls == [
+        ("client", str(settings.chroma_persist_directory)),
+        ("collection", settings.chroma_collection_name),
+    ]
+
+
 def test_indexing_composition_uses_durable_reuse_store_by_default() -> None:
     vector_index = object()
     app = create_app(
@@ -322,7 +357,7 @@ def test_health_uses_override_and_returns_stable_disabled_capabilities() -> None
         "remote_gpu": "degraded",
         "remote_gpu_capabilities": ["embed"],
         "extraction": "ready",
-        "ingestion": "disabled",
+            "ingestion": "ready",
         "retrieval": "disabled",
         "chat": "disabled",
     }

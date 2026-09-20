@@ -617,6 +617,7 @@ def test_health_exposes_architecture_capabilities_without_provider_secrets() -> 
         overrides=AppOverrides(
             remote_gpu_gateway=FakeRemoteGpuGateway(),
             model_client=FakeModelClient(),
+            disable_vector_index=True,
         ),
     )
 
@@ -733,6 +734,7 @@ def test_document_ingest_route_is_explicitly_unavailable_without_vector_index() 
         overrides=AppOverrides(
             remote_gpu_gateway=FakeRemoteGpuGateway(),
             model_client=FakeModelClient(),
+            disable_vector_index=True,
         ),
     )
 
@@ -758,6 +760,7 @@ def test_process_and_ingest_route_is_explicitly_unavailable_without_vector_index
         settings(),
         overrides=AppOverrides(
             remote_gpu_gateway=FakeRemoteGpuGateway(),
+            disable_vector_index=True,
         ),
     )
 
