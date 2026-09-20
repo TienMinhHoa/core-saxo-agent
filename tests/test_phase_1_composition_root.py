@@ -85,6 +85,25 @@ def test_default_composition_owns_one_http_client_and_closes_it_with_lifespan() 
     assert container.http_client.is_closed
 
 
+def test_default_composition_uses_litellm_settings_for_model_client() -> None:
+    settings = AppSettings.from_environment({
+        **VALID_ENVIRONMENT,
+        "SAXO_LITELLM_ENDPOINT": "https://llm.example.test/v1/chat",
+        "SAXO_LITELLM_TIMEOUT_SECONDS": "12.5",
+        "SAXO_LITELLM_MAX_ATTEMPTS": "3",
+        "SAXO_LITELLM_RETRY_BACKOFF_SECONDS": "0.25",
+    })
+
+    app = create_app(settings)
+    client = app.state.container.model_client
+
+    assert isinstance(client, LiteLLMModelClient)
+    assert client.endpoint == "https://llm.example.test/v1/chat"
+    assert client.timeout_seconds == 12.5
+    assert client.max_attempts == 3
+    assert client.retry_backoff_seconds == 0.25
+
+
 def test_health_uses_override_and_returns_stable_disabled_capabilities() -> None:
     gateway = FakeRemoteGpuGateway(status="degraded")
     app = create_app(

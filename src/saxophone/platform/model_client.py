@@ -122,6 +122,22 @@ class LiteLLMModelClient:
         self._max_attempts = max_attempts
         self._retry_backoff_seconds = retry_backoff_seconds
 
+    @property
+    def endpoint(self) -> str:
+        return self._endpoint
+
+    @property
+    def timeout_seconds(self) -> float:
+        return self._timeout_seconds
+
+    @property
+    def max_attempts(self) -> int:
+        return self._max_attempts
+
+    @property
+    def retry_backoff_seconds(self) -> float:
+        return self._retry_backoff_seconds
+
     async def invoke(self, request: ModelRequest) -> ModelResponse:
         payload = {
             "model": request.model,

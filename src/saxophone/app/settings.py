@@ -22,6 +22,11 @@ class AppSettings:
     remote_gpu_tls_verify: bool = True
     remote_gpu_max_in_flight: int = 4
     remote_gpu_retention_days: int = 30
+    litellm_endpoint: str = ""
+    litellm_model_profile: str = "saxophone-default"
+    litellm_timeout_seconds: float = 30.0
+    litellm_max_attempts: int = 1
+    litellm_retry_backoff_seconds: float = 0.0
 
     @classmethod
     def from_environment(cls, environment: Mapping[str, str]) -> "AppSettings":
@@ -36,6 +41,11 @@ class AppSettings:
         )
         bearer_token = _parse_required_token(
             environment.get("SAXO_REMOTE_GPU_BEARER_TOKEN"),
+        )
+        endpoint = _parse_optional_https_url(
+            environment.get("SAXO_LITELLM_ENDPOINT"),
+            default=f"{base_url.rstrip('/')}/v1/invoke",
+            variable="SAXO_LITELLM_ENDPOINT",
         )
         return cls(
             data_root=data_root,
@@ -52,6 +62,24 @@ class AppSettings:
             remote_gpu_retention_days=_parse_positive_integer(
                 environment.get("SAXO_REMOTE_GPU_RETENTION_DAYS", "30"),
                 "SAXO_REMOTE_GPU_RETENTION_DAYS",
+            ),
+            litellm_endpoint=endpoint,
+            litellm_model_profile=_parse_required_text(
+                environment.get("SAXO_LITELLM_MODEL_PROFILE", "saxophone-default"),
+                "SAXO_LITELLM_MODEL_PROFILE",
+            ),
+            litellm_timeout_seconds=_parse_non_negative_float(
+                environment.get("SAXO_LITELLM_TIMEOUT_SECONDS", "30"),
+                "SAXO_LITELLM_TIMEOUT_SECONDS",
+                strictly_positive=True,
+            ),
+            litellm_max_attempts=_parse_positive_integer(
+                environment.get("SAXO_LITELLM_MAX_ATTEMPTS", "1"),
+                "SAXO_LITELLM_MAX_ATTEMPTS",
+            ),
+            litellm_retry_backoff_seconds=_parse_non_negative_float(
+                environment.get("SAXO_LITELLM_RETRY_BACKOFF_SECONDS", "0"),
+                "SAXO_LITELLM_RETRY_BACKOFF_SECONDS",
             ),
         )
 
@@ -86,6 +114,27 @@ def _parse_remote_gpu_base_url(value: str | None) -> str:
     return url
 
 
+def _parse_optional_https_url(value: str | None, *, default: str, variable: str) -> str:
+    url = default if value is None or not value.strip() else value.strip()
+    parsed = urlsplit(url)
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise SettingsValidationError(
+            f"{variable} must be an HTTPS URL without credentials, query, or fragment",
+        )
+    try:
+        parsed.port
+    except ValueError as error:
+        raise SettingsValidationError(f"{variable} contains an invalid port") from error
+    return url
+
+
 def _parse_required_token(value: str | None) -> str:
     if not value or not value.strip():
         raise SettingsValidationError("SAXO_REMOTE_GPU_BEARER_TOKEN is required")
@@ -107,4 +156,26 @@ def _parse_positive_integer(value: str | None, variable: str) -> int:
         raise SettingsValidationError(f"{variable} must be a positive integer") from error
     if number <= 0:
         raise SettingsValidationError(f"{variable} must be a positive integer")
+    return number
+
+
+def _parse_required_text(value: str | None, variable: str) -> str:
+    if not value or not value.strip():
+        raise SettingsValidationError(f"{variable} must not be empty")
+    return value.strip()
+
+
+def _parse_non_negative_float(
+    value: str | None,
+    variable: str,
+    *,
+    strictly_positive: bool = False,
+) -> float:
+    try:
+        number = float(value) if value is not None else -1.0
+    except ValueError as error:
+        raise SettingsValidationError(f"{variable} must be a non-negative number") from error
+    if (strictly_positive and number <= 0) or (not strictly_positive and number < 0):
+        requirement = "positive" if strictly_positive else "non-negative"
+        raise SettingsValidationError(f"{variable} must be {requirement}")
     return number

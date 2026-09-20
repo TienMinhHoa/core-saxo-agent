@@ -60,9 +60,12 @@ def create_app(
         remote_gpu_gateway = HttpRemoteGpuGateway(settings, http_client=http_client)
     if model_client is None:
         model_client = LiteLLMModelClient(
-            f"{settings.remote_gpu_base_url.rstrip('/')}/v1/invoke",
+            settings.litellm_endpoint,
             http_client=http_client,
             bearer_token=settings.remote_gpu_bearer_token,
+            timeout_seconds=settings.litellm_timeout_seconds,
+            max_attempts=settings.litellm_max_attempts,
+            retry_backoff_seconds=settings.litellm_retry_backoff_seconds,
         )
 
     container = AppContainer(
