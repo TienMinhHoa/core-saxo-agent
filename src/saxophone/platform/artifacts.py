@@ -7,8 +7,32 @@ import hashlib
 import os
 import tempfile
 from pathlib import Path
+from urllib.parse import urlparse
 
 from saxophone.documents.models import ArtifactRef
+
+
+class SafeImageArtifactGate:
+    """Allow only backend-owned relative image references."""
+
+    async def validate(self, image_refs: tuple[str, ...]) -> tuple[str, ...]:
+        validated: list[str] = []
+        for image_ref in image_refs:
+            if not _is_safe_image_reference(image_ref):
+                raise ValueError("unsafe image reference")
+            if image_ref not in validated:
+                validated.append(image_ref)
+        return tuple(validated)
+
+
+def _is_safe_image_reference(image_ref: object) -> bool:
+    if not isinstance(image_ref, str) or not image_ref.strip():
+        return False
+    candidate = image_ref.strip().replace("\\", "/")
+    parsed = urlparse(candidate)
+    if parsed.scheme or parsed.netloc or candidate.startswith("/"):
+        return False
+    return ".." not in Path(candidate).parts
 
 
 class LocalArtifactRepository:

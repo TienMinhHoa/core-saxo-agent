@@ -4,6 +4,7 @@ import pytest
 
 from saxophone.chat.models import ChatStatus, GeneratedAnswer
 from saxophone.chat.service import AnswerQuestion
+from saxophone.platform.artifacts import SafeImageArtifactGate
 from saxophone.retrieval.models import ChunkHit
 from saxophone.retrieval.use_cases import RetrieveEvidence
 
@@ -78,3 +79,42 @@ def test_generated_answer_rejects_negative_usage_and_blank_answer() -> None:
 
     with pytest.raises(ValueError, match="token_usage"):
         GeneratedAnswer("ok", "model-v1", {"total": -1}, 0.0)
+
+
+@pytest.mark.anyio
+async def test_answer_question_requires_a_safe_gate_for_image_evidence() -> None:
+    class ImageRetriever(_Retriever):
+        async def search(self, query: str, *, filters=None, limit: int = 10):
+            return [ChunkHit("book-1", "chunk-1", 1, "retrieval-v1", {
+                "document": "See the fingering chart.", "image_refs": ["../secret.png"]
+            }, semantic_score=0.9)]
+
+    generator = _AnswerGenerator()
+    with pytest.raises(ValueError, match="image artifact gate"):
+        await AnswerQuestion(RetrieveEvidence(ImageRetriever([])), generator).execute("How?")
+    assert generator.calls == []
+
+
+@pytest.mark.anyio
+async def test_answer_question_passes_only_gated_image_refs_to_generator() -> None:
+    class ImageRetriever(_Retriever):
+        async def search(self, query: str, *, filters=None, limit: int = 10):
+            return [ChunkHit("book-1", "chunk-1", 1, "retrieval-v1", {
+                "document": "See the fingering chart.", "image_refs": ["images/page-1.png"]
+            }, semantic_score=0.9)]
+
+    generator = _AnswerGenerator()
+    await AnswerQuestion(
+        RetrieveEvidence(ImageRetriever([])), generator,
+        image_artifact_gate=SafeImageArtifactGate(),
+    ).execute("How?")
+    assert generator.calls[0][1].image_refs == ("images/page-1.png",)
+
+
+@pytest.mark.anyio
+async def test_safe_image_artifact_gate_rejects_absolute_and_remote_refs() -> None:
+    gate = SafeImageArtifactGate()
+    with pytest.raises(ValueError, match="safe image reference"):
+        await gate.validate(("C:/secret.png",))
+    with pytest.raises(ValueError, match="safe image reference"):
+        await gate.validate(("https://example.test/image.png",))

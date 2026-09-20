@@ -8,7 +8,7 @@ from saxophone.retrieval.models import EvidenceBundle
 from saxophone.retrieval.use_cases import RetrieveEvidence
 
 from .models import ChatResult, ChatStatus, evidence_reference
-from .ports import AnswerGenerator
+from .ports import AnswerGenerator, ImageArtifactGate
 
 
 class AnswerQuestion:
@@ -18,9 +18,11 @@ class AnswerQuestion:
         self,
         retrieve_evidence: RetrieveEvidence,
         answer_generator: AnswerGenerator,
+        image_artifact_gate: ImageArtifactGate | None = None,
     ) -> None:
         self._retrieve_evidence = retrieve_evidence
         self._answer_generator = answer_generator
+        self._image_artifact_gate = image_artifact_gate
 
     async def execute(
         self,
@@ -42,6 +44,15 @@ class AnswerQuestion:
                 None,
                 {},
                 0.0,
+            )
+
+        if evidence.image_refs:
+            if self._image_artifact_gate is None:
+                raise ValueError("image artifact gate is required for image evidence")
+            gated_images = await self._image_artifact_gate.validate(evidence.image_refs)
+            evidence = EvidenceBundle(
+                evidence.query, evidence.retrieval_version, evidence.hits,
+                evidence.selected_refs, evidence.source_texts, gated_images,
             )
 
         generated = await self._answer_generator.generate(normalized_question, evidence)
