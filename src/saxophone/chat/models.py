@@ -49,6 +49,8 @@ class ChatResult:
     def __post_init__(self) -> None:
         if not isinstance(self.status, ChatStatus):
             raise ValueError("status must be a ChatStatus")
+        if not isinstance(self.citations, tuple):
+            raise ValueError("citations must be a tuple")
         if self.status is ChatStatus.ANSWERED:
             _require_text("answer", self.answer)
             _require_text("evidence_bundle_ref", self.evidence_bundle_ref)

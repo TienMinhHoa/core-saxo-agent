@@ -100,6 +100,22 @@ def test_chat_result_rejects_malformed_token_usage() -> None:
         ChatResult(**base, token_usage={" ": 1})
 
 
+def test_chat_result_rejects_mutable_or_untyped_citations() -> None:
+    base = {
+        "status": ChatStatus.ANSWERED,
+        "answer": "Use long tones first.",
+        "evidence_bundle_ref": "evidence://retrieval-v1/ref",
+        "model_version": "answer-model-v1",
+        "token_usage": {"total": 1},
+        "cost": 0.0,
+    }
+
+    with pytest.raises(ValueError, match="citations"):
+        ChatResult(**base, citations=["book-1"])
+    with pytest.raises(ValueError, match="citations"):
+        ChatResult(**base, citations="book-1")
+
+
 @pytest.mark.anyio
 async def test_answer_question_requires_a_safe_gate_for_image_evidence() -> None:
     class ImageRetriever(_Retriever):
