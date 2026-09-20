@@ -42,17 +42,29 @@ class IndexDocument:
         self,
         command: IngestionCommand,
         records: Sequence[IndexInputRecord],
+        *,
+        paragraph_count: int | None = None,
+        tagged_paragraph_count: int | None = None,
     ) -> IngestionReport:
         normalized_records = tuple(records)
         self._validate_scope(command, normalized_records)
-        tagged_count = sum(1 for record in normalized_records if record.metadata.get("tags"))
+        report_paragraph_count = (
+            len(normalized_records) if paragraph_count is None else paragraph_count
+        )
+        report_tagged_count = (
+            sum(1 for record in normalized_records if record.metadata.get("tags"))
+            if tagged_paragraph_count is None
+            else tagged_paragraph_count
+        )
+        self._validate_report_counts(report_paragraph_count, report_tagged_count)
         try:
             indexed_records, reused_count = await self._embed_records(command, normalized_records)
         except Exception as error:
             return self._failure_report(
                 command,
                 normalized_records,
-                tagged_count=tagged_count,
+                paragraph_count=report_paragraph_count,
+                tagged_count=report_tagged_count,
                 embedded_count=0,
                 reused_count=0,
                 error=error,
@@ -73,7 +85,8 @@ class IndexDocument:
             return self._failure_report(
                 command,
                 normalized_records,
-                tagged_count=tagged_count,
+                paragraph_count=report_paragraph_count,
+                tagged_count=report_tagged_count,
                 embedded_count=len(indexed_records),
                 reused_count=reused_count,
                 error=error,
@@ -82,8 +95,8 @@ class IndexDocument:
             document_ref=command.document_ref,
             source_version=command.source_version,
             chunk_count=len(normalized_records),
-            paragraph_count=len(normalized_records),
-            tagged_paragraph_count=tagged_count,
+            paragraph_count=report_paragraph_count,
+            tagged_paragraph_count=report_tagged_count,
             failed_paragraph_count=0,
             embedded_count=len(normalized_records) - reused_count,
             reused_embedding_count=reused_count,
@@ -149,6 +162,7 @@ class IndexDocument:
         command: IngestionCommand,
         records: Sequence[IndexInputRecord],
         *,
+        paragraph_count: int,
         tagged_count: int,
         embedded_count: int,
         reused_count: int,
@@ -158,7 +172,7 @@ class IndexDocument:
             document_ref=command.document_ref,
             source_version=command.source_version,
             chunk_count=len(records),
-            paragraph_count=len(records),
+            paragraph_count=paragraph_count,
             tagged_paragraph_count=tagged_count,
             failed_paragraph_count=len(records),
             embedded_count=embedded_count,
@@ -169,6 +183,15 @@ class IndexDocument:
             warnings=(),
             errors=(str(error),),
         )
+
+    @staticmethod
+    def _validate_report_counts(paragraph_count: int, tagged_count: int) -> None:
+        if paragraph_count < 0:
+            raise ValueError("paragraph_count must not be negative")
+        if tagged_count < 0:
+            raise ValueError("tagged_paragraph_count must not be negative")
+        if tagged_count > paragraph_count:
+            raise ValueError("tagged_paragraph_count must not exceed paragraph_count")
 
     @staticmethod
     def _validate_scope(
@@ -223,7 +246,12 @@ class IngestDocument:
             )
 
         records = build_index_inputs(command, normalized_chunks, tagged)
-        return await self._index_document.execute(command, records)
+        return await self._index_document.execute(
+            command,
+            records,
+            paragraph_count=len(normalized_paragraphs),
+            tagged_paragraph_count=len(tagged),
+        )
 
     @staticmethod
     def _validate_input_scope(

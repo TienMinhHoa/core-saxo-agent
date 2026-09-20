@@ -43,6 +43,15 @@ def _paragraph() -> ParagraphBlock:
     )
 
 
+def _second_paragraph() -> ParagraphBlock:
+    return ParagraphBlock(
+        paragraph_id="chunk-1:p0001",
+        chunk_id="chunk-1",
+        ordinal=1,
+        text="Second paragraph.",
+    )
+
+
 class FakeTagAndPersist:
     def __init__(self) -> None:
         self.calls = []
@@ -91,6 +100,23 @@ async def test_ingest_document_tags_persists_then_indexes_source_projection() ->
     assert index.records[0].search_text == "Source text."
     assert index.records[0].metadata["tags"] == ("source",)
     assert report.indexed is True
+
+
+@pytest.mark.anyio
+async def test_ingest_document_report_preserves_paragraph_context_beyond_chunk_count() -> None:
+    tagger = FakeTagAndPersist()
+    workflow = IngestDocument(tagger, IndexDocument(FakeIndex(), FakeEmbedding()))
+
+    report = await workflow.execute(
+        _command(),
+        [_chunk()],
+        [_paragraph(), _second_paragraph()],
+        resolution_profile="resolve-v1",
+    )
+
+    assert report.chunk_count == 1
+    assert report.paragraph_count == 2
+    assert report.tagged_paragraph_count == 2
 
 
 @pytest.mark.anyio
