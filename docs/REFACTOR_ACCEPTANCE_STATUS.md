@@ -241,3 +241,6 @@ deployment production.
 - Live model-service smoke và production parity vẫn bị chặn bởi thiếu
   endpoint, credential và catalog production thật.
 - Chi tiết: `docs/ITERATION_166_MODEL_CLIENT_BEARER_TOKEN_CONTRACT.md`.
+- Iteration 182: `RemoteGpuHealth` da co runtime guard cho status va
+  capability (unique, non-blank, khong control character); targeted test **18
+  passed**. Live model-service smoke va production parity van chua xac minh.

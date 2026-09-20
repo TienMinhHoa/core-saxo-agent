@@ -18,6 +18,25 @@ def build_settings() -> AppSettings:
     return AppSettings.from_environment(ENVIRONMENT)
 
 
+def test_remote_health_rejects_unknown_status_at_runtime_boundary() -> None:
+    try:
+        RemoteGpuHealth(status="unknown")  # type: ignore[arg-type]
+    except ValueError as error:
+        assert str(error) == "status must be a supported remote health status"
+    else:
+        raise AssertionError("unknown health statuses must be rejected")
+
+
+def test_remote_health_rejects_unsafe_capability_names() -> None:
+    for capabilities in (("",), ("embed\nsecret",), ("embed", "embed")):
+        try:
+            RemoteGpuHealth(status="ready", capabilities=capabilities)
+        except ValueError as error:
+            assert str(error) == "capabilities must be unique, non-blank, and control-free"
+        else:
+            raise AssertionError("unsafe capability names must be rejected")
+
+
 def test_health_uses_shared_client_with_https_bearer_auth_and_stable_path() -> None:
     requests: list[httpx.Request] = []
 

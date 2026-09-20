@@ -29,6 +29,20 @@ class RemoteGpuHealth:
     status: RemoteGpuStatus
     capabilities: tuple[str, ...] = ()
 
+    def __post_init__(self) -> None:
+        if self.status not in {"ready", "degraded", "unavailable"}:
+            raise ValueError("status must be a supported remote health status")
+        if (
+            not isinstance(self.capabilities, tuple)
+            or any(not isinstance(item, str) or not item.strip() for item in self.capabilities)
+            or any(
+                any(ord(character) < 32 or ord(character) == 127 for character in item)
+                for item in self.capabilities
+            )
+            or len(set(self.capabilities)) != len(self.capabilities)
+        ):
+            raise ValueError("capabilities must be unique, non-blank, and control-free")
+
 
 class RemoteGpuGateway(Protocol):
     """Port used by application services that need remote GPU capabilities."""
