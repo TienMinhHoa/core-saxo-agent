@@ -314,6 +314,8 @@ def _validated_chroma_rows(
             or not math.isfinite(distance)
         ):
             raise ValueError("Chroma result distances must be finite numbers")
+        if distance is not None and distance < 0:
+            raise ValueError("Chroma result distances must be non-negative")
     return ids, documents, metadatas, distances
 
 

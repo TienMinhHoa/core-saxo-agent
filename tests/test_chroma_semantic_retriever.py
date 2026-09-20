@@ -116,3 +116,20 @@ async def test_chroma_retriever_rejects_invalid_chunk_ids(chunk_id: object) -> N
 
     with pytest.raises(ValueError, match="Chroma result chunk ids"):
         await retriever.search("find scales")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("distance", [-0.1, -1])
+async def test_chroma_retriever_rejects_negative_distances(distance: float) -> None:
+    result = {
+        "ids": [["chunk-1"]],
+        "documents": [["text"]],
+        "metadatas": [[{}]],
+        "distances": [[distance]],
+    }
+    retriever = ChromaSemanticRetriever(
+        _MalformedCollection(result), _EmbeddingProvider(), retrieval_version="chroma-v1"
+    )
+
+    with pytest.raises(ValueError, match="non-negative"):
+        await retriever.search("find scales")
