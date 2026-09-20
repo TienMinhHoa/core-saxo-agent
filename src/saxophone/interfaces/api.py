@@ -266,6 +266,7 @@ def _chat_response(result: ChatResult) -> dict[str, object]:
         "model_version": result.model_version,
         "token_usage": dict(result.token_usage),
         "cost": result.cost,
+        "insufficiency_reason": result.insufficiency_reason,
     }
 
 

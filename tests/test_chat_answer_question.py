@@ -70,6 +70,7 @@ async def test_answer_question_returns_explicit_insufficiency_without_llm_call()
     assert result.answer is None
     assert result.citations == ()
     assert result.evidence_bundle_ref is None
+    assert result.insufficiency_reason == "no matching evidence"
     assert generator.calls == []
 
 

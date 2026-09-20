@@ -650,6 +650,7 @@ def test_chat_route_returns_safe_chat_result_without_private_reasoning() -> None
             model_version=None,
             token_usage={},
             cost=0.0,
+            insufficiency_reason="no matching evidence",
         ),
         [],
     )
@@ -669,6 +670,7 @@ def test_chat_route_returns_safe_chat_result_without_private_reasoning() -> None
 
     assert response.status_code == 200
     assert response.json()["status"] == "insufficient_evidence"
+    assert response.json()["insufficiency_reason"] == "no matching evidence"
     assert "reasoning" not in response.text
     assert answerer.calls == [("What is harmony?", 2)]
 

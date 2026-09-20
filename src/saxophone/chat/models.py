@@ -54,6 +54,7 @@ class ChatResult:
     model_version: str | None
     token_usage: Mapping[str, int]
     cost: float
+    insufficiency_reason: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.status, ChatStatus):
@@ -66,6 +67,10 @@ class ChatResult:
                 raise ValueError("answered result must contain citations")
         elif self.answer is not None or self.evidence_bundle_ref is not None:
             raise ValueError("insufficient result must not contain answer or evidence")
+        if self.status is ChatStatus.INSUFFICIENT_EVIDENCE:
+            _require_text("insufficiency_reason", self.insufficiency_reason)
+        elif self.insufficiency_reason is not None:
+            raise ValueError("answered result must not contain insufficiency reason")
         if any(not isinstance(ref, str) or not ref.strip() for ref in self.citations):
             raise ValueError("citations must contain non-blank refs")
         if not math.isfinite(self.cost) or self.cost < 0:

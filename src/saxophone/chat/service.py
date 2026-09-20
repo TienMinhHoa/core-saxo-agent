@@ -44,6 +44,7 @@ class AnswerQuestion:
                 None,
                 {},
                 0.0,
+                evidence.insufficiency_reason,
             )
 
         if evidence.image_refs:
