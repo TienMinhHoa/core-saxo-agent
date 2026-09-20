@@ -35,6 +35,14 @@ def test_chunk_hit_rejects_invalid_rank_and_non_finite_score() -> None:
         ChunkHit("document-1", "chunk-1", 1, "retrieval-v1", {}, fused_score=math.inf)
 
 
+def test_chunk_hit_rejects_boolean_rank_and_scores() -> None:
+    with pytest.raises(ValueError, match="rank"):
+        ChunkHit("document-1", "chunk-1", True, "retrieval-v1", {})  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="semantic_score"):
+        ChunkHit("document-1", "chunk-1", 1, "retrieval-v1", {}, semantic_score=True)  # type: ignore[arg-type]
+
+
 def test_evidence_bundle_validates_source_text_and_keeps_mapping_immutable() -> None:
     source_texts = {"chunk-1": "Validated source text"}
     bundle = EvidenceBundle(

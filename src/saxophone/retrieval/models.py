@@ -26,14 +26,17 @@ class ChunkHit:
         for name in ("source_ref", "chunk_ref", "retrieval_version"):
             _require_non_blank(name, getattr(self, name))
             _require_canonical(name, getattr(self, name))
-        if self.rank < 1:
-            raise ValueError("rank must be at least 1")
+        if isinstance(self.rank, bool) or not isinstance(self.rank, int) or self.rank < 1:
+            raise ValueError("rank must be an integer at least 1")
         if not isinstance(self.metadata, Mapping):
             raise ValueError("metadata must be a mapping")
         for name in ("semantic_score", "keyword_score", "fused_score"):
             score = getattr(self, name)
-            if score is not None and not math.isfinite(score):
-                raise ValueError(f"{name} must be finite")
+            if score is not None:
+                if isinstance(score, bool) or not isinstance(score, (int, float)):
+                    raise ValueError(f"{name} must be a finite number")
+                if not math.isfinite(score):
+                    raise ValueError(f"{name} must be finite")
         object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
 
 
