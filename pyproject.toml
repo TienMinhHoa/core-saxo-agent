@@ -37,7 +37,7 @@ py-modules = ["pdf_layout_web"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["music_rag*", "extracted*"]
+include = ["music_rag*", "extracted*", "saxophone*"]
 namespaces = true
 
 [tool.pytest.ini_options]
