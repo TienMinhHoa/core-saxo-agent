@@ -5,7 +5,20 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Mapping, Sequence
 
-from .models import ChunkIndexRecord, VectorHit
+from .models import ChunkIndexRecord, EmbeddingRecord, VectorHit
+
+
+class EmbeddingProvider(ABC):
+    """Async port for vectors produced by the external model service."""
+
+    @abstractmethod
+    async def embed(
+        self,
+        chunks: Sequence[tuple[str, str]],
+        *,
+        source_version: str,
+    ) -> tuple[EmbeddingRecord, ...]:
+        raise NotImplementedError
 
 
 class VectorIndex(ABC):
