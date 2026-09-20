@@ -48,12 +48,9 @@ def test_put_rejects_payload_that_does_not_match_declared_size_or_digest(
         asyncio.run(repository.put(_artifact(), b"7654321"))
 
 
-def test_repository_does_not_allow_artifact_id_path_traversal(tmp_path: Path) -> None:
-    repository = LocalArtifactRepository(tmp_path)
-    artifact = _artifact(artifact_id="../outside")
-
+def test_repository_does_not_allow_artifact_id_path_traversal() -> None:
     with pytest.raises(ValueError, match="artifact_id"):
-        asyncio.run(repository.put(artifact, b"1234567"))
+        _artifact(artifact_id="../outside")
 
 
 def test_put_is_atomic_and_does_not_leave_temporary_files(tmp_path: Path) -> None:

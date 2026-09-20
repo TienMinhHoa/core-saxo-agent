@@ -6,6 +6,17 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 
+def is_safe_artifact_reference(artifact_id: object) -> bool:
+    """Return whether an artifact identity is safe for backend-owned storage."""
+
+    if not isinstance(artifact_id, str) or not artifact_id or artifact_id != artifact_id.strip():
+        return False
+    if any(character in artifact_id for character in ("\\", "\x00", ":")):
+        return False
+    parts = artifact_id.split("/")
+    return bool(parts) and all(part not in {"", ".", ".."} for part in parts)
+
+
 def is_safe_document_reference(document_ref: object) -> bool:
     """Return whether a document identity can be used as one path component."""
 

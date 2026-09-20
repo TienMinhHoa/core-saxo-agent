@@ -49,6 +49,30 @@ def test_artifact_reference_rejects_invalid_identity_fields(field: str, value: s
         ArtifactRef(**fields)
 
 
+@pytest.mark.parametrize(
+    "artifact_id",
+    [
+        "../outside",
+        "document/../outside",
+        r"document\outside",
+        "/absolute",
+        "C:/outside",
+        "document//file",
+        "document/./file",
+    ],
+)
+def test_artifact_reference_rejects_path_escaping_or_noncanonical_identity(artifact_id: str) -> None:
+    with pytest.raises(ValueError, match="artifact_id"):
+        ArtifactRef(
+            artifact_id=artifact_id,
+            version="extract-v1",
+            kind=ArtifactKind.EXTRACTION_MANIFEST,
+            media_type="application/json",
+            sha256="a" * 64,
+            size_bytes=128,
+        )
+
+
 @pytest.mark.parametrize("size_bytes", [-1, -100])
 def test_artifact_reference_rejects_negative_size(size_bytes: int) -> None:
     with pytest.raises(ValueError, match="size_bytes"):

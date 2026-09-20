@@ -6,6 +6,8 @@ import re
 from dataclasses import dataclass
 from enum import StrEnum
 
+from saxophone.documents.policies import is_safe_artifact_reference
+
 
 class ArtifactKind(StrEnum):
     """Artifact categories shared by extraction and ingestion workflows."""
@@ -36,6 +38,8 @@ class ArtifactRef:
 
     def __post_init__(self) -> None:
         _require_non_blank("artifact_id", self.artifact_id)
+        if not is_safe_artifact_reference(self.artifact_id):
+            raise ValueError("artifact_id must be a safe relative reference")
         _require_non_blank("version", self.version)
         _require_non_blank("media_type", self.media_type)
         if not re.fullmatch(r"[0-9a-f]{64}", self.sha256):
