@@ -9,7 +9,9 @@ from saxophone.documents.models import ArtifactKind, ArtifactRef
 from saxophone.documents.ports import ArtifactRepository
 from saxophone.extraction.models import PdfExtractionResult
 from saxophone.ingestion.models import EmbeddingRecord
+from saxophone.ingestion.use_cases import IngestDocument
 from saxophone.ingestion.use_cases import IndexDocument
+from saxophone.tagging.models import TaggedParagraph
 from saxophone.workflows.ingest_extracted_document import IngestExtractedDocument
 
 
@@ -79,6 +81,17 @@ class FakeVectorIndex:
         raise AssertionError("not used")
 
 
+class FakeTagAndPersist:
+    async def execute(self, paragraph, *, tagging_profile, resolution_profile):
+        return TaggedParagraph(
+            paragraph_id=paragraph.paragraph_id,
+            text=paragraph.text,
+            generated_tags=("music",),
+            tags=("music",),
+            status="completed",
+        )
+
+
 @pytest.mark.anyio
 async def test_ingest_extracted_document_builds_index_inputs_from_persisted_markdown() -> None:
     markdown = b"# ignored\n## Intro\nA source paragraph."
@@ -121,3 +134,29 @@ async def test_ingest_extracted_document_rejects_unsupported_chunking_profile() 
             index_profile="index-v1",
             access_scope="tenant-a",
         )
+
+
+@pytest.mark.anyio
+async def test_ingest_extracted_document_can_run_paragraph_tagging_before_indexing() -> None:
+    markdown = b"# ignored\n## Intro\nA source paragraph."
+    index = FakeVectorIndex()
+    workflow = IngestExtractedDocument(
+        FakeArtifacts({"markdown": markdown}),
+        ingest_document=IngestDocument(
+            FakeTagAndPersist(),
+            IndexDocument(index, FakeEmbeddingProvider()),
+        ),
+    )
+
+    report = await workflow.execute(
+        _result(markdown),
+        chunking_profile="header-v1",
+        embedding_profile="embed-v1",
+        index_profile="index-v1",
+        access_scope="tenant-a",
+        tagging_profile="tags-v1",
+        resolution_profile="resolve-v1",
+    )
+
+    assert report.tagged_paragraph_count == 1
+    assert index.records[0].metadata["tags"] == ("music",)
