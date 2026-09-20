@@ -64,6 +64,8 @@ def is_safe_media_type(media_type: object) -> bool:
 
     if not isinstance(media_type, str) or not media_type or media_type != media_type.strip():
         return False
+    if any(ord(character) < 0x20 or ord(character) == 0x7F for character in media_type):
+        return False
     main_type = media_type.split(";", 1)[0].strip()
     parts = main_type.split("/")
     if len(parts) != 2 or not all(parts):
