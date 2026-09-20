@@ -57,6 +57,16 @@ class IndexDocument:
             else tagged_paragraph_count
         )
         self._validate_report_counts(report_paragraph_count, report_tagged_count)
+        if not normalized_records:
+            return self._failure_report(
+                command,
+                normalized_records,
+                paragraph_count=report_paragraph_count,
+                tagged_count=report_tagged_count,
+                embedded_count=0,
+                reused_count=0,
+                error=ValueError("cannot index an empty projection"),
+            )
         try:
             indexed_records, reused_count = await self._embed_records(command, normalized_records)
         except Exception as error:

@@ -103,6 +103,21 @@ async def test_index_document_publishes_records_and_report() -> None:
 
 
 @pytest.mark.anyio
+async def test_index_document_rejects_empty_projection_before_embedding_or_indexing() -> None:
+    index = FakeIndex()
+    provider = FakeEmbeddingProvider(error=AssertionError("empty projection must not embed"))
+
+    report = await IndexDocument(index, provider).execute(_command(), [])
+
+    assert report.indexed is False
+    assert report.chunk_count == 0
+    assert report.failed_paragraph_count == 0
+    assert report.errors == ("cannot index an empty projection",)
+    assert provider.calls == []
+    assert index.records is None
+
+
+@pytest.mark.anyio
 async def test_index_document_reconciles_stale_chunks_for_document() -> None:
     index = FakeIndex(existing_ids=("chunk-1", "stale-chunk"))
     provider = FakeEmbeddingProvider((_embedding(),))
