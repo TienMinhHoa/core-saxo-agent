@@ -126,3 +126,22 @@ async def test_process_document_rejects_source_size_mismatch_without_calling_ext
         await use_case.execute(request)
 
     assert extractor.calls == []
+
+
+@pytest.mark.anyio
+async def test_process_document_rejects_source_checksum_mismatch_without_calling_extractor() -> None:
+    artifacts = FakeArtifacts(b"bad")
+    extractor = FakeExtractor([], _result())
+    use_case = ProcessDocument(artifacts, extractor)
+    request = PdfExtractionRequest(
+        document_ref="doc-1",
+        source=_source(b"pdf"),
+        source_version="source-v1",
+        correlation_id="corr-1",
+        model_profile="extractor-v1",
+    )
+
+    with pytest.raises(ValueError, match="checksum"):
+        await use_case.execute(request)
+
+    assert extractor.calls == []

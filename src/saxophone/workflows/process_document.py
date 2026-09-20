@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+
 from saxophone.documents.ports import ArtifactRepository
 from saxophone.extraction.models import PdfExtractionRequest, PdfExtractionResult
 from saxophone.extraction.ports import PdfExtractor
@@ -18,4 +20,6 @@ class ProcessDocument:
         payload = await self._artifacts.get(request.source)
         if len(payload) != request.source.size_bytes:
             raise ValueError("source artifact payload size does not match metadata")
+        if hashlib.sha256(payload).hexdigest() != request.source.sha256:
+            raise ValueError("source artifact payload checksum does not match metadata")
         return await self._extractor.extract(request)
