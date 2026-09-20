@@ -340,9 +340,10 @@ class ChromaVectorIndex(VectorIndex):
         )
 
     async def delete_chunks(self, chunk_ids: Sequence[str]) -> None:
-        if chunk_ids:
+        validated_ids = _validated_chunk_ids(chunk_ids)
+        if validated_ids:
             await anyio.to_thread.run_sync(
-                partial(self._collection.delete, ids=list(chunk_ids)),
+                partial(self._collection.delete, ids=validated_ids),
                 limiter=self._io_limiter,
             )
 
@@ -415,3 +416,13 @@ def _validated_chroma_rows(
     if any(isinstance(item, bool) or not isinstance(item, (int, float)) or not math.isfinite(item) for item in distances):
         raise ValueError("Chroma result distances must be finite numbers")
     return ids, documents, metadatas, distances
+
+
+def _validated_chunk_ids(chunk_ids: Sequence[str]) -> list[str]:
+    """Validate deletion IDs before allowing a destructive provider call."""
+    if isinstance(chunk_ids, (str, bytes)) or not isinstance(chunk_ids, Sequence):
+        raise ValueError("chunk_ids must be a sequence of non-blank strings")
+    validated = list(chunk_ids)
+    if any(not isinstance(item, str) or not item.strip() for item in validated):
+        raise ValueError("chunk_ids must be a sequence of non-blank strings")
+    return validated

@@ -360,3 +360,16 @@ async def test_chroma_list_chunk_ids_rejects_malformed_provider_ids(result) -> N
 
     with pytest.raises(ValueError, match="Chroma result ids"):
         await index.list_chunk_ids(document_ref="document-1")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("chunk_ids", ["chunk-1", ("",), ("chunk-1", 42)])
+async def test_chroma_delete_rejects_malformed_ids_before_provider_io(chunk_ids) -> None:
+    class _CollectionThatMustNotBeCalled:
+        def delete(self, **kwargs):
+            raise AssertionError("malformed IDs reached Chroma")
+
+    index = ChromaVectorIndex(_CollectionThatMustNotBeCalled())
+
+    with pytest.raises(ValueError, match="chunk_ids"):
+        await index.delete_chunks(chunk_ids)
