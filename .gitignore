@@ -35,6 +35,7 @@ docs/
 !docs/
 docs/*
 !docs/PHASE_0_BASELINE_VA_BEHAVIOR_MAP.md
+!docs/ADR-001_QUYET_DINH_PHASE_1.md
 
 # Logs and temporary files
 *.log
