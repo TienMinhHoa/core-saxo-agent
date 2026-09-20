@@ -219,6 +219,9 @@ class LiteLLMModelClient:
         normalized_endpoint = endpoint.strip().rstrip("/")
         if not normalized_endpoint:
             raise ValueError("endpoint must not be empty")
+        parsed_endpoint = httpx.URL(normalized_endpoint)
+        if parsed_endpoint.scheme not in {"http", "https"} or not parsed_endpoint.host:
+            raise ValueError("endpoint must be an absolute HTTP(S) URL")
         self._endpoint = normalized_endpoint
         self._http_client = http_client
         self._headers = {"Authorization": f"Bearer {bearer_token.strip()}"}

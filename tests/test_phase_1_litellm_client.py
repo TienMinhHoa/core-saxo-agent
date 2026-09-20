@@ -87,6 +87,25 @@ async def test_litellm_client_rejects_endpoint_empty_after_normalization(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
+    "endpoint",
+    [
+        "model-service.test/v1/invoke",
+        "ftp://model-service.test/v1/invoke",
+        "https:///v1/invoke",
+    ],
+)
+async def test_litellm_client_rejects_non_absolute_http_endpoint(endpoint: str) -> None:
+    async with httpx.AsyncClient() as http_client:
+        with pytest.raises(ValueError, match=r"absolute HTTP\(S\) URL"):
+            LiteLLMModelClient(
+                endpoint,
+                http_client=http_client,
+                bearer_token="secret-token",
+            )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
     ("field", "value"),
     [
         ("timeout_seconds", "30"),
