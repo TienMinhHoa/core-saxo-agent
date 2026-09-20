@@ -215,6 +215,20 @@ def test_cached_health_reuses_result_until_ttl_expires() -> None:
     asyncio.run(verify())
 
 
+def test_cached_health_rejects_non_finite_ttl() -> None:
+    class FakeGateway:
+        async def health(self) -> RemoteGpuHealth:
+            return RemoteGpuHealth(status="ready")
+
+    for ttl_seconds in (float("nan"), float("inf"), float("-inf")):
+        try:
+            CachedRemoteGpuGateway(FakeGateway(), ttl_seconds=ttl_seconds)
+        except ValueError as error:
+            assert str(error) == "ttl_seconds must be finite and positive"
+        else:
+            raise AssertionError("non-finite TTL must be rejected")
+
+
 def test_cached_health_coalesces_concurrent_refreshes() -> None:
     async def verify() -> None:
         refresh_started = asyncio.Event()

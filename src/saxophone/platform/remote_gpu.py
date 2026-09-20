@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import asyncio
+import math
 import time
 from collections.abc import Callable
 from typing import Literal, Protocol
@@ -46,8 +47,8 @@ class CachedRemoteGpuGateway:
         ttl_seconds: float,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
-        if ttl_seconds <= 0:
-            raise ValueError("ttl_seconds must be positive")
+        if not math.isfinite(ttl_seconds) or ttl_seconds <= 0:
+            raise ValueError("ttl_seconds must be finite and positive")
         self._gateway = gateway
         self._ttl_seconds = ttl_seconds
         self._clock = clock
