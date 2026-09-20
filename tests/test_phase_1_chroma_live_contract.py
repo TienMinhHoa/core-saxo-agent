@@ -38,6 +38,13 @@ def test_real_persistent_chroma_round_trip(tmp_path: Path) -> None:
         hits = await index.search(record.embedding, filters={"document_ref": record.document_ref})
         assert [hit.chunk_id for hit in hits] == [record.chunk_id]
         assert hits[0].document == record.search_text
+        assert hits[0].metadata == {
+            "page": 1,
+            "document_ref": record.document_ref,
+            "source_version": record.source_version,
+            "embedding_profile": record.embedding_profile,
+            "access_scope": record.access_scope,
+        }
         await index.delete_chunks((record.chunk_id,))
         assert await index.list_chunk_ids(document_ref=record.document_ref) == ()
 

@@ -33,3 +33,10 @@ pass
 
 Smoke test này xác minh persistence local và adapter contract, chưa xác minh
 model service/LiteLLM hoặc dữ liệu Chroma production bên ngoài máy test.
+
+## Bổ sung iteration 95
+
+Test live contract còn xác nhận metadata projection đi cùng search hit gồm
+`page`, `document_ref`, `source_version`, `embedding_profile` và `access_scope`.
+Như vậy Chroma chỉ giữ searchable projection đã được kiểm chứng; việc kiểm tra
+đầy đủ source/provenance không bị suy ra chỉ từ việc tìm thấy chunk theo ID.
