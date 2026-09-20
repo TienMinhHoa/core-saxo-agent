@@ -12,7 +12,7 @@ from saxophone.chat.models import ChatResult
 from saxophone.documents.models import ArtifactKind, ArtifactRef
 from saxophone.documents.ports import ArtifactRepository
 from saxophone.extraction.models import PdfExtractionRequest, PdfExtractionResult
-from saxophone.ingestion.models import ChunkIndexRecord, IngestionCommand, IngestionReport
+from saxophone.ingestion.models import IndexInputRecord, IngestionCommand, IngestionReport
 from saxophone.ingestion.use_cases import IndexDocument
 from saxophone.retrieval.models import EvidenceBundle
 from saxophone.workflows.process_document import ProcessDocument
@@ -49,7 +49,6 @@ class DocumentProcessRequest(BaseModel):
 class IngestionChunkRequest(BaseModel):
     chunk_id: str = Field(min_length=1)
     search_text: str = Field(min_length=1)
-    embedding: list[float] = Field(min_length=1)
     metadata: dict[str, object] = Field(default_factory=dict)
 
 
@@ -165,12 +164,11 @@ def build_capability_router(
             access_scope=request.access_scope,
         )
         records = tuple(
-            ChunkIndexRecord(
+            IndexInputRecord(
                 chunk_id=record.chunk_id,
                 document_ref=normalized_ref,
                 source_version=request.source_version,
                 search_text=record.search_text,
-                embedding=tuple(record.embedding),
                 embedding_profile=request.embedding_profile,
                 access_scope=request.access_scope,
                 metadata=record.metadata,

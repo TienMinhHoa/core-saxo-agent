@@ -87,7 +87,11 @@ class FakeVectorIndex:
 
 
 class FakeEmbeddingProvider:
+    def __init__(self) -> None:
+        self.calls = []
+
     async def embed(self, chunks, *, source_version):
+        self.calls.append((tuple(chunks), source_version))
         return tuple(
             EmbeddingRecord(
                 chunk_id=chunk_id,
@@ -342,12 +346,13 @@ def test_source_upload_rejects_non_pdf_without_persisting() -> None:
 
 def test_document_ingest_route_indexes_chunks_and_returns_report() -> None:
     vector_index = FakeVectorIndex()
+    embedding_provider = FakeEmbeddingProvider()
     app = create_app(
         settings(),
         overrides=AppOverrides(
             remote_gpu_gateway=FakeRemoteGpuGateway(),
             model_client=FakeModelClient(),
-            embedding_provider=FakeEmbeddingProvider(),
+            embedding_provider=embedding_provider,
             vector_index=vector_index,
         ),
     )
@@ -365,7 +370,6 @@ def test_document_ingest_route_indexes_chunks_and_returns_report() -> None:
                 {
                     "chunk_id": "chunk-1",
                     "search_text": "A musical phrase",
-                    "embedding": [0.0],
                     "metadata": {"tags": ["phrase"]},
                 }
             ],
@@ -375,6 +379,9 @@ def test_document_ingest_route_indexes_chunks_and_returns_report() -> None:
     assert response.status_code == 200
     assert response.json()["indexed"] is True
     assert response.json()["embedded_count"] == 1
+    assert embedding_provider.calls == [
+        ((("chunk-1", "A musical phrase"),), "source-v1"),
+    ]
     assert vector_index.records[0].embedding == (0.9, 0.8)
 
 
