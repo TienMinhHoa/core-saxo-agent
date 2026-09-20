@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from typing import Protocol
 
 from saxophone.documents.knowledge import KnowledgeChunk
@@ -17,6 +18,14 @@ class ArtifactRepository(Protocol):
 
     async def get(self, artifact: ArtifactRef) -> bytes:
         """Return the artifact bytes or raise FileNotFoundError."""
+
+
+class ImageArtifactResolver(ABC):
+    """Resolve an image reference to immutable artifact metadata."""
+
+    @abstractmethod
+    async def resolve(self, image_ref: str) -> ArtifactRef:
+        raise NotImplementedError
 
 
 class KnowledgeRepository(Protocol):

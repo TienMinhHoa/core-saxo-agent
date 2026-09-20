@@ -9,7 +9,8 @@ import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
-from saxophone.documents.models import ArtifactRef
+from saxophone.documents.models import ArtifactKind, ArtifactRef
+from saxophone.documents.ports import ArtifactRepository, ImageArtifactResolver
 
 
 class SafeImageArtifactGate:
@@ -23,6 +24,27 @@ class SafeImageArtifactGate:
             if image_ref not in validated:
                 validated.append(image_ref)
         return tuple(validated)
+
+
+class RepositoryBackedImageArtifactGate:
+    """Validate image references and verify their immutable repository bytes."""
+
+    def __init__(
+        self, repository: ArtifactRepository, resolver: ImageArtifactResolver
+    ) -> None:
+        self._repository = repository
+        self._resolver = resolver
+        self._safe_gate = SafeImageArtifactGate()
+
+    async def validate(self, image_refs: tuple[str, ...]) -> tuple[str, ...]:
+        safe_refs = await self._safe_gate.validate(image_refs)
+        for image_ref in safe_refs:
+            artifact = await self._resolver.resolve(image_ref)
+            if artifact.kind is not ArtifactKind.IMAGE:
+                raise ValueError("resolved artifact kind must be IMAGE")
+            payload = await self._repository.get(artifact)
+            _validate_payload(artifact, payload)
+        return safe_refs
 
 
 def _is_safe_image_reference(image_ref: object) -> bool:
@@ -76,8 +98,12 @@ class LocalArtifactRepository:
 
     @staticmethod
     def _validate_payload(artifact: ArtifactRef, payload: bytes) -> None:
-        if len(payload) != artifact.size_bytes:
-            raise ValueError("payload size_bytes does not match artifact metadata")
-        digest = hashlib.sha256(payload).hexdigest()
-        if digest != artifact.sha256:
-            raise ValueError("payload sha256 does not match artifact metadata")
+        _validate_payload(artifact, payload)
+
+
+def _validate_payload(artifact: ArtifactRef, payload: bytes) -> None:
+    if len(payload) != artifact.size_bytes:
+        raise ValueError("payload size_bytes does not match artifact metadata")
+    digest = hashlib.sha256(payload).hexdigest()
+    if digest != artifact.sha256:
+        raise ValueError("payload sha256 does not match artifact metadata")
