@@ -252,3 +252,12 @@ async def test_safe_image_artifact_gate_rejects_absolute_and_remote_refs() -> No
         await gate.validate(("C:/secret.png",))
     with pytest.raises(ValueError, match="safe image reference"):
         await gate.validate(("https://example.test/image.png",))
+
+
+@pytest.mark.anyio
+async def test_safe_image_artifact_gate_rejects_non_canonical_refs() -> None:
+    gate = SafeImageArtifactGate()
+    with pytest.raises(ValueError, match="safe image reference"):
+        await gate.validate((" images/page-1.png",))
+    with pytest.raises(ValueError, match="safe image reference"):
+        await gate.validate(("images/page-1.png ",))

@@ -53,6 +53,8 @@ def _is_safe_image_reference(image_ref: object) -> bool:
     if not isinstance(image_ref, str) or not image_ref.strip():
         return False
     candidate = image_ref.strip().replace("\\", "/")
+    if candidate != image_ref:
+        return False
     parsed = urlparse(candidate)
     if parsed.scheme or parsed.netloc or candidate.startswith("/"):
         return False
