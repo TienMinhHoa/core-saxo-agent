@@ -13,6 +13,7 @@ from saxophone.chat.models import ChatResult
 from saxophone.documents.models import ArtifactKind, ArtifactRef
 from saxophone.documents.policies import (
     is_image_media_type,
+    is_safe_document_reference,
     is_safe_relative_image_reference,
 )
 from saxophone.documents.ports import ArtifactRepository, ImageArtifactResolver
@@ -131,6 +132,7 @@ def build_capability_router(
         if workflow is None:
             raise HTTPException(status_code=503, detail="extraction capability is not configured")
         normalized_ref = _normalized_text(document_ref, "document_ref")
+        _require_safe_document_reference(normalized_ref)
         try:
             result: PdfExtractionResult = await workflow.execute(
                 PdfExtractionRequest(
@@ -155,6 +157,7 @@ def build_capability_router(
                 detail="uploaded file must have media type application/pdf",
             )
         normalized_ref = _normalized_text(document_ref, "document_ref")
+        _require_safe_document_reference(normalized_ref)
         payload = await _read_bounded_upload(file, max_upload_bytes)
         if b"%PDF-" not in payload[:1024]:
             raise HTTPException(
@@ -354,6 +357,11 @@ def _normalized_text(value: str, field_name: str) -> str:
     if not normalized:
         raise HTTPException(status_code=422, detail=f"{field_name} must not be blank")
     return normalized
+
+
+def _require_safe_document_reference(document_ref: str) -> None:
+    if not is_safe_document_reference(document_ref):
+        raise HTTPException(status_code=422, detail="unsafe document_ref")
 
 
 async def _read_bounded_upload(file: UploadFile, max_upload_bytes: int) -> bytes:

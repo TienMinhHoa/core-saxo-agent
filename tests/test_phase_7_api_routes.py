@@ -818,6 +818,27 @@ def test_source_upload_persists_pdf_and_returns_typed_artifact_reference() -> No
     assert artifacts.puts[0][1] == b"%PDF-1.7"
 
 
+def test_source_upload_rejects_document_ref_that_could_escape_artifact_root() -> None:
+    artifacts = FakeArtifacts(b"", puts=[])
+    app = create_app(
+        settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=FakeRemoteGpuGateway(),
+            model_client=FakeModelClient(),
+            artifact_repository=artifacts,
+        ),
+    )
+
+    response = TestClient(app).post(
+        "/api/v1/documents/..%5Coutside/source",
+        files={"file": ("source.pdf", b"%PDF-1.7", "application/pdf")},
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "unsafe document_ref"}
+    assert artifacts.puts == []
+
+
 def test_source_upload_rejects_non_pdf_without_persisting() -> None:
     artifacts = FakeArtifacts(b"", puts=[])
     app = create_app(

@@ -6,6 +6,19 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 
+def is_safe_document_reference(document_ref: object) -> bool:
+    """Return whether a document identity can be used as one path component."""
+
+    if not isinstance(document_ref, str) or not document_ref.strip():
+        return False
+    if document_ref != document_ref.strip():
+        return False
+    if any(character in document_ref for character in ("/", "\\", "\x00", ":")):
+        return False
+    parsed = urlparse(document_ref)
+    return not parsed.scheme and not parsed.netloc and document_ref not in {".", ".."}
+
+
 def is_safe_relative_image_reference(image_ref: object) -> bool:
     """Return whether an image reference has one safe relative spelling."""
 
