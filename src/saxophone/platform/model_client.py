@@ -36,12 +36,42 @@ class ModelTask(StrEnum):
     ANSWER_GENERATE = "answer_generate"
 
 
-def _immutable_mapping(value: Mapping[str, object], field_name: str) -> Mapping[str, object]:
+def _immutable_mapping(
+    value: Mapping[str, object],
+    field_name: str,
+    *,
+    validate_json_values: bool = True,
+) -> Mapping[str, object]:
     if not isinstance(value, Mapping):
         raise ModelValidationError(f"{field_name} must be a mapping")
     if any(not isinstance(key, str) for key in value):
         raise ModelValidationError(f"{field_name} keys must be strings")
+    if validate_json_values:
+        for key, nested_value in value.items():
+            _validate_json_value(nested_value, f"{field_name}.{key}")
     return MappingProxyType(dict(value))
+
+
+def _validate_json_value(value: object, field_name: str) -> None:
+    """Reject values that cannot be transported as strict JSON."""
+
+    if value is None or isinstance(value, (str, bool, int)):
+        return
+    if isinstance(value, float):
+        if math.isfinite(value):
+            return
+        raise ModelValidationError(f"{field_name} must contain finite JSON numbers")
+    if isinstance(value, Mapping):
+        if any(not isinstance(key, str) for key in value):
+            raise ModelValidationError(f"{field_name} keys must be strings")
+        for key, nested_value in value.items():
+            _validate_json_value(nested_value, f"{field_name}.{key}")
+        return
+    if isinstance(value, (list, tuple)):
+        for index, nested_value in enumerate(value):
+            _validate_json_value(nested_value, f"{field_name}[{index}]")
+        return
+    raise ModelValidationError(f"{field_name} must contain JSON-compatible values")
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,7 +120,11 @@ class ModelResponse:
         _require_canonical_text("model", self.model)
         _require_canonical_text("response_schema", self.response_schema)
         _require_canonical_text("source_version", self.source_version)
-        object.__setattr__(self, "output", _immutable_mapping(self.output, "output"))
+        object.__setattr__(
+            self,
+            "output",
+            _immutable_mapping(self.output, "output", validate_json_values=False),
+        )
 
 
 def _require_canonical_text(field_name: str, value: object) -> None:

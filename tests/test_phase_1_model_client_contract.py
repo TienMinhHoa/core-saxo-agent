@@ -102,6 +102,22 @@ def test_model_response_rejects_non_string_output_keys() -> None:
         )
 
 
+@pytest.mark.parametrize("field", ["input", "metadata"])
+@pytest.mark.parametrize("value", [{"nested": {1: "malformed"}}, {"nested": {"bad": {1, 2}}}, {"nested": float("nan")}])
+def test_model_request_rejects_non_json_nested_values(field: str, value: object) -> None:
+    values: dict[str, object] = {
+        "model": "embed-v1",
+        "task": ModelTask.EMBED,
+        "input": {},
+        "metadata": {},
+        "response_schema": "v1",
+    }
+    values[field] = value
+
+    with pytest.raises(ModelValidationError, match=field):
+        ModelRequest(**values)  # type: ignore[arg-type]
+
+
 def test_model_client_protocol_is_async_and_fake_can_return_validated_response() -> None:
     class FakeModelClient:
         async def invoke(self, request: ModelRequest) -> ModelResponse:
