@@ -375,7 +375,10 @@ class ChromaVectorIndex(VectorIndex):
     @staticmethod
     def _metadata(record: ChunkIndexRecord) -> dict[str, object]:
         return {
-            **dict(record.metadata),
+            **{
+                key: _chroma_metadata_value(value)
+                for key, value in record.metadata.items()
+            },
             "document_ref": record.document_ref,
             "source_version": record.source_version,
             "embedding_profile": record.embedding_profile,
@@ -394,6 +397,15 @@ class ChromaVectorIndex(VectorIndex):
             )
             for chunk_id, document, metadata, distance in zip(ids, documents, metadatas, distances)
         ]
+
+
+def _chroma_metadata_value(value: object) -> object:
+    """Project provider-independent tuple metadata into Chroma's list shape."""
+    if isinstance(value, tuple):
+        return [_chroma_metadata_value(item) for item in value]
+    if isinstance(value, list):
+        return [_chroma_metadata_value(item) for item in value]
+    return value
 
 
 def _validated_chroma_rows(

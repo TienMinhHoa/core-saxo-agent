@@ -58,6 +58,43 @@ def test_real_persistent_chroma_round_trip(tmp_path: Path) -> None:
         gc.collect()
 
 
+def test_chroma_round_trip_preserves_structured_metadata(tmp_path: Path) -> None:
+    settings = AppSettings(
+        data_root=tmp_path / "data",
+        remote_gpu_base_url="https://gpu.example.test",
+        remote_gpu_bearer_token="test-token",
+        chroma_persist_directory=tmp_path / "chroma",
+        chroma_collection_name="structured_metadata_contract",
+        embedding_dimension=3,
+    )
+    index = create_chroma_vector_index(settings)
+    record = ChunkIndexRecord(
+        chunk_id="chunk-structured-1",
+        document_ref="document-structured-1",
+        source_version="v1",
+        search_text="structured metadata must survive the vector adapter",
+        embedding=(1.0, 0.0, 0.0),
+        embedding_profile="test-embedding",
+        access_scope="public",
+        metadata={
+            "tags": ("music", "phrase"),
+            "tagged_paragraph_ids": ("paragraph-1",),
+        },
+    )
+
+    async def exercise() -> None:
+        await index.upsert_chunks((record,))
+        hits = await index.search(record.embedding)
+        assert hits[0].metadata["tags"] == ["music", "phrase"]
+        assert hits[0].metadata["tagged_paragraph_ids"] == ["paragraph-1"]
+
+    try:
+        anyio.run(exercise)
+    finally:
+        del index
+        gc.collect()
+
+
 def test_chroma_upsert_rejects_embedding_dimension_before_provider_io(tmp_path: Path) -> None:
     settings = AppSettings(
         data_root=tmp_path / "data",
