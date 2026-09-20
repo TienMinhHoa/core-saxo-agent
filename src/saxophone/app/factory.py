@@ -10,11 +10,14 @@ import httpx
 from fastapi import FastAPI
 
 from saxophone.app.settings import AppSettings
+from saxophone.chat.service import AnswerQuestion
 from saxophone.platform.model_client import LiteLLMModelClient, ModelClient
 from saxophone.platform.remote_gpu import (
     HttpRemoteGpuGateway,
     RemoteGpuGateway,
 )
+from saxophone.retrieval.use_cases import RetrieveEvidence
+from saxophone.interfaces.api import build_capability_router
 
 
 _DISABLED_CAPABILITIES: Final = {
@@ -33,6 +36,8 @@ class AppContainer:
     remote_gpu_gateway: RemoteGpuGateway
     model_client: ModelClient
     http_client: httpx.AsyncClient | None = None
+    retrieve_evidence: RetrieveEvidence | None = None
+    answer_question: AnswerQuestion | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +46,8 @@ class AppOverrides:
 
     remote_gpu_gateway: RemoteGpuGateway | None = None
     model_client: ModelClient | None = None
+    retrieve_evidence: RetrieveEvidence | None = None
+    answer_question: AnswerQuestion | None = None
 
 
 def create_app(
@@ -73,6 +80,8 @@ def create_app(
         remote_gpu_gateway=remote_gpu_gateway,
         model_client=model_client,
         http_client=http_client,
+        retrieve_evidence=resolved_overrides.retrieve_evidence,
+        answer_question=resolved_overrides.answer_question,
     )
 
     @asynccontextmanager
@@ -85,6 +94,12 @@ def create_app(
 
     app = FastAPI(title="Saxophone RAG backend", lifespan=lifespan)
     app.state.container = container
+    app.include_router(
+        build_capability_router(
+            retrieve_evidence=container.retrieve_evidence,
+            answer_question=container.answer_question,
+        ),
+    )
 
     @app.get("/api/v1/health")
     async def health() -> dict[str, object]:
@@ -93,7 +108,10 @@ def create_app(
             "app": "ready",
             "remote_gpu": remote_gpu.status,
             "remote_gpu_capabilities": list(remote_gpu.capabilities),
-            **_DISABLED_CAPABILITIES,
+            "extraction": _DISABLED_CAPABILITIES["extraction"],
+            "ingestion": _DISABLED_CAPABILITIES["ingestion"],
+            "retrieval": "ready" if container.retrieve_evidence is not None else "disabled",
+            "chat": "ready" if container.answer_question is not None else "disabled",
         }
 
     return app
