@@ -28,6 +28,7 @@ class ExtractionCoordinate:
     markdown_line_start: int
     markdown_line_end: int
     bbox: tuple[float, float, float, float] | None
+    printed_page: int | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.coordinate_space, CoordinateSpace):
@@ -45,6 +46,12 @@ class ExtractionCoordinate:
             raise ValueError("markdown_line_start must be positive")
         if self.markdown_line_end < self.markdown_line_start:
             raise ValueError("markdown_line_end must not precede markdown_line_start")
+        if self.printed_page is not None and (
+            isinstance(self.printed_page, bool)
+            or not isinstance(self.printed_page, int)
+            or self.printed_page <= 0
+        ):
+            raise ValueError("printed_page must be a positive integer when provided")
         if self.bbox is not None:
             if (
                 not isinstance(self.bbox, tuple)

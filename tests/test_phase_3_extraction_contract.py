@@ -66,6 +66,33 @@ def test_coordinate_preserves_explicit_page_and_markdown_spaces() -> None:
     assert coordinate.bbox == (10.0, 20.0, 100.0, 200.0)
 
 
+def test_coordinate_preserves_optional_printed_page_separately() -> None:
+    coordinate = ExtractionCoordinate(
+        coordinate_space=CoordinateSpace.PDF_PAGE,
+        page_index=4,
+        markdown_line_start=10,
+        markdown_line_end=12,
+        bbox=None,
+        printed_page=7,
+    )
+
+    assert coordinate.page_index == 4
+    assert coordinate.printed_page == 7
+
+
+@pytest.mark.parametrize("printed_page", [True, False, 0, -1, 1.5])
+def test_coordinate_rejects_invalid_printed_page(printed_page: object) -> None:
+    with pytest.raises(ValueError, match="printed_page"):
+        ExtractionCoordinate(
+            coordinate_space=CoordinateSpace.PDF_PAGE,
+            page_index=0,
+            markdown_line_start=1,
+            markdown_line_end=1,
+            bbox=None,
+            printed_page=printed_page,  # type: ignore[arg-type]
+        )
+
+
 def test_extraction_result_requires_expected_artifact_kinds() -> None:
     result = PdfExtractionResult(
         document_ref="document-123",
