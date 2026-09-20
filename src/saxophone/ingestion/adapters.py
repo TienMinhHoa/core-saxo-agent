@@ -504,6 +504,10 @@ def _validated_chroma_rows(
         for item in metadatas
     ):
         raise ValueError("Chroma result metadata must contain valid projections")
+    for chunk_id, metadata in zip(ids, metadatas):
+        metadata_chunk_id = metadata.get("chunk_id")
+        if metadata_chunk_id is not None and metadata_chunk_id != chunk_id:
+            raise ValueError("Chroma result metadata chunk_id must match result id")
     if any(isinstance(item, bool) or not isinstance(item, (int, float)) or not math.isfinite(item) for item in distances):
         raise ValueError("Chroma result distances must be finite numbers")
     return ids, documents, metadatas, distances

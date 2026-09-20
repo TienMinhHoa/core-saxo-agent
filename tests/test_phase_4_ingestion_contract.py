@@ -588,6 +588,26 @@ async def test_chroma_vector_index_rejects_duplicate_search_result_ids() -> None
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("metadata", [{"chunk_id": "other-chunk"}, {"chunk_id": " "}])
+async def test_chroma_vector_index_rejects_search_metadata_with_wrong_chunk_identity(
+    metadata,
+) -> None:
+    class _MismatchedMetadataCollection:
+        def query(self, **kwargs):
+            return {
+                "ids": [["chunk-1"]],
+                "documents": [["text"]],
+                "metadatas": [[metadata]],
+                "distances": [[0.1]],
+            }
+
+    index = ChromaVectorIndex(_MismatchedMetadataCollection())
+
+    with pytest.raises(ValueError, match="chunk_id"):
+        await index.search((0.3, 0.4), limit=1)
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     "result",
     [
