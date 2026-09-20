@@ -107,6 +107,11 @@ class LocalArtifactRepository:
         resolved = path.resolve()
         if resolved != self._root and self._root not in resolved.parents:
             raise ValueError("artifact_id must stay within the artifact root")
+        current = self._root
+        for component in relative.parts:
+            current /= component
+            if current.is_symlink():
+                raise FileExistsError("artifact path must not contain a symbolic link")
         return path
 
     def _write_atomically(self, artifact: ArtifactRef, payload: bytes) -> None:

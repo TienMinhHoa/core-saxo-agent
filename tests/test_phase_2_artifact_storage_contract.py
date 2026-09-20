@@ -202,6 +202,25 @@ def test_repository_symbolic_link_guard_is_fail_closed_without_link_privilege(
     assert list(tmp_path.rglob("*")) == []
 
 
+def test_repository_rejects_symbolic_link_in_artifact_parent_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = LocalArtifactRepository(tmp_path)
+    artifact = _artifact()
+    parent = tmp_path / "document-123" / "manifest"
+    real_is_symlink = Path.is_symlink
+
+    def pretend_symlink(path: Path) -> bool:
+        return path == parent or real_is_symlink(path)
+
+    monkeypatch.setattr(Path, "is_symlink", pretend_symlink)
+
+    with pytest.raises(FileExistsError, match="symbolic link"):
+        asyncio.run(repository.put(artifact, b"1234567"))
+
+    assert list(tmp_path.rglob("*")) == []
+
+
 def test_atomic_commit_does_not_replace_file_created_after_existence_check(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
