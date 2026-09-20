@@ -404,6 +404,8 @@ def _validate_runtime_float(
 def _validate_runtime_path(value: object, field_name: str) -> None:
     if not isinstance(value, Path):
         raise SettingsValidationError(f"{field_name} must be a filesystem path")
+    if str(value) != str(value).strip():
+        raise SettingsValidationError(f"{field_name} must not contain surrounding whitespace")
     if value == Path("."):
         raise SettingsValidationError(f"{field_name} must not be empty")
     if value.drive and not value.is_absolute():
