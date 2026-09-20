@@ -25,9 +25,9 @@ class RemotePdfExtractor:
         model: str,
         response_schema: str = "pdf-extraction-v1",
     ) -> None:
-        if not model.strip():
+        if not isinstance(model, str) or not model.strip():
             raise ValueError("model must not be blank")
-        if not response_schema.strip():
+        if not isinstance(response_schema, str) or not response_schema.strip():
             raise ValueError("response_schema must not be blank")
         self._model_client = model_client
         self._model = model.strip()

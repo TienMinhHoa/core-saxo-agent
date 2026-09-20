@@ -94,6 +94,22 @@ def test_remote_pdf_extractor_canonicalizes_model_and_schema_configuration() -> 
     assert result.model_profile == "extractor-v1"
 
 
+@pytest.mark.parametrize("field", ["model", "response_schema"])
+@pytest.mark.parametrize("value", [None, 123, object()])
+def test_remote_pdf_extractor_rejects_non_string_configuration(
+    field: str, value: object
+) -> None:
+    configuration = {"model": "extractor-v1", "response_schema": "pdf-extraction-v1"}
+    configuration[field] = value
+
+    with pytest.raises(ValueError, match=field):
+        RemotePdfExtractor(
+            object(),  # type: ignore[arg-type]
+            model=configuration["model"],  # type: ignore[arg-type]
+            response_schema=configuration["response_schema"],  # type: ignore[arg-type]
+        )
+
+
 def test_remote_pdf_extractor_maps_json_artifact_envelopes() -> None:
     class FakeClient:
         async def invoke(self, request: ModelRequest) -> ModelResponse:
