@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import unicodedata
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -10,6 +11,8 @@ def is_safe_artifact_reference(artifact_id: object) -> bool:
     """Return whether an artifact identity is safe for backend-owned storage."""
 
     if not isinstance(artifact_id, str) or not artifact_id or artifact_id != artifact_id.strip():
+        return False
+    if unicodedata.normalize("NFC", artifact_id) != artifact_id:
         return False
     if any(ord(character) < 0x20 or ord(character) == 0x7F for character in artifact_id):
         return False

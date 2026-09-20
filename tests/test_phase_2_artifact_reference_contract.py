@@ -97,6 +97,43 @@ def test_artifact_reference_rejects_path_escaping_or_noncanonical_identity(
         ArtifactRef(**fields)
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("artifact_id", "document/cafe\u0301/manifest"),
+        ("version", "extract-cafe\u0301-v1"),
+    ],
+)
+def test_artifact_reference_rejects_non_nfc_identity(
+    field: str, value: str
+) -> None:
+    fields = {
+        "artifact_id": "document-123/manifest",
+        "version": "extract-v1",
+        "kind": ArtifactKind.EXTRACTION_MANIFEST,
+        "media_type": "application/json",
+        "sha256": "a" * 64,
+        "size_bytes": 128,
+    }
+    fields[field] = value
+
+    with pytest.raises(ValueError, match=field):
+        ArtifactRef(**fields)
+
+
+def test_artifact_reference_accepts_nfc_unicode_identity() -> None:
+    artifact = ArtifactRef(
+        artifact_id="document/caf\u00e9/manifest",
+        version="extract-v1",
+        kind=ArtifactKind.EXTRACTION_MANIFEST,
+        media_type="application/json",
+        sha256="a" * 64,
+        size_bytes=128,
+    )
+
+    assert artifact.artifact_id == "document/caf\u00e9/manifest"
+
+
 @pytest.mark.parametrize("size_bytes", [-1, -100])
 def test_artifact_reference_rejects_negative_size(size_bytes: int) -> None:
     with pytest.raises(ValueError, match="size_bytes"):
