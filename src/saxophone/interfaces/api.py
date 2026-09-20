@@ -91,6 +91,10 @@ def build_capability_router(
     ingest_extracted_document: IngestExtractedDocument | None = None,
     max_upload_bytes: int = 200 * 1024 * 1024,
 ) -> APIRouter:
+    if isinstance(max_upload_bytes, bool) or not isinstance(max_upload_bytes, int):
+        raise ValueError("max_upload_bytes must be a positive integer")
+    if max_upload_bytes <= 0:
+        raise ValueError("max_upload_bytes must be a positive integer")
     router = APIRouter(prefix="/api/v1")
 
     @router.post("/retrieval/evidence")

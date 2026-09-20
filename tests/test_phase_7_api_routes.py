@@ -5,9 +5,11 @@ import hashlib
 import json
 from dataclasses import dataclass
 
+import pytest
 from fastapi.testclient import TestClient
 
 from saxophone.app.factory import AppOverrides, create_app
+from saxophone.interfaces.api import build_capability_router
 from saxophone.app.settings import AppSettings
 from saxophone.chat.models import ChatResult, ChatStatus
 from saxophone.documents.models import ArtifactKind, ArtifactRef
@@ -983,6 +985,14 @@ def test_source_upload_rejects_payload_over_configured_limit_without_persisting(
         "detail": "uploaded file exceeds maximum size of 4 bytes"
     }
     assert artifacts.puts == []
+
+
+@pytest.mark.parametrize("max_upload_bytes", [0, -1, True])
+def test_capability_router_rejects_invalid_upload_limit_at_composition_boundary(
+    max_upload_bytes: object,
+) -> None:
+    with pytest.raises(ValueError, match="max_upload_bytes"):
+        build_capability_router(max_upload_bytes=max_upload_bytes)  # type: ignore[arg-type]
 
 
 def test_asset_route_resolves_verifies_and_returns_image_bytes() -> None:

@@ -275,3 +275,14 @@ deployment production.
   `docs/ITERATION_198_SETTINGS_WINDOWS_DEVICE_PATH_CONTRACT.md`.
 - Live model-service smoke và production golden parity vẫn chưa xác minh vì
   checkout thiếu endpoint, credential và catalog production thật.
+
+### Iteration 203 — giới hạn upload tại composition boundary
+
+- `build_capability_router()` fail-fast khi `max_upload_bytes` không phải số
+  nguyên dương, bao gồm boolean; tránh để cấu hình sai chỉ phát hiện ở request
+  upload runtime.
+- Regression TDD đạt **35 passed** trong API route tests; toàn bộ suite đạt
+  **886 passed, 3 skipped, 1 warning**. Chi tiết tại
+  `docs/ITERATION_203_UPLOAD_LIMIT_COMPOSITION_CONTRACT.md`.
+- Live model-service smoke và production parity vẫn chưa xác minh do checkout
+  chưa có endpoint, credential và catalog production thật.
