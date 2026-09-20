@@ -71,7 +71,10 @@ def is_safe_media_type(media_type: object) -> bool:
         return False
     if any(ord(character) < 0x20 or ord(character) == 0x7F for character in media_type):
         return False
-    main_type = media_type.split(";", 1)[0].strip()
+    main_type, *parameters = media_type.split(";")
+    if any(not _is_mime_parameter(parameter) for parameter in parameters):
+        return False
+    main_type = main_type.strip()
     parts = main_type.split("/")
     if len(parts) != 2 or not all(parts):
         return False
@@ -79,8 +82,35 @@ def is_safe_media_type(media_type: object) -> bool:
 
 
 def _is_mime_token(value: str) -> bool:
-    return all(
+    return bool(value) and all(
         character.isascii()
         and (character.isalnum() or character in _MIME_TOKEN_CHARACTERS)
         for character in value
     )
+
+
+def _is_mime_parameter(value: str) -> bool:
+    """Return whether a MIME parameter has a name and token/quoted value."""
+
+    name, separator, parameter_value = value.strip().partition("=")
+    if not separator or not _is_mime_token(name.strip()):
+        return False
+    parameter_value = parameter_value.strip()
+    if _is_mime_token(parameter_value):
+        return True
+    if not (
+        len(parameter_value) >= 2
+        and parameter_value.startswith('"')
+        and parameter_value.endswith('"')
+    ):
+        return False
+    escaped = False
+    for character in parameter_value[1:-1]:
+        if character in {'\r', '\n', '\x00', '\x7f'}:
+            return False
+        if character == '"' and not escaped:
+            return False
+        escaped = character == "\\" and not escaped
+        if character != "\\":
+            escaped = False
+    return not escaped

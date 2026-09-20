@@ -43,6 +43,12 @@ def test_artifact_reference_is_immutable_and_keeps_versioned_identity() -> None:
         ("media_type", "application/json;\tcharset=utf-8"),
         ("media_type", "application/json;\ncharset=utf-8"),
         ("media_type", "application/json; charset=utf-8\x7f"),
+        ("media_type", "application/json;"),
+        ("media_type", "application/json; charset"),
+        ("media_type", "application/json; =utf-8"),
+        ("media_type", "application/json; charset="),
+        ("media_type", "application/json; charset=utf-8; ;"),
+        ("media_type", 'application/json; charset="utf"8"'),
         ("sha256", "not-a-sha256"),
         ("size_bytes", True),
         ("size_bytes", 1.5),
@@ -179,6 +185,19 @@ def test_artifact_reference_accepts_mime_parameters() -> None:
     )
 
     assert artifact.media_type == "application/json; charset=utf-8"
+
+
+def test_artifact_reference_accepts_quoted_mime_parameter_value() -> None:
+    artifact = ArtifactRef(
+        artifact_id="document-123/manifest",
+        version="extract-v1",
+        kind=ArtifactKind.EXTRACTION_MANIFEST,
+        media_type='application/json; charset="utf-8"',
+        sha256="a" * 64,
+        size_bytes=128,
+    )
+
+    assert artifact.media_type == 'application/json; charset="utf-8"'
 
 
 def test_artifact_reference_accepts_standard_mime_token_punctuation() -> None:
