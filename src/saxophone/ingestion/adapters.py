@@ -288,10 +288,14 @@ class ChromaVectorIndex(VectorIndex):
         *,
         client: Any | None = None,
         io_limiter: Any | None = None,
+        embedding_dimension: int | None = None,
     ) -> None:
         self._collection = collection
         self._client = client
         self._io_limiter = io_limiter or create_blocking_io_limiter()
+        if embedding_dimension is not None and embedding_dimension < 1:
+            raise ValueError("embedding_dimension must be positive")
+        self._embedding_dimension = embedding_dimension
 
     def close(self) -> None:
         """Release the Chroma client owned by the composition root, when present."""
@@ -313,6 +317,15 @@ class ChromaVectorIndex(VectorIndex):
     async def upsert_chunks(self, records: Sequence[ChunkIndexRecord]) -> None:
         if not records:
             return
+        if self._embedding_dimension is not None:
+            invalid = next(
+                (record for record in records if record.dimension != self._embedding_dimension),
+                None,
+            )
+            if invalid is not None:
+                raise ValueError(
+                    "embedding dimension does not match the configured Chroma collection"
+                )
         await anyio.to_thread.run_sync(
             partial(
                 self._collection.upsert,

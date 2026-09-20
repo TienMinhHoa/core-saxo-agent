@@ -4,6 +4,7 @@ import gc
 from pathlib import Path
 
 import anyio
+import pytest
 
 from saxophone.app.settings import AppSettings
 from saxophone.ingestion.models import ChunkIndexRecord
@@ -53,5 +54,38 @@ def test_real_persistent_chroma_round_trip(tmp_path: Path) -> None:
     finally:
         # Chroma 1.5.x keeps SQLite handles behind the client/collection graph.
         # Release that graph before pytest removes tmp_path on Windows.
+        del index
+        gc.collect()
+
+
+def test_chroma_upsert_rejects_embedding_dimension_before_provider_io(tmp_path: Path) -> None:
+    settings = AppSettings(
+        data_root=tmp_path / "data",
+        remote_gpu_base_url="https://gpu.example.test",
+        remote_gpu_bearer_token="test-token",
+        chroma_persist_directory=tmp_path / "chroma",
+        chroma_collection_name="dimension_contract",
+        embedding_dimension=3,
+    )
+    index = create_chroma_vector_index(settings)
+    record = ChunkIndexRecord(
+        chunk_id="chunk-invalid-dimension",
+        document_ref="document-dimension",
+        source_version="v1",
+        search_text="dimension must be checked before Chroma I/O",
+        embedding=(1.0, 0.0),
+        embedding_profile="test-embedding",
+        access_scope="public",
+        metadata={"page": 1},
+    )
+
+    async def exercise() -> None:
+        with pytest.raises(ValueError, match="embedding dimension"):
+            await index.upsert_chunks((record,))
+        assert await index.list_chunk_ids(document_ref=record.document_ref) == ()
+
+    try:
+        anyio.run(exercise)
+    finally:
         del index
         gc.collect()
