@@ -360,7 +360,8 @@ class ChromaVectorIndex(VectorIndex):
         filters: Mapping[str, object] | None = None,
         limit: int = 10,
     ) -> list[VectorHit]:
-        if limit < 1:
+        validated_limit = _validated_search_limit(limit)
+        if validated_limit == 0:
             return []
         validated_vector = _validated_query_vector(
             query_vector,
@@ -371,7 +372,7 @@ class ChromaVectorIndex(VectorIndex):
                 self._collection.query,
             query_embeddings=[validated_vector],
             where=filters,
-            n_results=limit,
+            n_results=validated_limit,
             include=["documents", "metadatas", "distances"],
             ),
             limiter=self._io_limiter,
@@ -475,3 +476,10 @@ def _validated_query_vector(
     if expected_dimension is not None and len(validated) != expected_dimension:
         raise ValueError("query vector dimension does not match the configured Chroma collection")
     return [float(item) for item in validated]
+
+
+def _validated_search_limit(limit: int) -> int:
+    """Validate the provider row count without allowing bool or fractional values."""
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
+        raise ValueError("limit must be a non-negative integer")
+    return limit

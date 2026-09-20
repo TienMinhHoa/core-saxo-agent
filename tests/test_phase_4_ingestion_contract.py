@@ -315,6 +315,19 @@ async def test_chroma_search_passes_shared_blocking_io_limiter(monkeypatch) -> N
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("limit", [-1, True, 1.5, "1"])
+async def test_chroma_search_rejects_malformed_limit_before_provider_io(limit) -> None:
+    class _CollectionThatMustNotBeCalled:
+        def query(self, **kwargs):
+            raise AssertionError("malformed limit reached Chroma")
+
+    index = ChromaVectorIndex(_CollectionThatMustNotBeCalled())
+
+    with pytest.raises(ValueError, match="limit"):
+        await index.search((0.3, 0.4), limit=limit)
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("query_vector", [(), (True, 0.4), (0.3, float("nan")), "0.3"])
 async def test_chroma_search_rejects_malformed_query_vector_before_provider_io(query_vector) -> None:
     class _CollectionThatMustNotBeCalled:
