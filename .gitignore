@@ -59,6 +59,7 @@ docs/*
 !docs/PHASE_3_PROCESS_DOCUMENT_CONTRACT.md
 !docs/PHASE_3_SOURCE_INTEGRITY.md
 !docs/PHASE_3_SOURCE_UPLOAD.md
+!docs/PHASE_4_INDEX_DOCUMENT.md
 
 # Logs and temporary files
 *.log
