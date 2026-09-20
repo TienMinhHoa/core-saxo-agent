@@ -1,8 +1,8 @@
-"""Contracts for the remote GPU boundary.
+"""Contracts for remote model-service capability health.
 
-The first Phase 1 slice deliberately provides only a lifecycle-safe local
-fallback.  The HTTP submit/poll adapter belongs behind this contract in a
-later slice, so importing or composing the app cannot start GPU work.
+The health port is intentionally separate from the direct LiteLLM-compatible
+request/response client.  It reports service readiness without introducing a
+backend-owned submit/poll job lifecycle or starting GPU work during app setup.
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ class CachedRemoteGpuGateway:
 
 
 class UnavailableRemoteGpuGateway:
-    """Safe Phase 1 default until an HTTP gateway is wired at startup."""
+    """Safe health result when the external model service is unavailable."""
 
     async def health(self) -> RemoteGpuHealth:
         return RemoteGpuHealth(status="unavailable")

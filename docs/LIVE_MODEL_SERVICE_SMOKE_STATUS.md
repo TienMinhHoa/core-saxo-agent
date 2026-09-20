@@ -17,21 +17,25 @@ answer chạy thành công qua dịch vụ thật.
 
 ```text
 uv run pytest -q
-279 passed, 2 skipped, 1 warning
+291 passed, 2 skipped
 ```
 
 Các test trên dùng fake gateway, HTTP mock hoặc Chroma `PersistentClient` cục
 bộ. Chúng xác minh contract, timeout, capability projection, validation output,
-composition và lifecycle; chúng không thay thế live smoke.
+composition và lifecycle; chúng không thay thế live smoke. Bằng chứng offline
+hiện tại được đối chiếu với `docs/REFACTOR_ACCEPTANCE_STATUS.md` và phải được
+cập nhật cùng lúc khi số test thay đổi.
 
 ## Cách xác minh khi có endpoint thật
 
-Chỉ chạy khi đã có `SAXO_REMOTE_GPU_BASE_URL` và bearer token hợp lệ trong môi
+Chỉ chạy khi đã có `SAXO_REMOTE_GPU_BASE_URL`,
+`SAXO_REMOTE_GPU_BEARER_TOKEN` và `SAXO_LITELLM_ENDPOINT` hợp lệ trong môi
 trường chạy, không ghi token vào log hoặc tài liệu:
 
-1. Gọi `GET /v1/health` và ghi nhận `status` cùng capability names.
-2. Gửi một request nhỏ cho từng task type được công bố: extraction,
-   embedding, tagging và answer.
+1. Gọi `GET {SAXO_REMOTE_GPU_BASE_URL}/v1/health` và ghi nhận `status` cùng
+   capability names; không ghi response chứa thông tin nhạy cảm.
+2. Gửi một request nhỏ tới `SAXO_LITELLM_ENDPOINT` cho từng task type được
+   công bố: extraction, embedding, tagging và answer.
 3. Chạy một workflow xuyên suốt từ artifact đầu vào đến kết quả typed; kiểm tra
    provenance, kích thước embedding, metadata search và lỗi invalid output.
 4. Ghi thời điểm, endpoint không chứa secret, task đã chạy và kết quả
