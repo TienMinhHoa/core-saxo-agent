@@ -340,3 +340,23 @@ async def test_chroma_vector_index_rejects_malformed_search_results(result) -> N
 
     with pytest.raises(ValueError, match="Chroma result"):
         await index.search((0.3, 0.4), limit=1)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "result",
+    [
+        {"ids": "chunk-1"},
+        {"ids": ["chunk-1", " "]},
+        {"ids": ["chunk-1", 42]},
+    ],
+)
+async def test_chroma_list_chunk_ids_rejects_malformed_provider_ids(result) -> None:
+    class _MalformedCollection:
+        def get(self, **kwargs):
+            return result
+
+    index = ChromaVectorIndex(_MalformedCollection())
+
+    with pytest.raises(ValueError, match="Chroma result ids"):
+        await index.list_chunk_ids(document_ref="document-1")
