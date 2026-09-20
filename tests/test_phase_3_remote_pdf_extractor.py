@@ -161,3 +161,22 @@ def test_remote_pdf_extractor_rejects_wrong_task_or_schema() -> None:
 
     with pytest.raises(ValueError, match="task"):
         asyncio.run(RemotePdfExtractor(FakeClient(), model="extractor-v1").extract(_request()))
+
+
+def test_remote_pdf_extractor_rejects_source_version_drift() -> None:
+    class FakeClient:
+        async def invoke(self, request: ModelRequest) -> ModelResponse:
+            return ModelResponse(
+                task=ModelTask.PDF_EXTRACT,
+                model="extractor-v1",
+                response_schema="pdf-extraction-v1",
+                output={
+                    "markdown": _artifact("markdown", ArtifactKind.MARKDOWN),
+                    "layout": _artifact("layout", ArtifactKind.LAYOUT),
+                    "manifest": _artifact("manifest", ArtifactKind.EXTRACTION_MANIFEST),
+                },
+                source_version="different-source-v1",
+            )
+
+    with pytest.raises(ValueError, match="source_version"):
+        asyncio.run(RemotePdfExtractor(FakeClient(), model="extractor-v1").extract(_request()))

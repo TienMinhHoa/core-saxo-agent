@@ -56,6 +56,8 @@ class RemotePdfExtractor:
             raise ValueError("model response task must be pdf_extract")
         if response.response_schema != self._response_schema:
             raise ValueError("model response schema does not match extraction contract")
+        if response.source_version != request.source_version:
+            raise ValueError("model response source_version does not match extraction request")
         output = response.output
         return PdfExtractionResult(
             document_ref=request.document_ref,
