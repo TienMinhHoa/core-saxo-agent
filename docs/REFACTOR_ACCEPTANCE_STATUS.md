@@ -9,7 +9,7 @@ khi có feature parity và quyết định migration riêng.
 
 - Các capability đích đã có trong package `src/saxophone`: composition root,
   extraction, ingestion, retrieval, chat, tagging, workflow và API adapters.
-- Bằng chứng offline hiện tại: `uv run pytest` đạt **314 passed, 2 skipped**;
+- Bằng chứng offline hiện tại: `uv run pytest` đạt **316 passed, 2 skipped**;
   `compileall` và `git diff --check` đã được chạy ở lát cắt gần nhất.
 - Chưa được phép kết luận production-ready: checkout không có remote
   model-service endpoint/credential để chạy live smoke thật. Trạng thái này
@@ -71,6 +71,14 @@ deployment production.
 - Xác minh iteration 23: targeted **29 passed**; full suite **314 passed, 2
   skipped, 1 warning**; `compileall` và `git diff --check` thành công.
 - Chi tiết: `docs/ITERATION_23_EVENT_METRICS.md`.
+
+### Iteration 25 — snapshot metrics nhất quán
+
+- Bổ sung `MetricsSnapshot` bất biến và `EventMetrics.snapshot()` để đọc counts,
+  duration, in-flight và peak concurrency dưới cùng một lock.
+- Xác minh: targeted **9 passed**; full suite **316 passed, 2 skipped, 1
+  warning**; `compileall` và `git diff --check` thành công.
+- Chi tiết: `docs/ITERATION_25_METRICS_SNAPSHOT.md`.
 
 ### Iteration 8 — loại bỏ workflow job lifecycle lỗi thời
 

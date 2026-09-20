@@ -63,6 +63,16 @@ class InMemoryEventSink:
         self.events.append(event)
 
 
+@dataclass(frozen=True, slots=True)
+class MetricsSnapshot:
+    """Immutable point-in-time view for diagnostics and operational consumers."""
+
+    counts: tuple[tuple[str, str, str, int], ...]
+    durations_ms: tuple[tuple[str, tuple[float, ...]], ...]
+    in_flight: tuple[tuple[str, int], ...]
+    max_concurrency: tuple[tuple[str, int], ...]
+
+
 class EventMetrics:
     """Deterministic in-process counters for the minimum observability metrics."""
 
@@ -106,6 +116,22 @@ class EventMetrics:
     def max_concurrency(self, *, task: str) -> int:
         with self._lock:
             return self._max_concurrency[task]
+
+    def snapshot(self) -> MetricsSnapshot:
+        """Return one consistent, detached view of all collected metrics."""
+
+        with self._lock:
+            return MetricsSnapshot(
+                counts=tuple(
+                    (*key, value) for key, value in sorted(self._counts.items())
+                ),
+                durations_ms=tuple(
+                    (task, tuple(values))
+                    for task, values in sorted(self._durations_ms.items())
+                ),
+                in_flight=tuple(sorted(self._in_flight.items())),
+                max_concurrency=tuple(sorted(self._max_concurrency.items())),
+            )
 
 
 class LoggingEventSink:

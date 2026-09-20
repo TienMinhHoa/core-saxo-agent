@@ -46,6 +46,45 @@ def test_event_metrics_tracks_in_flight_and_peak_concurrency_per_task() -> None:
     assert metrics.max_concurrency(task="embed") == 2
 
 
+def test_event_metrics_snapshot_is_consistent_and_detached_from_future_updates() -> None:
+    metrics = EventMetrics()
+    metrics.observe(
+        StructuredEvent(
+            name="model.request.completed",
+            correlation_id="corr-snapshot",
+            task="embed",
+            model="profile-v1",
+            attempt=1,
+            duration_ms=4.5,
+            input_count=1,
+            output_count=1,
+            result="success",
+        )
+    )
+    metrics.request_started(task="embed")
+
+    snapshot = metrics.snapshot()
+    metrics.request_started(task="embed")
+    metrics.observe(
+        StructuredEvent(
+            name="model.request.failed",
+            correlation_id="corr-snapshot-2",
+            task="embed",
+            model="profile-v1",
+            attempt=1,
+            duration_ms=8.0,
+            input_count=1,
+            output_count=0,
+            result="failure",
+        )
+    )
+
+    assert snapshot.counts == (("model.request.completed", "embed", "success", 1),)
+    assert snapshot.durations_ms == (("embed", (4.5,)),)
+    assert snapshot.in_flight == (("embed", 1),)
+    assert snapshot.max_concurrency == (("embed", 1),)
+
+
 def test_structured_event_keeps_only_safe_typed_fields() -> None:
     event = StructuredEvent(
         name="model.request.completed",
