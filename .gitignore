@@ -118,3 +118,4 @@ Desktop.ini
 
 # The lockfile is part of the reproducible project state.
 !uv.lock
+!docs/PHASE_7_HEALTH_CACHE.md

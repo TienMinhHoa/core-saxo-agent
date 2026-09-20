@@ -8,6 +8,9 @@ later slice, so importing or composing the app cannot start GPU work.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import asyncio
+import time
+from collections.abc import Callable
 from typing import Literal, Protocol
 
 import httpx
@@ -31,6 +34,37 @@ class RemoteGpuGateway(Protocol):
 
     async def health(self) -> RemoteGpuHealth:
         """Return the latest safe-to-publish remote service status."""
+
+
+class CachedRemoteGpuGateway:
+    """Bound remote health polling while preserving the latest safe result."""
+
+    def __init__(
+        self,
+        gateway: RemoteGpuGateway,
+        *,
+        ttl_seconds: float,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        if ttl_seconds <= 0:
+            raise ValueError("ttl_seconds must be positive")
+        self._gateway = gateway
+        self._ttl_seconds = ttl_seconds
+        self._clock = clock
+        self._cached: tuple[float, RemoteGpuHealth] | None = None
+        self._lock = asyncio.Lock()
+
+    async def health(self) -> RemoteGpuHealth:
+        now = self._clock()
+        if self._cached is not None and now - self._cached[0] < self._ttl_seconds:
+            return self._cached[1]
+        async with self._lock:
+            now = self._clock()
+            if self._cached is not None and now - self._cached[0] < self._ttl_seconds:
+                return self._cached[1]
+            health = await self._gateway.health()
+            self._cached = (self._clock(), health)
+            return health
 
 
 class UnavailableRemoteGpuGateway:

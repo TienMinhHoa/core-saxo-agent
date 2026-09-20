@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import asyncio
 
 import httpx
 
 from saxophone.app.settings import AppSettings
-from saxophone.platform.remote_gpu import HttpRemoteGpuGateway
+from saxophone.platform.remote_gpu import CachedRemoteGpuGateway, HttpRemoteGpuGateway, RemoteGpuHealth
 
 
 ENVIRONMENT = {
@@ -34,8 +35,8 @@ def test_health_uses_shared_client_with_https_bearer_auth_and_stable_path() -> N
 
             health = await gateway.health()
 
-        assert health.status == "ready"
-        assert health.capabilities == ("embed", "pdf_extract")
+            assert health.status == "ready"
+            assert health.capabilities == ("embed", "pdf_extract")
 
     asyncio.run(verify())
     assert len(requests) == 1
@@ -116,5 +117,29 @@ def test_health_filters_malformed_and_duplicate_capabilities_without_leaking_pay
 
         assert health.status == "ready"
         assert health.capabilities == ("embed", "pdf_extract")
+
+    asyncio.run(verify())
+
+
+def test_cached_health_reuses_result_until_ttl_expires() -> None:
+    async def verify() -> None:
+        class FakeGateway:
+            calls = 0
+
+            async def health(self) -> RemoteGpuHealth:
+                self.calls += 1
+                return RemoteGpuHealth(status="ready", capabilities=("embed",))
+
+        now = [100.0]
+        gateway = FakeGateway()
+        cached = CachedRemoteGpuGateway(gateway, ttl_seconds=5.0, clock=lambda: now[0])
+
+        first = await cached.health()
+        second = await cached.health()
+        now[0] = 105.0
+        third = await cached.health()
+
+        assert first == second == third
+        assert gateway.calls == 2
 
     asyncio.run(verify())

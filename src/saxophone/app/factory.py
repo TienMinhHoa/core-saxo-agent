@@ -21,6 +21,7 @@ from saxophone.ingestion.use_cases import IngestDocument, IndexDocument
 from saxophone.platform.artifacts import LocalArtifactRepository
 from saxophone.platform.model_client import LiteLLMModelClient, ModelClient
 from saxophone.platform.remote_gpu import (
+    CachedRemoteGpuGateway,
     HttpRemoteGpuGateway,
     RemoteGpuGateway,
 )
@@ -104,6 +105,10 @@ def create_app(
         http_client = httpx.AsyncClient()
     if remote_gpu_gateway is None:
         remote_gpu_gateway = HttpRemoteGpuGateway(settings, http_client=http_client)
+    cached_remote_gpu_gateway = CachedRemoteGpuGateway(
+        remote_gpu_gateway,
+        ttl_seconds=settings.remote_gpu_health_cache_seconds,
+    )
     if model_client is None:
         model_client = LiteLLMModelClient(
             settings.litellm_endpoint,
@@ -226,7 +231,7 @@ def create_app(
 
     @app.get("/api/v1/health")
     async def health() -> dict[str, object]:
-        remote_gpu = await container.remote_gpu_gateway.health()
+        remote_gpu = await cached_remote_gpu_gateway.health()
         return {
             "app": "ready",
             # ``model_service`` is the architecture-level name. Keep the
