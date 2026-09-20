@@ -134,6 +134,22 @@ async def test_litellm_client_rejects_sync_transport_post_result() -> None:
 
 
 @pytest.mark.anyio
+async def test_litellm_client_rejects_awaited_transport_result_with_wrong_type() -> None:
+    class InvalidResponseTransport:
+        async def post(self, *_args, **_kwargs):
+            return object()
+
+    client = LiteLLMModelClient(
+        "https://model.example.test/v1/invoke",
+        http_client=InvalidResponseTransport(),  # type: ignore[arg-type]
+        bearer_token="secret-token",
+    )
+
+    with pytest.raises(ValueError, match="http_client.post must return an httpx.Response"):
+        await client.invoke(_request())
+
+
+@pytest.mark.anyio
 async def test_litellm_client_sends_typed_envelope_and_maps_response() -> None:
     requests: list[httpx.Request] = []
 

@@ -349,6 +349,8 @@ class LiteLLMModelClient:
                 if not inspect.isawaitable(post_result):
                     raise ValueError("http_client.post must return an awaitable")
                 response = await post_result
+                if not isinstance(response, httpx.Response):
+                    raise ValueError("http_client.post must return an httpx.Response")
                 if response.status_code not in {408, 429, 500, 502, 503, 504}:
                     response.raise_for_status()
                     self._record_success()
