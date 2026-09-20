@@ -431,10 +431,27 @@ class ChromaVectorIndex(VectorIndex):
 
 def _chroma_metadata_value(value: object) -> object:
     """Project provider-independent tuple metadata into Chroma's list shape."""
-    if isinstance(value, tuple):
-        return [_chroma_metadata_value(item) for item in value]
-    if isinstance(value, list):
-        return [_chroma_metadata_value(item) for item in value]
+    return _project_chroma_metadata_value(value, active_containers=set())
+
+
+def _project_chroma_metadata_value(
+    value: object, *, active_containers: set[int]
+) -> object:
+    """Project nested sequences while rejecting recursive metadata graphs."""
+    if isinstance(value, (tuple, list)):
+        container_id = id(value)
+        if container_id in active_containers:
+            raise ValueError("Chroma metadata values must not contain cycles")
+        active_containers.add(container_id)
+        try:
+            return [
+                _project_chroma_metadata_value(
+                    item, active_containers=active_containers
+                )
+                for item in value
+            ]
+        finally:
+            active_containers.remove(container_id)
     return value
 
 

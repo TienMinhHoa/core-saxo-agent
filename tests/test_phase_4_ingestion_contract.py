@@ -381,6 +381,32 @@ async def test_chroma_upsert_projects_nested_tuple_metadata_without_provider_err
 
 
 @pytest.mark.anyio
+async def test_chroma_upsert_rejects_recursive_metadata_before_provider_io() -> None:
+    class _CollectionThatMustNotBeCalled:
+        def upsert(self, **kwargs):
+            raise AssertionError("recursive metadata reached Chroma")
+
+    recursive_tags: list[object] = ["music"]
+    recursive_tags.append(recursive_tags)
+    record = _index_record()
+    recursive_record = ChunkIndexRecord(
+        chunk_id=record.chunk_id,
+        document_ref=record.document_ref,
+        source_version=record.source_version,
+        search_text=record.search_text,
+        embedding=record.embedding,
+        embedding_profile=record.embedding_profile,
+        access_scope=record.access_scope,
+        metadata={"tags": recursive_tags},
+    )
+
+    with pytest.raises(ValueError, match="cycles"):
+        await ChromaVectorIndex(_CollectionThatMustNotBeCalled()).upsert_chunks(
+            [recursive_record]
+        )
+
+
+@pytest.mark.anyio
 async def test_chroma_search_passes_shared_blocking_io_limiter(monkeypatch) -> None:
     collection = _FakeChromaCollection()
     limiter = object()
