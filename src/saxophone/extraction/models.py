@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -35,7 +36,16 @@ class ExtractionCoordinate:
         if self.markdown_line_end < self.markdown_line_start:
             raise ValueError("markdown_line_end must not precede markdown_line_start")
         if self.bbox is not None:
-            if len(self.bbox) != 4 or any(value < 0 for value in self.bbox):
+            if (
+                len(self.bbox) != 4
+                or any(
+                    isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or not math.isfinite(value)
+                    or value < 0
+                    for value in self.bbox
+                )
+            ):
                 raise ValueError("bbox must contain four non-negative coordinates")
 
 
