@@ -61,6 +61,7 @@ docs/*
 !docs/PHASE_3_SOURCE_UPLOAD.md
 !docs/PHASE_3_RESULT_SCOPE_VALIDATION.md
 !docs/PHASE_4_INDEX_DOCUMENT.md
+!docs/PHASE_3_PERSIST_EXTRACTION_ARTIFACTS.md
 
 # Logs and temporary files
 *.log
