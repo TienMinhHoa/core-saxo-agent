@@ -179,6 +179,8 @@ class LiteLLMModelClient:
     ) -> None:
         if not isinstance(endpoint, str) or not endpoint.strip():
             raise ValueError("endpoint must not be empty")
+        if any(ord(character) < 0x20 or ord(character) == 0x7F for character in endpoint):
+            raise ValueError("endpoint must not contain control characters")
         if not isinstance(bearer_token, str) or not bearer_token.strip():
             raise ValueError("bearer_token must not be empty")
         if any(ord(character) < 0x20 or ord(character) == 0x7F for character in bearer_token):

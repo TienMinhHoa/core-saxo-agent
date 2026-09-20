@@ -56,6 +56,22 @@ async def test_litellm_client_rejects_control_characters_in_bearer_token(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("endpoint", [
+    "https://model.example.test/v1/invoke\n?redirect=/unsafe",
+    "https://model.example.test/v1/invoke\rX-Injected: yes",
+    "https://model.example.test/v1/invoke\x00",
+])
+async def test_litellm_client_rejects_control_characters_in_endpoint(endpoint: str) -> None:
+    async with httpx.AsyncClient() as http_client:
+        with pytest.raises(ValueError, match="endpoint must not contain control characters"):
+            LiteLLMModelClient(
+                endpoint,
+                http_client=http_client,
+                bearer_token="secret-token",
+            )
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("field", "value"),
     [
