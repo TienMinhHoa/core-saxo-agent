@@ -102,6 +102,20 @@ def test_empty_evidence_requires_explicit_insufficiency_reason() -> None:
     assert bundle.insufficiency_reason == "no matching source"
 
 
+@pytest.mark.parametrize("reason", ["", " ", "no source ", "cafe\u0301"])
+def test_evidence_bundle_rejects_non_canonical_insufficiency_reason(reason: str) -> None:
+    with pytest.raises(ValueError, match="insufficiency_reason"):
+        EvidenceBundle("query", "retrieval-v1", (), (), {}, insufficiency_reason=reason)
+
+
+@pytest.mark.parametrize("reason", [True, 0, object()])
+def test_evidence_bundle_rejects_non_string_insufficiency_reason(reason: object) -> None:
+    with pytest.raises(ValueError, match="insufficiency_reason"):
+        EvidenceBundle(  # type: ignore[arg-type]
+            "query", "retrieval-v1", (), (), {}, insufficiency_reason=reason
+        )
+
+
 def test_evidence_bundle_rejects_insufficiency_with_hits() -> None:
     with pytest.raises(ValueError, match="empty evidence"):
         EvidenceBundle(

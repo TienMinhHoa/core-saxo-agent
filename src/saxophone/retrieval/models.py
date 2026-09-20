@@ -90,6 +90,9 @@ class EvidenceBundle:
             raise ValueError("source_texts must match selected_refs")
         if any(ref not in self.source_texts for ref in self.selected_refs):
             raise ValueError("source_texts must contain every selected ref")
+        if self.insufficiency_reason is not None:
+            _require_non_blank("insufficiency_reason", self.insufficiency_reason)
+            _require_canonical("insufficiency_reason", self.insufficiency_reason)
         if not self.hits and not self.insufficiency_reason:
             raise ValueError("insufficiency_reason is required when evidence is empty")
         if self.hits and self.insufficiency_reason is not None:
