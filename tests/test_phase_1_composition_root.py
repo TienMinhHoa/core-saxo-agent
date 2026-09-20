@@ -98,6 +98,28 @@ def test_default_composition_owns_one_http_client_and_closes_it_with_lifespan() 
     assert container.http_client.is_closed
 
 
+def test_default_composition_applies_remote_gpu_tls_verification_setting(monkeypatch) -> None:
+    calls: list[dict[str, object]] = []
+
+    class SpyAsyncClient:
+        def __init__(self, **kwargs) -> None:
+            calls.append(kwargs)
+            self.is_closed = False
+
+        async def aclose(self) -> None:
+            self.is_closed = True
+
+    monkeypatch.setattr("saxophone.app.factory.httpx.AsyncClient", SpyAsyncClient)
+    settings = AppSettings.from_environment({
+        **VALID_ENVIRONMENT,
+        "SAXO_REMOTE_GPU_TLS_VERIFY": "false",
+    })
+
+    create_app(settings)
+
+    assert calls == [{"verify": False}]
+
+
 def test_default_composition_uses_litellm_settings_for_model_client() -> None:
     settings = AppSettings.from_environment({
         **VALID_ENVIRONMENT,
