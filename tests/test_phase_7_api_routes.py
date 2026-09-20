@@ -13,7 +13,7 @@ from saxophone.extraction.models import PdfExtractionResult
 from saxophone.ingestion.models import EmbeddingRecord
 from saxophone.ingestion.use_cases import IndexDocument
 from saxophone.retrieval.models import EvidenceBundle
-from saxophone.workflows.process_document import ProcessDocument
+from saxophone.workflows.process_document import ProcessAndPersistDocument, ProcessDocument
 
 
 VALID_ENVIRONMENT = {
@@ -62,6 +62,11 @@ class FakePdfExtractor:
     async def extract(self, request):
         self.calls.append((request.document_ref, request.correlation_id))
         return self.result
+
+
+class FakeExtractionPayloads:
+    async def fetch(self, result: PdfExtractionResult) -> dict[str, bytes]:
+        return {"markdown": b"markdown", "layout": b"layout", "manifest": b"manifest"}
 
 
 @dataclass
@@ -163,6 +168,57 @@ def test_document_process_route_delegates_to_typed_extractor() -> None:
     assert response.json()["document_ref"] == "doc-1"
     assert response.json()["markdown"]["artifact_id"] == "markdown"
     assert extractor.calls == [("doc-1", "corr-1")]
+
+
+def test_document_process_route_persists_outputs_when_persistence_workflow_is_composed() -> None:
+    result = PdfExtractionResult(
+        document_ref="doc-1",
+        source_version="source-v1",
+        markdown=_artifact("markdown", ArtifactKind.MARKDOWN),
+        layout=_artifact("layout", ArtifactKind.LAYOUT),
+        manifest=_artifact("manifest", ArtifactKind.EXTRACTION_MANIFEST),
+        coordinates=(),
+        model_profile="extractor-v1",
+    )
+    extractor = FakePdfExtractor(result, [])
+    artifacts = FakeArtifacts(b"source", puts=[])
+    workflow = ProcessAndPersistDocument(
+        ProcessDocument(artifacts, extractor), FakeExtractionPayloads(), artifacts
+    )
+    app = create_app(
+        settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=FakeRemoteGpuGateway(),
+            model_client=FakeModelClient(),
+            pdf_extractor=extractor,
+            artifact_repository=artifacts,
+            process_and_persist_document=workflow,
+        ),
+    )
+
+    response = TestClient(app).post(
+        "/api/v1/documents/doc-1/process",
+        json={
+            "source": {
+                "artifact_id": "source",
+                "version": "v1",
+                "kind": "source_pdf",
+                "media_type": "application/pdf",
+                "sha256": "41cf6794ba4200b839c53531555f0f3998df4cbb01a4d5cb0b94e3ca5e23947d",
+                "size_bytes": 6,
+            },
+            "source_version": "source-v1",
+            "correlation_id": "corr-1",
+            "model_profile": "extractor-v1",
+        },
+    )
+
+    assert response.status_code == 200
+    assert [artifact.artifact_id for artifact, _ in artifacts.puts or []] == [
+        "markdown",
+        "layout",
+        "manifest",
+    ]
 
 
 def test_document_process_route_rejects_source_that_workflow_cannot_verify() -> None:

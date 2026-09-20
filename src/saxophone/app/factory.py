@@ -27,7 +27,7 @@ from saxophone.retrieval.use_cases import RetrieveEvidence
 from saxophone.tagging.persistence import JsonTagCatalogRepository, JsonTaggedParagraphRepository
 from saxophone.tagging.ports import TagCatalogRepository, TaggedParagraphRepository
 from saxophone.interfaces.api import build_capability_router
-from saxophone.workflows.process_document import ProcessDocument
+from saxophone.workflows.process_document import ProcessAndPersistDocument, ProcessDocument
 
 
 _DISABLED_CAPABILITIES: Final = {
@@ -52,6 +52,7 @@ class AppContainer:
     embedding_provider: EmbeddingProvider | None = None
     artifact_repository: ArtifactRepository | None = None
     process_document: ProcessDocument | None = None
+    process_and_persist_document: ProcessAndPersistDocument | None = None
     index_document: IndexDocument | None = None
     tagged_paragraph_repository: TaggedParagraphRepository | None = None
     tag_catalog_repository: TagCatalogRepository | None = None
@@ -69,6 +70,7 @@ class AppOverrides:
     embedding_provider: EmbeddingProvider | None = None
     artifact_repository: ArtifactRepository | None = None
     process_document: ProcessDocument | None = None
+    process_and_persist_document: ProcessAndPersistDocument | None = None
     vector_index: VectorIndex | None = None
     index_document: IndexDocument | None = None
     tagged_paragraph_repository: TaggedParagraphRepository | None = None
@@ -148,6 +150,7 @@ def create_app(
         embedding_provider=embedding_provider,
         artifact_repository=artifact_repository,
         process_document=process_document,
+        process_and_persist_document=resolved_overrides.process_and_persist_document,
         index_document=index_document,
         tagged_paragraph_repository=tagged_paragraph_repository,
         tag_catalog_repository=tag_catalog_repository,
@@ -169,6 +172,7 @@ def create_app(
             answer_question=container.answer_question,
             pdf_extractor=container.pdf_extractor,
             process_workflow=container.process_document,
+            process_and_persist_workflow=container.process_and_persist_document,
             artifact_repository=container.artifact_repository,
             index_document=container.index_document,
         ),

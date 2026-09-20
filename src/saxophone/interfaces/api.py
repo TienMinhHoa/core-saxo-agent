@@ -15,7 +15,7 @@ from saxophone.extraction.models import PdfExtractionRequest, PdfExtractionResul
 from saxophone.ingestion.models import IndexInputRecord, IngestionCommand, IngestionReport
 from saxophone.ingestion.use_cases import IndexDocument
 from saxophone.retrieval.models import EvidenceBundle
-from saxophone.workflows.process_document import ProcessDocument
+from saxophone.workflows.process_document import ProcessAndPersistDocument, ProcessDocument
 
 
 class QueryRequest(BaseModel):
@@ -68,6 +68,7 @@ def build_capability_router(
     answer_question: Any = None,
     pdf_extractor: Any = None,
     process_workflow: ProcessDocument | None = None,
+    process_and_persist_workflow: ProcessAndPersistDocument | None = None,
     artifact_repository: ArtifactRepository | None = None,
     index_document: IndexDocument | None = None,
 ) -> APIRouter:
@@ -98,7 +99,7 @@ def build_capability_router(
         document_ref: str,
         request: DocumentProcessRequest,
     ) -> dict[str, object]:
-        workflow = process_workflow
+        workflow = process_and_persist_workflow or process_workflow
         if workflow is None and pdf_extractor is not None:
             raise HTTPException(
                 status_code=503,
