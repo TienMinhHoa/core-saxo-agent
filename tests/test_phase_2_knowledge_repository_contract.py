@@ -85,3 +85,25 @@ def test_knowledge_chunk_rejects_invalid_source_contract(field: str, value: str)
 
     with pytest.raises(ValueError, match=field):
         KnowledgeChunk(**fields)
+
+
+@pytest.mark.parametrize(
+    "source_ref",
+    [
+        " knowledge://document-1/chunk-1",
+        "knowledge://document-1/chunk-1\n",
+        "knowledge://document-cafe\u0301/chunk-1",
+    ],
+)
+def test_knowledge_chunk_rejects_non_canonical_source_reference(source_ref: str) -> None:
+    with pytest.raises(ValueError, match="source_ref"):
+        replace(_chunk(), source_ref=source_ref)
+
+
+@pytest.mark.parametrize(
+    "image_ref",
+    ["../secret.png", "/absolute.png", "https://example.test/a.png", "images/page-1.png\n"],
+)
+def test_knowledge_chunk_rejects_unsafe_image_reference(image_ref: str) -> None:
+    with pytest.raises(ValueError, match="image_refs"):
+        replace(_chunk(), image_refs=(image_ref,))

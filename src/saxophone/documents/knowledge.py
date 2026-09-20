@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
+
+from saxophone.documents.policies import is_safe_relative_image_reference
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +41,7 @@ class KnowledgeChunk:
             "search_text",
         ):
             _require_non_blank(field_name, getattr(self, field_name))
+        _require_canonical("source_ref", self.source_ref)
         if not re.fullmatch(r"[0-9a-f]{64}", self.content_hash):
             raise ValueError("content_hash must be a lowercase 64-character hexadecimal digest")
         if self.page_start < -1 or self.page_end < -1:
@@ -50,8 +54,17 @@ class KnowledgeChunk:
             values = getattr(self, field_name)
             if any(not isinstance(value, str) or not value.strip() for value in values):
                 raise ValueError(f"{field_name} must contain non-blank strings")
+        if any(not is_safe_relative_image_reference(value) for value in self.image_refs):
+            raise ValueError("image_refs must contain safe relative references")
 
 
 def _require_non_blank(field_name: str, value: str) -> None:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field_name} must not be blank")
+
+
+def _require_canonical(field_name: str, value: str) -> None:
+    if value != value.strip() or unicodedata.normalize("NFC", value) != value:
+        raise ValueError(f"{field_name} must contain a canonical value")
+    if any(ord(character) < 0x20 or ord(character) == 0x7F for character in value):
+        raise ValueError(f"{field_name} must contain a canonical value")
