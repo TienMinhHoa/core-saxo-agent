@@ -56,6 +56,7 @@ docs/*
 !docs/PHASE_7_API_ROUTES.md
 !docs/PHASE_3_REMOTE_PDF_EXTRACTOR.md
 !docs/PHASE_3_COMPOSITION_ROOT_WIRING.md
+!docs/PHASE_3_PROCESS_DOCUMENT_CONTRACT.md
 
 # Logs and temporary files
 *.log
