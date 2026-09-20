@@ -46,7 +46,8 @@ class ExtractionCoordinate:
             raise ValueError("markdown_line_end must not precede markdown_line_start")
         if self.bbox is not None:
             if (
-                len(self.bbox) != 4
+                not isinstance(self.bbox, tuple)
+                or len(self.bbox) != 4
                 or any(
                     isinstance(value, bool)
                     or not isinstance(value, (int, float))
@@ -55,6 +56,8 @@ class ExtractionCoordinate:
                     for value in self.bbox
                 )
             ):
+                if not isinstance(self.bbox, tuple):
+                    raise ValueError("bbox must be a tuple")
                 raise ValueError("bbox must contain four non-negative coordinates")
             left, top, right, bottom = self.bbox
             if right <= left or bottom <= top:

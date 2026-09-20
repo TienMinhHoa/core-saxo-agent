@@ -149,6 +149,17 @@ def test_coordinate_rejects_wrong_scalar_types(field: str, value: object) -> Non
         ExtractionCoordinate(**fields)  # type: ignore[arg-type]
 
 
+def test_coordinate_rejects_mutable_bbox_container() -> None:
+    with pytest.raises(ValueError, match="bbox must be a tuple"):
+        ExtractionCoordinate(
+            coordinate_space=CoordinateSpace.PDF_PAGE,
+            page_index=0,
+            markdown_line_start=1,
+            markdown_line_end=1,
+            bbox=[10.0, 20.0, 100.0, 200.0],  # type: ignore[arg-type]
+        )
+
+
 @pytest.mark.parametrize("bbox", [(float("nan"), 0.0, 1.0, 1.0), (0.0, float("inf"), 1.0, 1.0), (0.0, 1.0, float("-inf"), 1.0)])
 def test_coordinate_rejects_non_finite_bbox_values(bbox: tuple[float, ...]) -> None:
     with pytest.raises(ValueError, match="bbox"):
