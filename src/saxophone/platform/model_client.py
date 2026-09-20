@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import random
 import time
 from dataclasses import dataclass
 from enum import StrEnum
@@ -117,6 +118,8 @@ class LiteLLMModelClient:
         timeout_seconds: float = 30.0,
         max_attempts: int = 1,
         retry_backoff_seconds: float = 0.0,
+        retry_jitter_ratio: float = 0.0,
+        jitter_source: Callable[[float, float], float] = random.uniform,
         circuit_breaker_failure_threshold: int = 0,
         circuit_breaker_cooldown_seconds: float = 30.0,
         monotonic_clock: Callable[[], float] = time.monotonic,
@@ -131,6 +134,8 @@ class LiteLLMModelClient:
             raise ValueError("max_attempts must be positive")
         if retry_backoff_seconds < 0:
             raise ValueError("retry_backoff_seconds must not be negative")
+        if not 0 <= retry_jitter_ratio <= 1:
+            raise ValueError("retry_jitter_ratio must be between 0 and 1")
         if circuit_breaker_failure_threshold < 0:
             raise ValueError("circuit_breaker_failure_threshold must not be negative")
         if circuit_breaker_cooldown_seconds <= 0:
@@ -141,6 +146,8 @@ class LiteLLMModelClient:
         self._timeout_seconds = timeout_seconds
         self._max_attempts = max_attempts
         self._retry_backoff_seconds = retry_backoff_seconds
+        self._retry_jitter_ratio = retry_jitter_ratio
+        self._jitter_source = jitter_source
         self._circuit_breaker_failure_threshold = circuit_breaker_failure_threshold
         self._circuit_breaker_cooldown_seconds = circuit_breaker_cooldown_seconds
         self._monotonic_clock = monotonic_clock
@@ -207,7 +214,11 @@ class LiteLLMModelClient:
         if idempotency_key is not None:
             headers["Idempotency-Key"] = idempotency_key
         for attempt in range(1, attempts + 1):
-            retry_delay = self._retry_backoff_seconds * (2 ** (attempt - 1))
+            retry_delay = _jittered_retry_delay(
+                self._retry_backoff_seconds * (2 ** (attempt - 1)),
+                ratio=self._retry_jitter_ratio,
+                jitter_source=self._jitter_source,
+            )
             response: httpx.Response | None = None
             try:
                 response = await self._http_client.post(
@@ -279,6 +290,19 @@ def _retry_delay_seconds(response: httpx.Response, *, fallback: float) -> float:
     if not math.isfinite(server_delay) or server_delay < 0:
         return fallback
     return max(fallback, server_delay)
+
+
+def _jittered_retry_delay(
+    base_delay: float,
+    *,
+    ratio: float,
+    jitter_source: Callable[[float, float], float],
+) -> float:
+    """Add bounded positive jitter while preserving the configured delay floor."""
+
+    if not base_delay or not ratio:
+        return base_delay
+    return base_delay * (1 + jitter_source(0.0, ratio))
 
 
 def _parse_task(value: object) -> ModelTask:

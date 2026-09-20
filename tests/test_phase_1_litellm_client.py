@@ -27,6 +27,19 @@ def _request() -> ModelRequest:
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("ratio", [-0.1, 1.1])
+async def test_litellm_client_rejects_invalid_retry_jitter_ratio(ratio: float) -> None:
+    async with httpx.AsyncClient() as http_client:
+        with pytest.raises(ValueError, match="retry_jitter_ratio"):
+            LiteLLMModelClient(
+                "https://model.example.test/v1/invoke",
+                http_client=http_client,
+                bearer_token="secret-token",
+                retry_jitter_ratio=ratio,
+            )
+
+
+@pytest.mark.anyio
 async def test_litellm_client_sends_typed_envelope_and_maps_response() -> None:
     requests: list[httpx.Request] = []
 
@@ -210,6 +223,49 @@ async def test_litellm_client_exponentially_increases_local_retry_backoff(
     assert response.output["answer"] == "Use long tones."
     assert attempts == 3
     assert sleeps == [1.5, 3.0]
+
+
+@pytest.mark.anyio
+async def test_litellm_client_applies_bounded_retry_jitter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts = 0
+    sleeps: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            return httpx.Response(503, json={"detail": "busy"})
+        return httpx.Response(
+            200,
+            json={
+                "task_type": "answer_generate",
+                "model": "answer-model-v1",
+                "response_format": "answer-v1",
+                "output": {"answer": "Use long tones."},
+                "source_version": "model-source-v1",
+            },
+        )
+
+    monkeypatch.setattr("saxophone.platform.model_client.asyncio.sleep", fake_sleep)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        response = await LiteLLMModelClient(
+            "https://model.example.test/v1/invoke",
+            http_client=http_client,
+            bearer_token="secret-token",
+            max_attempts=3,
+            retry_backoff_seconds=1.5,
+            retry_jitter_ratio=0.25,
+            jitter_source=lambda _lower, _upper: 0.25,
+        ).invoke(_request())
+
+    assert response.output["answer"] == "Use long tones."
+    assert attempts == 3
+    assert sleeps == [1.875, 3.75]
 
 
 @pytest.mark.anyio
