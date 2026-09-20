@@ -108,6 +108,7 @@ class AppSettings:
         Passing the mapping in keeps process environment access at the
         application boundary and makes configuration tests deterministic.
         """
+        _validate_environment_mapping(environment)
         data_root = _parse_data_root(environment.get("SAXO_DATA_ROOT", "runtime/saxophone"))
         base_url = _parse_remote_gpu_base_url(
             environment.get("SAXO_REMOTE_GPU_BASE_URL"),
@@ -194,6 +195,14 @@ class AppSettings:
                 "SAXO_MAX_UPLOAD_BYTES",
             ),
         )
+
+
+def _validate_environment_mapping(environment: object) -> None:
+    if not isinstance(environment, Mapping):
+        raise SettingsValidationError("environment must be a mapping of text values")
+    for key, value in environment.items():
+        if not isinstance(key, str) or not isinstance(value, str):
+            raise SettingsValidationError("environment keys and values must be text")
 
 
 def _parse_data_root(value: str | None) -> Path:

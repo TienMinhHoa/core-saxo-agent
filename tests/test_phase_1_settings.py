@@ -331,3 +331,22 @@ def test_direct_settings_construction_rejects_invalid_text_runtime_types(
         AppSettings(**values)
 
     assert error_marker in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "environment",
+    [
+        {**VALID_ENVIRONMENT, "SAXO_DATA_ROOT": Path("runtime/saxophone")},
+        {**VALID_ENVIRONMENT, "SAXO_REMOTE_GPU_BASE_URL": 123},
+        {**VALID_ENVIRONMENT, "SAXO_REMOTE_GPU_TLS_VERIFY": True},
+        {**VALID_ENVIRONMENT, "SAXO_LITELLM_TIMEOUT_SECONDS": 30},
+        {**VALID_ENVIRONMENT, "SAXO_CHROMA_COLLECTION_NAME": None},
+    ],
+)
+def test_from_environment_rejects_non_text_environment_entries(
+    environment: dict[str, object],
+) -> None:
+    with pytest.raises(SettingsValidationError) as error:
+        AppSettings.from_environment(environment)  # type: ignore[arg-type]
+
+    assert "environment" in str(error.value)
