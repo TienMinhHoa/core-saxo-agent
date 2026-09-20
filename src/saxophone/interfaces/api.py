@@ -12,6 +12,8 @@ from saxophone.chat.models import ChatResult
 from saxophone.documents.models import ArtifactKind, ArtifactRef
 from saxophone.documents.ports import ArtifactRepository
 from saxophone.extraction.models import PdfExtractionRequest, PdfExtractionResult
+from saxophone.ingestion.models import ChunkIndexRecord, IngestionCommand, IngestionReport
+from saxophone.ingestion.use_cases import IndexDocument
 from saxophone.retrieval.models import EvidenceBundle
 from saxophone.workflows.process_document import ProcessDocument
 
@@ -44,6 +46,23 @@ class DocumentProcessRequest(BaseModel):
     model_profile: str = Field(min_length=1)
 
 
+class IngestionChunkRequest(BaseModel):
+    chunk_id: str = Field(min_length=1)
+    search_text: str = Field(min_length=1)
+    embedding: list[float] = Field(min_length=1)
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class DocumentIngestionRequest(BaseModel):
+    source_version: str = Field(min_length=1)
+    chunking_profile: str = Field(min_length=1)
+    tagging_profile: str = Field(min_length=1)
+    embedding_profile: str = Field(min_length=1)
+    index_profile: str = Field(min_length=1)
+    access_scope: str = Field(min_length=1)
+    records: list[IngestionChunkRequest]
+
+
 def build_capability_router(
     *,
     retrieve_evidence: Any = None,
@@ -51,6 +70,7 @@ def build_capability_router(
     pdf_extractor: Any = None,
     process_workflow: ProcessDocument | None = None,
     artifact_repository: ArtifactRepository | None = None,
+    index_document: IndexDocument | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1")
 
@@ -127,6 +147,42 @@ def build_capability_router(
             raise HTTPException(status_code=422, detail=str(error)) from error
         return _artifact_response(artifact)
 
+    @router.post("/documents/{document_ref}/ingest")
+    async def ingest_document(
+        document_ref: str,
+        request: DocumentIngestionRequest,
+    ) -> dict[str, object]:
+        if index_document is None:
+            raise HTTPException(status_code=503, detail="ingestion capability is not configured")
+        normalized_ref = _normalized_text(document_ref, "document_ref")
+        command = IngestionCommand(
+            document_ref=normalized_ref,
+            source_version=request.source_version,
+            chunking_profile=request.chunking_profile,
+            tagging_profile=request.tagging_profile,
+            embedding_profile=request.embedding_profile,
+            index_profile=request.index_profile,
+            access_scope=request.access_scope,
+        )
+        records = tuple(
+            ChunkIndexRecord(
+                chunk_id=record.chunk_id,
+                document_ref=normalized_ref,
+                source_version=request.source_version,
+                search_text=record.search_text,
+                embedding=tuple(record.embedding),
+                embedding_profile=request.embedding_profile,
+                access_scope=request.access_scope,
+                metadata=record.metadata,
+            )
+            for record in request.records
+        )
+        try:
+            report: IngestionReport = await index_document.execute(command, records)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return _ingestion_response(report)
+
     return router
 
 
@@ -171,6 +227,24 @@ def _extraction_response(result: PdfExtractionResult) -> dict[str, object]:
             }
             for coordinate in result.coordinates
         ],
+    }
+
+
+def _ingestion_response(report: IngestionReport) -> dict[str, object]:
+    return {
+        "document_ref": report.document_ref,
+        "source_version": report.source_version,
+        "chunk_count": report.chunk_count,
+        "paragraph_count": report.paragraph_count,
+        "tagged_paragraph_count": report.tagged_paragraph_count,
+        "failed_paragraph_count": report.failed_paragraph_count,
+        "embedded_count": report.embedded_count,
+        "reused_embedding_count": report.reused_embedding_count,
+        "skipped_count": report.skipped_count,
+        "index_version": report.index_version,
+        "indexed": report.indexed,
+        "warnings": list(report.warnings),
+        "errors": list(report.errors),
     }
 
 

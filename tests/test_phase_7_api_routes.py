@@ -10,6 +10,8 @@ from saxophone.chat.models import ChatResult, ChatStatus
 from saxophone.documents.models import ArtifactKind, ArtifactRef
 from saxophone.documents.ports import ArtifactRepository
 from saxophone.extraction.models import PdfExtractionResult
+from saxophone.ingestion.models import EmbeddingRecord
+from saxophone.ingestion.use_cases import IndexDocument
 from saxophone.retrieval.models import EvidenceBundle
 from saxophone.workflows.process_document import ProcessDocument
 
@@ -74,6 +76,27 @@ class FakeArtifacts(ArtifactRepository):
 
     async def get(self, artifact: ArtifactRef) -> bytes:
         return self.payload
+
+
+class FakeVectorIndex:
+    def __init__(self) -> None:
+        self.records = ()
+
+    async def upsert_chunks(self, records):
+        self.records = tuple(records)
+
+
+class FakeEmbeddingProvider:
+    async def embed(self, chunks, *, source_version):
+        return tuple(
+            EmbeddingRecord(
+                chunk_id=chunk_id,
+                source_version=source_version,
+                model_profile="embed-v1",
+                vector=(0.9, 0.8),
+            )
+            for chunk_id, _ in chunks
+        )
 
 
 def settings() -> AppSettings:
@@ -315,3 +338,67 @@ def test_source_upload_rejects_non_pdf_without_persisting() -> None:
     assert response.status_code == 415
     assert response.json() == {"detail": "uploaded file must have media type application/pdf"}
     assert artifacts.puts == []
+
+
+def test_document_ingest_route_indexes_chunks_and_returns_report() -> None:
+    vector_index = FakeVectorIndex()
+    app = create_app(
+        settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=FakeRemoteGpuGateway(),
+            model_client=FakeModelClient(),
+            embedding_provider=FakeEmbeddingProvider(),
+            vector_index=vector_index,
+        ),
+    )
+
+    response = TestClient(app).post(
+        "/api/v1/documents/doc-1/ingest",
+        json={
+            "source_version": "source-v1",
+            "chunking_profile": "header-v1",
+            "tagging_profile": "tags-v1",
+            "embedding_profile": "embed-v1",
+            "index_profile": "index-v1",
+            "access_scope": "tenant-a",
+            "records": [
+                {
+                    "chunk_id": "chunk-1",
+                    "search_text": "A musical phrase",
+                    "embedding": [0.0],
+                    "metadata": {"tags": ["phrase"]},
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["indexed"] is True
+    assert response.json()["embedded_count"] == 1
+    assert vector_index.records[0].embedding == (0.9, 0.8)
+
+
+def test_document_ingest_route_is_explicitly_unavailable_without_vector_index() -> None:
+    app = create_app(
+        settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=FakeRemoteGpuGateway(),
+            model_client=FakeModelClient(),
+        ),
+    )
+
+    response = TestClient(app).post(
+        "/api/v1/documents/doc-1/ingest",
+        json={
+            "source_version": "source-v1",
+            "chunking_profile": "header-v1",
+            "tagging_profile": "tags-v1",
+            "embedding_profile": "embed-v1",
+            "index_profile": "index-v1",
+            "access_scope": "tenant-a",
+            "records": [],
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "ingestion capability is not configured"}

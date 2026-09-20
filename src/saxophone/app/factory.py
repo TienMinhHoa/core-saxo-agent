@@ -15,7 +15,8 @@ from saxophone.documents.ports import ArtifactRepository
 from saxophone.extraction.ports import PdfExtractor
 from saxophone.extraction.remote import RemotePdfExtractor
 from saxophone.ingestion.adapters import RemoteEmbeddingProvider
-from saxophone.ingestion.ports import EmbeddingProvider
+from saxophone.ingestion.ports import EmbeddingProvider, VectorIndex
+from saxophone.ingestion.use_cases import IndexDocument
 from saxophone.platform.artifacts import LocalArtifactRepository
 from saxophone.platform.model_client import LiteLLMModelClient, ModelClient
 from saxophone.platform.remote_gpu import (
@@ -49,6 +50,7 @@ class AppContainer:
     embedding_provider: EmbeddingProvider | None = None
     artifact_repository: ArtifactRepository | None = None
     process_document: ProcessDocument | None = None
+    index_document: IndexDocument | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +65,8 @@ class AppOverrides:
     embedding_provider: EmbeddingProvider | None = None
     artifact_repository: ArtifactRepository | None = None
     process_document: ProcessDocument | None = None
+    vector_index: VectorIndex | None = None
+    index_document: IndexDocument | None = None
 
 
 def create_app(
@@ -110,6 +114,12 @@ def create_app(
     process_document = resolved_overrides.process_document
     if process_document is None:
         process_document = ProcessDocument(artifact_repository, pdf_extractor)
+    index_document = resolved_overrides.index_document
+    if index_document is None and resolved_overrides.vector_index is not None:
+        index_document = IndexDocument(
+            resolved_overrides.vector_index,
+            embedding_provider,
+        )
 
     container = AppContainer(
         settings=settings,
@@ -122,6 +132,7 @@ def create_app(
         embedding_provider=embedding_provider,
         artifact_repository=artifact_repository,
         process_document=process_document,
+        index_document=index_document,
     )
 
     @asynccontextmanager
@@ -141,6 +152,7 @@ def create_app(
             pdf_extractor=container.pdf_extractor,
             process_workflow=container.process_document,
             artifact_repository=container.artifact_repository,
+            index_document=container.index_document,
         ),
     )
 
@@ -156,7 +168,11 @@ def create_app(
                 if container.pdf_extractor is not None
                 else _DISABLED_CAPABILITIES["extraction"]
             ),
-            "ingestion": _DISABLED_CAPABILITIES["ingestion"],
+            "ingestion": (
+                "ready"
+                if container.index_document is not None
+                else _DISABLED_CAPABILITIES["ingestion"]
+            ),
             "retrieval": "ready" if container.retrieve_evidence is not None else "disabled",
             "chat": "ready" if container.answer_question is not None else "disabled",
         }
