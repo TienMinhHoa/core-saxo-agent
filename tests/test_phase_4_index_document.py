@@ -28,13 +28,14 @@ def _command() -> IngestionCommand:
 
 
 def _record(
+    chunk_id: str = "chunk-1",
     document_ref: str = "doc-1",
     source_version: str = "source-v1",
     embedding_profile: str = "embed-v1",
     access_scope: str = "tenant-a",
 ) -> IndexInputRecord:
     return IndexInputRecord(
-        chunk_id="chunk-1",
+        chunk_id=chunk_id,
         document_ref=document_ref,
         source_version=source_version,
         search_text="A musical phrase",
@@ -165,6 +166,25 @@ async def test_index_document_reports_embedding_failure_without_index_call() -> 
     assert report.indexed is False
     assert report.embedded_count == 0
     assert report.errors == ("embedding service unavailable",)
+    assert index.records is None
+
+
+@pytest.mark.anyio
+async def test_index_document_rejects_inconsistent_embedding_dimensions() -> None:
+    index = FakeIndex()
+    provider = FakeEmbeddingProvider(
+        (
+            _embedding(chunk_id="chunk-1", vector=(0.9, 0.8)),
+            _embedding(chunk_id="chunk-2", vector=(0.1, 0.2, 0.3)),
+        )
+    )
+
+    report = await IndexDocument(index, provider).execute(
+        _command(), [_record(), _record(chunk_id="chunk-2")]
+    )
+
+    assert report.indexed is False
+    assert report.errors == ("embedding dimensions must match",)
     assert index.records is None
 
 

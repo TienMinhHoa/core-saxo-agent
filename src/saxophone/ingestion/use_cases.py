@@ -114,6 +114,9 @@ class IndexDocument:
                 metadata=record.metadata,
             )
         resolved = tuple(cached[record.chunk_id] for record in records)
+        dimensions = {record.dimension for record in resolved}
+        if len(dimensions) > 1:
+            raise ValueError("embedding dimensions must match")
         if self._embedding_reuse is not None and missing:
             await self._embedding_reuse.save(tuple(cached[record.chunk_id] for record in missing))
         return resolved, len(records) - len(missing)
