@@ -27,7 +27,14 @@ def _request() -> PdfExtractionRequest:
     source = b"pdf"
     return PdfExtractionRequest(
         document_ref="doc-1",
-        source=_artifact(ArtifactKind.SOURCE_PDF, "source", source),
+        source=ArtifactRef(
+            artifact_id="source",
+            version="v1",
+            kind=ArtifactKind.SOURCE_PDF,
+            media_type="application/pdf",
+            sha256=hashlib.sha256(source).hexdigest(),
+            size_bytes=len(source),
+        ),
         source_version="source-v1",
         correlation_id="corr-1",
         model_profile="extract-v1",

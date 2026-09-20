@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 
+from saxophone.documents.models import ArtifactKind
 from saxophone.documents.ports import ArtifactRepository
 from saxophone.extraction.models import PdfExtractionRequest, PdfExtractionResult
 from saxophone.extraction.persistence import PersistExtractionArtifacts
@@ -18,6 +19,10 @@ class ProcessDocument:
         self._extractor = extractor
 
     async def execute(self, request: PdfExtractionRequest) -> PdfExtractionResult:
+        if request.source.kind is not ArtifactKind.SOURCE_PDF:
+            raise ValueError("source artifact must have kind source_pdf")
+        if request.source.media_type != "application/pdf":
+            raise ValueError("source artifact must have media type application/pdf")
         payload = await self._artifacts.get(request.source)
         if len(payload) != request.source.size_bytes:
             raise ValueError("source artifact payload size does not match metadata")
