@@ -168,6 +168,29 @@ def test_health_filters_malformed_and_duplicate_capabilities_without_leaking_pay
     asyncio.run(verify())
 
 
+def test_health_filters_capabilities_with_control_characters() -> None:
+    async def verify() -> None:
+        async def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                json={
+                    "status": "ready",
+                    "capabilities": ["embed\nsecret", "pdf_extract\tdebug", "chat"],
+                },
+            )
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            gateway = HttpRemoteGpuGateway(
+                build_settings(), http_client=client, timeout_seconds=5.0
+            )
+
+            health = await gateway.health()
+
+        assert health.capabilities == ("chat",)
+
+    asyncio.run(verify())
+
+
 def test_cached_health_reuses_result_until_ttl_expires() -> None:
     async def verify() -> None:
         class FakeGateway:

@@ -128,6 +128,8 @@ def _parse_capabilities(value: object) -> tuple[str, ...]:
         if not isinstance(item, str):
             continue
         normalized = item.strip()
-        if normalized and normalized not in capabilities:
+        if normalized and not any(
+            ord(character) < 32 or ord(character) == 127 for character in normalized
+        ) and normalized not in capabilities:
             capabilities.append(normalized)
     return tuple(capabilities)
