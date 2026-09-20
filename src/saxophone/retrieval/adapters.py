@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from functools import partial
 import asyncio
+import math
 import re
 import unicodedata
 from collections.abc import Sequence
@@ -66,10 +67,7 @@ class ChromaSemanticRetriever(ChunkRetriever):
         return self._map_hits(result)
 
     def _map_hits(self, result: Mapping[str, Any]) -> list[ChunkHit]:
-        ids = _first_result_list(result.get("ids"))
-        documents = _first_result_list(result.get("documents"))
-        metadatas = _first_result_list(result.get("metadatas"))
-        distances = _first_result_list(result.get("distances"))
+        ids, documents, metadatas, distances = _validated_chroma_rows(result)
         hits: list[ChunkHit] = []
         for rank, chunk_id in enumerate(ids, start=1):
             metadata = metadatas[rank - 1] if rank - 1 < len(metadatas) else {}
@@ -80,7 +78,7 @@ class ChromaSemanticRetriever(ChunkRetriever):
             normalized_metadata = dict(metadata) if isinstance(metadata, Mapping) else {}
             if isinstance(document, str) and document:
                 normalized_metadata["document"] = document
-            score = 1.0 - float(distance) if distance is not None else None
+            score = 1.0 - distance if distance is not None else None
             hits.append(
                 ChunkHit(
                     str(
@@ -294,11 +292,29 @@ class HybridRetriever(ChunkRetriever):
         return results
 
 
-def _first_result_list(value: Any) -> list[Any]:
-    if not isinstance(value, list) or not value:
-        return []
-    first = value[0]
-    return first if isinstance(first, list) else []
+def _validated_chroma_rows(
+    result: Mapping[str, Any],
+) -> tuple[list[Any], list[Any], list[Any], list[Any]]:
+    if not isinstance(result, Mapping):
+        raise ValueError("Chroma result must be a mapping")
+    rows: list[list[Any]] = []
+    for field in ("ids", "documents", "metadatas", "distances"):
+        value = result.get(field)
+        if not isinstance(value, list) or len(value) != 1 or not isinstance(value[0], list):
+            raise ValueError(f"Chroma result field {field!r} must contain one row")
+        rows.append(value[0])
+    ids, documents, metadatas, distances = rows
+    expected = len(ids)
+    if any(len(row) != expected for row in (documents, metadatas, distances)):
+        raise ValueError("Chroma result fields must have matching row lengths")
+    for distance in distances:
+        if distance is not None and (
+            isinstance(distance, bool)
+            or not isinstance(distance, (int, float))
+            or not math.isfinite(distance)
+        ):
+            raise ValueError("Chroma result distances must be finite numbers")
+    return ids, documents, metadatas, distances
 
 
 def _require_canonical_version(value: object) -> None:
