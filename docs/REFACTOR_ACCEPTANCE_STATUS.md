@@ -90,3 +90,14 @@ deployment production.
   `git diff --check` đều thành công.
 - Live model-service smoke vẫn chưa chạy vì checkout chưa có endpoint/credential
   thật; chi tiết lát thay đổi ở `ITERATION_11_RETRY_AFTER_CONTRACT.md`.
+
+### Iteration 12 — chỉ nhận Retry-After hữu hạn
+
+- `LiteLLMModelClient` hiện loại bỏ các giá trị `Retry-After` không hữu hạn
+  (`nan`, `inf`) bên cạnh giá trị âm và chuỗi không parse được; các trường hợp
+  này quay về local backoff.
+- Bổ sung 4 regression cases trong `test_phase_1_litellm_client.py`; test
+  contract riêng đạt **15 passed**.
+- Xác minh toàn bộ suite đạt **290 passed, 2 skipped, 1 warning**; `compileall`
+  thành công. Live smoke vẫn bị chặn bởi thiếu endpoint/credential thật.
+- Chi tiết: `docs/ITERATION_12_RETRY_AFTER_FINITE_CONTRACT.md`.

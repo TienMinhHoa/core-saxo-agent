@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import time
 from dataclasses import dataclass
 from enum import StrEnum
@@ -256,7 +257,7 @@ def _retry_delay_seconds(response: httpx.Response, *, fallback: float) -> float:
         server_delay = float(retry_after)
     except ValueError:
         return fallback
-    if server_delay < 0:
+    if not math.isfinite(server_delay) or server_delay < 0:
         return fallback
     return max(fallback, server_delay)
 
