@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from saxophone.documents.models import ArtifactKind, ArtifactRef
+from saxophone.documents.policies import is_image_media_type
 
 
 def test_artifact_reference_is_immutable_and_keeps_versioned_identity() -> None:
@@ -245,3 +246,19 @@ def test_artifact_reference_accepts_standard_mime_token_punctuation() -> None:
     )
 
     assert artifact.media_type == "application/vnd.example+json"
+
+
+def test_image_media_type_requires_a_valid_mime_parameter_list() -> None:
+    assert is_image_media_type('image/svg+xml; profile="urn:example;a"') is True
+
+
+@pytest.mark.parametrize(
+    "media_type",
+    [
+        "image/png;",
+        'image/png; profile="unterminated',
+        "image/png garbage",
+    ],
+)
+def test_image_media_type_rejects_malformed_mime_values(media_type: str) -> None:
+    assert is_image_media_type(media_type) is False
