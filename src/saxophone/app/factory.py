@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 import re
 from typing import AsyncIterator
 from uuid import uuid4
@@ -331,5 +331,13 @@ def create_app(
                 model_service_status=remote_gpu.status,
             ),
         }
+
+    @app.get("/api/v1/metrics")
+    async def metrics() -> dict[str, object]:
+        """Expose only the immutable, provider-independent metrics snapshot."""
+
+        if container.metrics is None:
+            return {"status": "disabled", "snapshot": None}
+        return {"status": "ready", "snapshot": asdict(container.metrics.snapshot())}
 
     return app

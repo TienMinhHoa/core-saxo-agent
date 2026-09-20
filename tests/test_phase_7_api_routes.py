@@ -15,6 +15,7 @@ from saxophone.extraction.models import PdfExtractionResult
 from saxophone.ingestion.adapters import InMemoryEmbeddingReuseStore
 from saxophone.ingestion.models import EmbeddingRecord
 from saxophone.ingestion.use_cases import IngestDocument, IndexDocument
+from saxophone.platform.observability import StructuredEvent
 from saxophone.retrieval.models import EvidenceBundle
 from saxophone.tagging.models import (
     TagConflictResolution,
@@ -180,6 +181,46 @@ class FakeTagConflictResolver:
 
 def settings() -> AppSettings:
     return AppSettings.from_environment(VALID_ENVIRONMENT)
+
+
+def test_metrics_route_exposes_safe_point_in_time_snapshot() -> None:
+    app = create_app(
+        settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=FakeRemoteGpuGateway(),
+            model_client=FakeModelClient(),
+        ),
+    )
+    metrics = app.state.container.metrics
+    assert metrics is not None
+    metrics.observe(
+        StructuredEvent(
+            name="model.request.completed",
+            correlation_id="metrics-route",
+            task="embed",
+            model="profile-v1",
+            attempt=1,
+            duration_ms=3.5,
+            input_count=1,
+            output_count=1,
+            result="success",
+        )
+    )
+
+    response = TestClient(app).get("/api/v1/metrics")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ready",
+        "snapshot": {
+            "counts": [["model.request.completed", "embed", "success", 1]],
+            "durations_ms": [["embed", [3.5]]],
+            "in_flight": [],
+            "max_concurrency": [],
+            "token_usage": [],
+            "cost_usd": [],
+        },
+    }
 
 
 def _artifact(artifact_id: str, kind: ArtifactKind, payload: bytes | None = None) -> ArtifactRef:
