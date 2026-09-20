@@ -60,18 +60,26 @@ class CachedRemoteGpuGateway:
         self._lock = asyncio.Lock()
 
     async def health(self) -> RemoteGpuHealth:
-        now = self._clock()
+        now = self._read_clock()
         if self._cached is not None and now - self._cached[0] < self._ttl_seconds:
             return self._cached[1]
         async with self._lock:
-            now = self._clock()
+            now = self._read_clock()
             if self._cached is not None and now - self._cached[0] < self._ttl_seconds:
                 return self._cached[1]
             health = await self._gateway.health()
             if not isinstance(health, RemoteGpuHealth):
                 raise TypeError("gateway.health must return RemoteGpuHealth")
-            self._cached = (self._clock(), health)
+            self._cached = (self._read_clock(), health)
             return health
+
+    def _read_clock(self) -> float:
+        value = self._clock()
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise TypeError("clock must return a number")
+        if not math.isfinite(value):
+            raise ValueError("clock must return a finite number")
+        return float(value)
 
 
 class UnavailableRemoteGpuGateway:

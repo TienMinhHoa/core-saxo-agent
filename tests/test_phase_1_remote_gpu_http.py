@@ -254,6 +254,26 @@ def test_cached_health_rejects_non_callable_clock() -> None:
         raise AssertionError("a non-callable clock dependency must be rejected")
 
 
+def test_cached_health_rejects_non_finite_clock_value() -> None:
+    async def verify() -> None:
+        class FakeGateway:
+            async def health(self) -> RemoteGpuHealth:
+                return RemoteGpuHealth(status="ready")
+
+        for clock_value in (float("nan"), float("inf"), float("-inf")):
+            cached = CachedRemoteGpuGateway(
+                FakeGateway(), ttl_seconds=1.0, clock=lambda: clock_value
+            )
+            try:
+                await cached.health()
+            except ValueError as error:
+                assert str(error) == "clock must return a finite number"
+            else:
+                raise AssertionError("non-finite clock values must be rejected")
+
+    asyncio.run(verify())
+
+
 def test_cached_health_rejects_invalid_gateway_result() -> None:
     async def verify() -> None:
         class InvalidGateway:
