@@ -715,6 +715,27 @@ def test_source_upload_rejects_non_pdf_without_persisting() -> None:
     assert artifacts.puts == []
 
 
+def test_source_upload_rejects_pdf_mime_spoof_without_persisting() -> None:
+    artifacts = FakeArtifacts(b"", puts=[])
+    app = create_app(
+        settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=FakeRemoteGpuGateway(),
+            model_client=FakeModelClient(),
+            artifact_repository=artifacts,
+        ),
+    )
+
+    response = TestClient(app).post(
+        "/api/v1/documents/doc-1/source",
+        files={"file": ("source.pdf", b"not really a PDF", "application/pdf")},
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "uploaded file does not have a valid PDF signature"}
+    assert artifacts.puts == []
+
+
 def test_source_upload_rejects_payload_over_configured_limit_without_persisting() -> None:
     artifacts = FakeArtifacts(b"", puts=[])
     app = create_app(

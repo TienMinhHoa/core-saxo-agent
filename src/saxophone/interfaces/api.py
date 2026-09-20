@@ -150,6 +150,11 @@ def build_capability_router(
             )
         normalized_ref = _normalized_text(document_ref, "document_ref")
         payload = await _read_bounded_upload(file, max_upload_bytes)
+        if b"%PDF-" not in payload[:1024]:
+            raise HTTPException(
+                status_code=422,
+                detail="uploaded file does not have a valid PDF signature",
+            )
         artifact = ArtifactRef(
             artifact_id=f"{normalized_ref}/source",
             version="v1",
