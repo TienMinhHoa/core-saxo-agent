@@ -6,11 +6,11 @@ import hashlib
 import os
 import tempfile
 from pathlib import Path
-from urllib.parse import urlparse
 
 import anyio
 
 from saxophone.documents.models import ArtifactKind, ArtifactRef
+from saxophone.documents.policies import is_safe_relative_image_reference
 from saxophone.documents.ports import ArtifactRepository, ImageArtifactResolver
 from saxophone.platform.concurrency import create_blocking_io_limiter
 
@@ -21,7 +21,7 @@ class SafeImageArtifactGate:
     async def validate(self, image_refs: tuple[str, ...]) -> tuple[str, ...]:
         validated: list[str] = []
         for image_ref in image_refs:
-            if not _is_safe_image_reference(image_ref):
+            if not is_safe_relative_image_reference(image_ref):
                 raise ValueError("unsafe image reference")
             if image_ref not in validated:
                 validated.append(image_ref)
@@ -47,23 +47,6 @@ class RepositoryBackedImageArtifactGate:
             payload = await self._repository.get(artifact)
             _validate_payload(artifact, payload)
         return safe_refs
-
-
-def _is_safe_image_reference(image_ref: object) -> bool:
-    if not isinstance(image_ref, str) or not image_ref.strip():
-        return False
-    candidate = image_ref.strip().replace("\\", "/")
-    if candidate != image_ref:
-        return False
-    parsed = urlparse(candidate)
-    if parsed.scheme or parsed.netloc or candidate.startswith("/"):
-        return False
-    path = Path(candidate)
-    if ".." in path.parts:
-        return False
-    # Keep one canonical relative spelling so equivalent paths cannot bypass
-    # asset allowlists or create duplicate cache keys.
-    return path.as_posix() == candidate
 
 
 class LocalArtifactRepository:

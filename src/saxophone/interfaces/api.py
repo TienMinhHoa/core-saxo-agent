@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from saxophone.chat.models import ChatResult
 from saxophone.documents.models import ArtifactKind, ArtifactRef
+from saxophone.documents.policies import is_safe_relative_image_reference
 from saxophone.documents.ports import ArtifactRepository, ImageArtifactResolver
 from saxophone.extraction.models import PdfExtractionRequest, PdfExtractionResult
 from saxophone.ingestion.models import IndexInputRecord, IngestionCommand, IngestionReport
@@ -179,6 +180,8 @@ def build_capability_router(
                 detail="asset resolution capability is not configured",
             )
         normalized_ref = _normalized_text(asset_ref, "asset_ref")
+        if not is_safe_relative_image_reference(normalized_ref):
+            raise HTTPException(status_code=422, detail="unsafe image reference")
         try:
             artifact = await image_artifact_resolver.resolve(normalized_ref)
             if artifact.kind is not ArtifactKind.IMAGE:
