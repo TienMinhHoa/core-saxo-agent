@@ -133,3 +133,29 @@ async def test_chroma_retriever_rejects_negative_distances(distance: float) -> N
 
     with pytest.raises(ValueError, match="non-negative"):
         await retriever.search("find scales")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("documents", [[42]], "documents must contain strings"),
+        ("metadatas", [["not-metadata"]], "metadatas must contain mappings"),
+    ],
+)
+async def test_chroma_retriever_rejects_non_canonical_source_rows(
+    field: str, value: list[list[object]], message: str
+) -> None:
+    result: dict[str, object] = {
+        "ids": [["chunk-1"]],
+        "documents": [["text"]],
+        "metadatas": [[{}]],
+        "distances": [[0.1]],
+    }
+    result[field] = value
+    retriever = ChromaSemanticRetriever(
+        _MalformedCollection(result), _EmbeddingProvider(), retrieval_version="chroma-v1"
+    )
+
+    with pytest.raises(ValueError, match=message):
+        await retriever.search("find scales")

@@ -307,6 +307,10 @@ def _validated_chroma_rows(
     expected = len(ids)
     if any(len(row) != expected for row in (documents, metadatas, distances)):
         raise ValueError("Chroma result fields must have matching row lengths")
+    if any(not isinstance(document, str) for document in documents):
+        raise ValueError("Chroma result documents must contain strings")
+    if any(not isinstance(metadata, Mapping) for metadata in metadatas):
+        raise ValueError("Chroma result metadatas must contain mappings")
     for distance in distances:
         if distance is not None and (
             isinstance(distance, bool)

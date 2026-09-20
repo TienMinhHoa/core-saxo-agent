@@ -192,3 +192,14 @@ deployment production.
 - Chi tiết: `docs/ITERATION_54_CANONICAL_CHUNK_HIT_IDENTITY.md`.
 - Live model-service smoke và production golden parity vẫn chưa xác minh do
   thiếu endpoint, credential và catalog production thật.
+
+### Iteration 63 — canonical source row của Chroma
+
+- Siết kết quả Chroma: `documents` phải là chuỗi và `metadatas` phải là
+  mapping; provider response sai kiểu bị reject fail-closed tại adapter.
+- Bổ sung regression tests cho hai dạng malformed source row.
+- Xác minh: **394 passed, 2 skipped, 1 warning**; `compileall` và
+  `git diff --check` thành công.
+- Chi tiết: `docs/ITERATION_63_CHROMA_SOURCE_ROW_CONTRACT.md`.
+- Live model-service smoke và production golden parity vẫn bị chặn do thiếu
+  endpoint, credential và catalog production thật.
