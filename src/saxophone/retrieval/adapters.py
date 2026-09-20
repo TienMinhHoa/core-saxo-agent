@@ -10,6 +10,8 @@ from typing import Any, Mapping
 
 import anyio
 
+from music_rag.semantic import semantic_search
+from music_rag.store import CatalogStore
 from saxophone.platform.concurrency import create_blocking_io_limiter
 from .models import ChunkHit
 from .ports import ChunkRetriever
@@ -94,6 +96,75 @@ class ChromaSemanticRetriever(ChunkRetriever):
                 )
             )
         return hits
+
+
+class LegacySemanticRetriever(ChunkRetriever):
+    """Expose the legacy catalog search through the async retrieval port.
+
+    This is a compatibility adapter, not a second application contract.  It
+    keeps the legacy catalog alive during migration while callers depend only
+    on ``ChunkHit`` and can later switch to a native semantic adapter.
+    """
+
+    def __init__(
+        self,
+        store: CatalogStore,
+        embedding_provider: Any,
+        *,
+        retrieval_version: str = "legacy-semantic-v1",
+        io_limiter: Any | None = None,
+    ) -> None:
+        if not retrieval_version.strip():
+            raise ValueError("retrieval_version must not be blank")
+        self._store = store
+        self._embedding_provider = embedding_provider
+        self._retrieval_version = retrieval_version
+        self._io_limiter = io_limiter or create_blocking_io_limiter()
+
+    async def search(
+        self,
+        query: str,
+        *,
+        filters: Mapping[str, object] | None = None,
+        limit: int = 10,
+    ) -> list[ChunkHit]:
+        if limit < 1:
+            return []
+        access_scope = (filters or {}).get("access_scope")
+        if not isinstance(access_scope, str) or not access_scope.strip():
+            raise ValueError("access_scope filter is required")
+        unsupported = set(filters or {}) - {"access_scope"}
+        if unsupported:
+            raise ValueError(f"unsupported legacy filters: {sorted(unsupported)}")
+        records = await anyio.to_thread.run_sync(
+            partial(
+                semantic_search,
+                self._store,
+                self._embedding_provider,
+                query,
+                access_scope,
+                limit,
+            ),
+            limiter=self._io_limiter,
+        )
+        return [self._map_record(record, rank) for rank, record in enumerate(records, start=1)]
+
+    def _map_record(self, record: Mapping[str, Any], rank: int) -> ChunkHit:
+        document_ref = f"{record['document_id']}:{record['source_version']}"
+        chunk_ref = str(record["search_unit_id"])
+        metadata = dict(record)
+        metadata.pop("score", None)
+        metadata.pop("semantic_score", None)
+        metadata.pop("keyword_score", None)
+        return ChunkHit(
+            document_ref,
+            chunk_ref,
+            rank,
+            self._retrieval_version,
+            metadata,
+            semantic_score=float(record["semantic_score"]),
+            keyword_score=float(record["keyword_score"]),
+        )
 
 
 class InMemoryLexicalRetriever(ChunkRetriever):

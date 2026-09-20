@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from saxophone.retrieval.adapters import HybridRetriever, InMemoryLexicalRetriever
+from music_rag.store import CatalogStore
+from saxophone.retrieval.adapters import (
+    HybridRetriever,
+    InMemoryLexicalRetriever,
+    LegacySemanticRetriever,
+)
 from saxophone.retrieval.models import ChunkHit
 
 
@@ -82,3 +87,63 @@ async def test_hybrid_retriever_rejects_invalid_rrf_k_and_filters_results() -> N
 
     retriever = HybridRetriever(_Filtered([_hit("one", 1)]), _Filtered([]))
     assert [hit.chunk_ref for hit in await retriever.search("q", filters={"scope": "public"})] == ["one"]
+
+
+@pytest.mark.anyio
+async def test_legacy_semantic_retriever_maps_legacy_results_to_chunk_hits(tmp_path) -> None:
+    class _Provider:
+        model = "legacy-test-v1"
+
+        def embed(self, texts):
+            return [[1.0, 0.0] for _ in texts]
+
+    CatalogStore(tmp_path).save(
+        {
+            "documents": {"doc-1:v1": {"access_scope": "public"}},
+            "items": {
+                "item-1:1": {
+                    "item_id": "item-1",
+                    "item_version": 1,
+                    "document_id": "doc-1",
+                    "source_version": "v1",
+                    "review_status": "approved",
+                }
+            },
+            "semantic_index": {
+                "provider_model": "legacy-test-v1",
+                "units": [
+                    {
+                        "search_unit_id": "semantic_item-1:1:1",
+                        "item_id": "item-1",
+                        "item_version": 1,
+                        "document_id": "doc-1",
+                        "source_version": "v1",
+                        "evidence_block_ids": ["block-1"],
+                        "evidence_scope": "item",
+                        "embedding": [1.0, 0.0],
+                        "search_text": "rhythm pulse",
+                    }
+                ],
+            },
+        }
+    )
+
+    retriever = LegacySemanticRetriever(CatalogStore(tmp_path), _Provider())
+
+    hits = await retriever.search("pulse", filters={"access_scope": "public"})
+
+    assert len(hits) == 1
+    assert hits[0].source_ref == "doc-1:v1"
+    assert hits[0].chunk_ref == "semantic_item-1:1:1"
+    assert hits[0].retrieval_version == "legacy-semantic-v1"
+    assert hits[0].metadata["evidence_block_ids"] == ["block-1"]
+    assert hits[0].semantic_score == pytest.approx(0.85 + 0.15)
+    assert hits[0].keyword_score == pytest.approx(1.0)
+
+
+@pytest.mark.anyio
+async def test_legacy_semantic_retriever_requires_access_scope_filter(tmp_path) -> None:
+    retriever = LegacySemanticRetriever(CatalogStore(tmp_path), object())
+
+    with pytest.raises(ValueError, match="access_scope"):
+        await retriever.search("pulse")
