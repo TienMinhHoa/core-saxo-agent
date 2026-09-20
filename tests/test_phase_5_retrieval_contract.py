@@ -52,6 +52,38 @@ def test_evidence_bundle_validates_source_text_and_keeps_mapping_immutable() -> 
         bundle.source_texts["chunk-1"] = "mutation"  # type: ignore[index]
 
 
+@pytest.mark.parametrize("field_name", ["query", "retrieval_version"])
+@pytest.mark.parametrize("value", [" value", "value ", "cafe\u0301"])
+def test_evidence_bundle_rejects_non_canonical_identity_fields(
+    field_name: str, value: str
+) -> None:
+    values: dict[str, object] = {
+        "query": "what is this?",
+        "retrieval_version": "retrieval-v1",
+    }
+    values[field_name] = value
+
+    with pytest.raises(ValueError, match="canonical"):
+        EvidenceBundle(
+            values["query"],  # type: ignore[arg-type]
+            values["retrieval_version"],  # type: ignore[arg-type]
+            (_hit(),),
+            ("chunk-1",),
+            {"chunk-1": "text"},
+        )
+
+
+def test_evidence_bundle_requires_retrieval_version_to_match_all_hits() -> None:
+    with pytest.raises(ValueError, match="retrieval_version"):
+        EvidenceBundle(
+            "what is this?",
+            "retrieval-v2",
+            (_hit(),),
+            ("chunk-1",),
+            {"chunk-1": "text"},
+        )
+
+
 def test_empty_evidence_requires_explicit_insufficiency_reason() -> None:
     with pytest.raises(ValueError, match="insufficiency_reason"):
         EvidenceBundle("query", "retrieval-v1", (), (), {})

@@ -51,7 +51,9 @@ class EvidenceBundle:
 
     def __post_init__(self) -> None:
         _require_non_blank("query", self.query)
+        _require_canonical("query", self.query)
         _require_non_blank("retrieval_version", self.retrieval_version)
+        _require_canonical("retrieval_version", self.retrieval_version)
         if not isinstance(self.source_texts, Mapping):
             raise ValueError("source_texts must be a mapping")
         for ref, text in self.source_texts.items():
@@ -69,6 +71,8 @@ class EvidenceBundle:
             if any(unicodedata.normalize("NFC", ref) != ref for ref in refs):
                 raise ValueError(f"{name} must contain canonical refs")
         hit_refs = tuple(hit.chunk_ref for hit in self.hits)
+        if any(hit.retrieval_version != self.retrieval_version for hit in self.hits):
+            raise ValueError("retrieval_version must match every evidence hit")
         if len(set(self.selected_refs)) != len(self.selected_refs):
             raise ValueError("selected_refs must be unique")
         if len(set(self.image_refs)) != len(self.image_refs):
