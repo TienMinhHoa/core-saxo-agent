@@ -62,6 +62,15 @@ deployment production.
 
 ## Việc còn lại trước khi đóng refactor
 
+### Iteration 8 — loại bỏ workflow job lifecycle lỗi thời
+
+- Đã loại bỏ `WorkflowJob`, `JobStatus`, `remote_job_id` và export tương ứng khỏi
+  package workflow; target chỉ còn direct request/response qua LiteLLM client.
+- Bằng chứng tĩnh: không còn module hoặc contract test job lifecycle trong
+  package `saxophone`; các use case workflow hiện hành không tham chiếu job state.
+- Cần chạy lại full suite để xác nhận không có import ẩn; live smoke vẫn bị chặn
+  bởi thiếu endpoint/credential thật.
+
 1. Cung cấp endpoint và credential của model-service để chạy live smoke theo
    tài liệu riêng; cập nhật bằng chứng, không dùng fake HTTP để thay thế.
 2. Quyết định có triển khai hybrid fusion và lập golden parity report trước khi
