@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Final
+from typing import AsyncIterator, Final
 
+import httpx
 from fastapi import FastAPI
 
 from saxophone.app.settings import AppSettings
 from saxophone.platform.remote_gpu import (
+    HttpRemoteGpuGateway,
     RemoteGpuGateway,
-    UnavailableRemoteGpuGateway,
 )
 
 
@@ -28,6 +30,7 @@ class AppContainer:
 
     settings: AppSettings
     remote_gpu_gateway: RemoteGpuGateway
+    http_client: httpx.AsyncClient | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,13 +48,27 @@ def create_app(
     """Compose the sole ASGI application without reading process environment."""
 
     resolved_overrides = overrides or AppOverrides()
+    http_client: httpx.AsyncClient | None = None
+    remote_gpu_gateway = resolved_overrides.remote_gpu_gateway
+    if remote_gpu_gateway is None:
+        http_client = httpx.AsyncClient()
+        remote_gpu_gateway = HttpRemoteGpuGateway(settings, http_client=http_client)
+
     container = AppContainer(
         settings=settings,
-        remote_gpu_gateway=(
-            resolved_overrides.remote_gpu_gateway or UnavailableRemoteGpuGateway()
-        ),
+        remote_gpu_gateway=remote_gpu_gateway,
+        http_client=http_client,
     )
-    app = FastAPI(title="Saxophone RAG backend")
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        try:
+            yield
+        finally:
+            if http_client is not None:
+                await http_client.aclose()
+
+    app = FastAPI(title="Saxophone RAG backend", lifespan=lifespan)
     app.state.container = container
 
     @app.get("/api/v1/health")
