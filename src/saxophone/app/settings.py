@@ -422,12 +422,17 @@ def _validate_runtime_path(value: object, field_name: str) -> None:
 def _validate_windows_device_path_components(value: Path, field_name: str) -> None:
     """Reject path segments that Windows resolves as device names."""
     reserved_names = {"CON", "PRN", "AUX", "NUL"}
+    invalid_characters = set('<>:"|?*')
     for component in value.parts:
         if component == value.anchor:
             continue
         if component.endswith((" ", ".")):
             raise SettingsValidationError(
                 f"{field_name} must not contain Windows-trimmed path components",
+            )
+        if any(character in invalid_characters for character in component):
+            raise SettingsValidationError(
+                f"{field_name} must not contain Windows-invalid path characters",
             )
         normalized = component.rstrip(" .")
         device_name = normalized.split(".", 1)[0].upper()
