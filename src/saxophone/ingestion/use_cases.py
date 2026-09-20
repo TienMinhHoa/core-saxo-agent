@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 from saxophone.tagging.models import TaggedParagraph
+from saxophone.tagging.models import ParagraphBlock
+from saxophone.tagging.use_cases import TagAndPersistParagraph
 
 from .models import (
     ChunkIndexRecord,
@@ -148,6 +150,67 @@ class IndexDocument:
                 raise ValueError("all records must match the command embedding profile")
             if record.access_scope != command.access_scope:
                 raise ValueError("all records must match the command access scope")
+
+
+class IngestDocument:
+    """Coordinate paragraph tagging, persistence, embedding, and indexing.
+
+    The coordinator deliberately accepts normalized chunks and paragraphs.
+    Extraction and Markdown parsing remain separate use cases; this boundary
+    only transfers validated state between ingestion stages.
+    """
+
+    def __init__(
+        self,
+        tag_and_persist: TagAndPersistParagraph,
+        index_document: IndexDocument,
+    ) -> None:
+        self._tag_and_persist = tag_and_persist
+        self._index_document = index_document
+
+    async def execute(
+        self,
+        command: IngestionCommand,
+        chunks: Sequence[IngestionSourceChunk],
+        paragraphs: Sequence[ParagraphBlock],
+        *,
+        resolution_profile: str,
+    ) -> IngestionReport:
+        normalized_chunks = tuple(chunks)
+        normalized_paragraphs = tuple(paragraphs)
+        self._validate_input_scope(command, normalized_chunks, normalized_paragraphs)
+
+        tagged: dict[str, TaggedParagraph] = {}
+        for paragraph in normalized_paragraphs:
+            tagged[paragraph.paragraph_id] = await self._tag_and_persist.execute(
+                paragraph,
+                tagging_profile=command.tagging_profile,
+                resolution_profile=resolution_profile,
+            )
+
+        records = build_index_inputs(command, normalized_chunks, tagged)
+        return await self._index_document.execute(command, records)
+
+    @staticmethod
+    def _validate_input_scope(
+        command: IngestionCommand,
+        chunks: Sequence[IngestionSourceChunk],
+        paragraphs: Sequence[ParagraphBlock],
+    ) -> None:
+        chunk_ids = set()
+        for chunk in chunks:
+            _validate_chunk_scope(command, chunk)
+            if chunk.chunk_id in chunk_ids:
+                raise ValueError("chunk IDs must be unique")
+            chunk_ids.add(chunk.chunk_id)
+
+        paragraph_ids = set()
+        for paragraph in paragraphs:
+            if paragraph.paragraph_id in paragraph_ids:
+                raise ValueError("paragraph IDs must be unique")
+            if paragraph.chunk_id not in chunk_ids:
+                raise ValueError("all paragraphs must belong to a supplied chunk")
+            paragraph_ids.add(paragraph.paragraph_id)
 
 
 def build_index_inputs(
