@@ -48,6 +48,7 @@ docs/*
 !docs/PHASE_6_IMAGE_ARTIFACT_GATE.md
 !docs/PHASE_1_MODEL_CLIENT_CONTRACT.md
 !docs/PHASE_6_REMOTE_ANSWER_GENERATOR.md
+!docs/PHASE_1_LITELLM_CLIENT.md
 
 # Logs and temporary files
 *.log
