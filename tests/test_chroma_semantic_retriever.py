@@ -25,6 +25,24 @@ class _Collection:
         }
 
 
+@pytest.mark.parametrize("retrieval_version", [" chroma-v1", "chroma-v1 ", "cafe\u0301"])
+def test_chroma_retriever_rejects_non_canonical_retrieval_version(
+    retrieval_version: str,
+) -> None:
+    with pytest.raises(ValueError, match="retrieval_version.*canonical"):
+        ChromaSemanticRetriever(_Collection(), _EmbeddingProvider(), retrieval_version=retrieval_version)
+
+
+@pytest.mark.parametrize("retrieval_version", [True, 0, object()])
+def test_chroma_retriever_rejects_non_string_retrieval_version(
+    retrieval_version: object,
+) -> None:
+    with pytest.raises(ValueError, match="retrieval_version"):
+        ChromaSemanticRetriever(  # type: ignore[arg-type]
+            _Collection(), _EmbeddingProvider(), retrieval_version=retrieval_version
+        )
+
+
 @pytest.mark.anyio
 async def test_chroma_retriever_maps_results_to_ranked_provider_independent_hits() -> None:
     retriever = ChromaSemanticRetriever(

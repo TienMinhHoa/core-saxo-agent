@@ -5,6 +5,7 @@ from __future__ import annotations
 from functools import partial
 import asyncio
 import re
+import unicodedata
 from collections.abc import Sequence
 from typing import Any, Mapping
 
@@ -28,8 +29,7 @@ class ChromaSemanticRetriever(ChunkRetriever):
         retrieval_version: str = "chroma-v1",
         io_limiter: Any | None = None,
     ) -> None:
-        if not isinstance(retrieval_version, str) or not retrieval_version.strip():
-            raise ValueError("retrieval_version must not be blank")
+        _require_canonical_version(retrieval_version)
         self._collection = collection
         self._embedding_provider = embedding_provider
         self._retrieval_version = retrieval_version
@@ -299,6 +299,13 @@ def _first_result_list(value: Any) -> list[Any]:
         return []
     first = value[0]
     return first if isinstance(first, list) else []
+
+
+def _require_canonical_version(value: object) -> None:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("retrieval_version must not be blank")
+    if value != value.strip() or unicodedata.normalize("NFC", value) != value:
+        raise ValueError("retrieval_version must contain a canonical value")
 
 
 def _terms(query: str) -> tuple[str, ...]:
