@@ -378,6 +378,8 @@ def _validate_runtime_path(value: object, field_name: str) -> None:
         raise SettingsValidationError(f"{field_name} must be a filesystem path")
     if ".." in value.parts:
         raise SettingsValidationError(f"{field_name} must not traverse parent directories")
+    if any(ord(character) < 32 or ord(character) == 127 for character in str(value)):
+        raise SettingsValidationError(f"{field_name} must not contain control characters")
 
 
 def _validate_runtime_boolean(value: object, field_name: str) -> None:
