@@ -180,6 +180,10 @@ class LiteLLMModelClient:
             raise ValueError("endpoint must not be empty")
         if not isinstance(bearer_token, str) or not bearer_token.strip():
             raise ValueError("bearer_token must not be empty")
+        if not callable(jitter_source):
+            raise ValueError("jitter_source must be callable")
+        if not callable(monotonic_clock):
+            raise ValueError("monotonic_clock must be callable")
         _require_numeric_configuration("timeout_seconds", timeout_seconds)
         _require_numeric_configuration("max_attempts", max_attempts, integer=True)
         _require_numeric_configuration("retry_backoff_seconds", retry_backoff_seconds)

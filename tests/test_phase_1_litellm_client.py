@@ -92,6 +92,21 @@ async def test_litellm_client_rejects_boolean_numeric_configuration_types(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("field", ["jitter_source", "monotonic_clock"])
+async def test_litellm_client_rejects_non_callable_injected_dependencies(
+    field: str,
+) -> None:
+    async with httpx.AsyncClient() as http_client:
+        with pytest.raises(ValueError, match=field):
+            LiteLLMModelClient(
+                "https://model.example.test/v1/invoke",
+                http_client=http_client,
+                bearer_token="secret-token",
+                **{field: object()},
+            )
+
+
+@pytest.mark.anyio
 async def test_litellm_client_sends_typed_envelope_and_maps_response() -> None:
     requests: list[httpx.Request] = []
 
