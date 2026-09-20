@@ -385,11 +385,19 @@ class ChromaVectorIndex(VectorIndex):
 
     @staticmethod
     def _metadata(record: ChunkIndexRecord) -> dict[str, object]:
+        projected = {
+            key: _chroma_metadata_value(value)
+            for key, value in record.metadata.items()
+        }
+        if any(
+            not isinstance(key, str) or not key.strip()
+            for key in projected
+        ):
+            raise ValueError("Chroma metadata keys must be non-blank strings")
+        if any(not _is_valid_chroma_metadata_value(value) for value in projected.values()):
+            raise ValueError("Chroma metadata values must be finite scalar values or lists")
         return {
-            **{
-                key: _chroma_metadata_value(value)
-                for key, value in record.metadata.items()
-            },
+            **projected,
             "document_ref": record.document_ref,
             "source_version": record.source_version,
             "embedding_profile": record.embedding_profile,
@@ -417,6 +425,18 @@ def _chroma_metadata_value(value: object) -> object:
     if isinstance(value, list):
         return [_chroma_metadata_value(item) for item in value]
     return value
+
+
+def _is_valid_chroma_metadata_value(value: object) -> bool:
+    if value is None or isinstance(value, (bytes, bytearray, Mapping)):
+        return False
+    if isinstance(value, bool) or isinstance(value, str):
+        return True
+    if isinstance(value, (int, float)):
+        return math.isfinite(value)
+    if isinstance(value, list):
+        return all(_is_valid_chroma_metadata_value(item) for item in value)
+    return False
 
 
 def _validated_chroma_rows(

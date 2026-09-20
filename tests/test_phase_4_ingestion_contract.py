@@ -294,6 +294,62 @@ async def test_chroma_upsert_rejects_duplicate_chunk_ids_before_provider_io() ->
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"optional": None},
+        {"nested": {"page": 1}},
+        {"score": float("nan")},
+        {"payload": b"binary"},
+        {1: "non-string-key"},
+    ],
+)
+async def test_chroma_upsert_rejects_unsupported_metadata_before_provider_io(
+    metadata: dict[object, object],
+) -> None:
+    class _CollectionThatMustNotBeCalled:
+        def upsert(self, **kwargs):
+            raise AssertionError("invalid metadata reached Chroma")
+
+    index = ChromaVectorIndex(_CollectionThatMustNotBeCalled())
+    record = _index_record()
+    invalid_record = ChunkIndexRecord(
+        chunk_id=record.chunk_id,
+        document_ref=record.document_ref,
+        source_version=record.source_version,
+        search_text=record.search_text,
+        embedding=record.embedding,
+        embedding_profile=record.embedding_profile,
+        access_scope=record.access_scope,
+        metadata=metadata,
+    )
+
+    with pytest.raises(ValueError, match="metadata"):
+        await index.upsert_chunks([invalid_record])
+
+
+@pytest.mark.anyio
+async def test_chroma_upsert_projects_nested_tuple_metadata_without_provider_error() -> None:
+    collection = _FakeChromaCollection()
+    index = ChromaVectorIndex(collection)
+    record = _index_record()
+    record = ChunkIndexRecord(
+        chunk_id=record.chunk_id,
+        document_ref=record.document_ref,
+        source_version=record.source_version,
+        search_text=record.search_text,
+        embedding=record.embedding,
+        embedding_profile=record.embedding_profile,
+        access_scope=record.access_scope,
+        metadata={"tags": ("music", "phrase")},
+    )
+
+    await index.upsert_chunks([record])
+
+    assert collection.upsert_call["metadatas"][0]["tags"] == ["music", "phrase"]
+
+
+@pytest.mark.anyio
 async def test_chroma_search_passes_shared_blocking_io_limiter(monkeypatch) -> None:
     collection = _FakeChromaCollection()
     limiter = object()
