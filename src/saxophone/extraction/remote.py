@@ -30,8 +30,8 @@ class RemotePdfExtractor:
         if not response_schema.strip():
             raise ValueError("response_schema must not be blank")
         self._model_client = model_client
-        self._model = model
-        self._response_schema = response_schema
+        self._model = model.strip()
+        self._response_schema = response_schema.strip()
 
     @property
     def model(self) -> str:

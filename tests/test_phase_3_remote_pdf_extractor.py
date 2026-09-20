@@ -65,6 +65,35 @@ def test_remote_pdf_extractor_maps_typed_model_result() -> None:
     assert client.request.metadata["correlation_id"] == "corr-1"
 
 
+def test_remote_pdf_extractor_canonicalizes_model_and_schema_configuration() -> None:
+    class FakeClient:
+        async def invoke(self, request: ModelRequest) -> ModelResponse:
+            assert request.model == "extractor-v1"
+            assert request.response_schema == "pdf-extraction-v1"
+            return ModelResponse(
+                task=ModelTask.PDF_EXTRACT,
+                model="extractor-v1",
+                response_schema="pdf-extraction-v1",
+                output={
+                    "markdown": _artifact("markdown", ArtifactKind.MARKDOWN),
+                    "layout": _artifact("layout", ArtifactKind.LAYOUT),
+                    "manifest": _artifact("manifest", ArtifactKind.EXTRACTION_MANIFEST),
+                },
+                source_version="source-v1",
+            )
+
+    extractor = RemotePdfExtractor(
+        FakeClient(),
+        model="  extractor-v1  ",
+        response_schema="  pdf-extraction-v1  ",
+    )
+
+    result = asyncio.run(extractor.extract(_request()))
+
+    assert extractor.model == "extractor-v1"
+    assert result.model_profile == "extractor-v1"
+
+
 def test_remote_pdf_extractor_maps_json_artifact_envelopes() -> None:
     class FakeClient:
         async def invoke(self, request: ModelRequest) -> ModelResponse:
