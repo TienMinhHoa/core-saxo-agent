@@ -427,6 +427,35 @@ async def test_litellm_client_maps_malformed_json_to_model_validation_error() ->
 
 
 @pytest.mark.anyio
+async def test_litellm_client_emits_safe_failure_event_for_malformed_json() -> None:
+    sink = InMemoryEventSink()
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            content=b"not-json",
+            headers={"content-type": "application/json"},
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        with pytest.raises(ModelValidationError, match="JSON"):
+            await LiteLLMModelClient(
+                "https://model.example.test/v1/invoke",
+                http_client=http_client,
+                bearer_token="secret-token",
+                event_sink=sink,
+            ).invoke(_request())
+
+    assert len(sink.events) == 1
+    event = sink.events[0].as_dict()
+    assert event["name"] == "model.request.failed"
+    assert event["reason_code"] == "ModelValidationError"
+    assert event["output_count"] == 0
+    assert "response" not in event
+    assert "not-json" not in str(event)
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("field", "value"),
     [
