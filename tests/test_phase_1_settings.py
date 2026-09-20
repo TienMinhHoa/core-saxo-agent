@@ -28,6 +28,9 @@ def test_from_environment_uses_safe_defaults() -> None:
     assert settings.litellm_timeout_seconds == 30.0
     assert settings.litellm_max_attempts == 1
     assert settings.litellm_retry_backoff_seconds == 0.0
+    assert settings.chroma_persist_directory == Path("runtime/saxophone/chroma")
+    assert settings.chroma_collection_name == "saxophone_chunks"
+    assert settings.embedding_dimension == 1536
 
 
 def test_from_environment_accepts_explicit_typed_values() -> None:
@@ -44,6 +47,9 @@ def test_from_environment_accepts_explicit_typed_values() -> None:
         "SAXO_LITELLM_TIMEOUT_SECONDS": "12.5",
         "SAXO_LITELLM_MAX_ATTEMPTS": "3",
         "SAXO_LITELLM_RETRY_BACKOFF_SECONDS": "0.25",
+        "SAXO_CHROMA_PERSIST_DIRECTORY": "D:/saxo-data/chroma",
+        "SAXO_CHROMA_COLLECTION_NAME": "music_chunks_v2",
+        "SAXO_EMBEDDING_DIMENSION": "1024",
     })
 
     assert settings.data_root == Path("D:/saxo-data")
@@ -57,6 +63,31 @@ def test_from_environment_accepts_explicit_typed_values() -> None:
     assert settings.litellm_timeout_seconds == 12.5
     assert settings.litellm_max_attempts == 3
     assert settings.litellm_retry_backoff_seconds == 0.25
+    assert settings.chroma_persist_directory == Path("D:/saxo-data/chroma")
+    assert settings.chroma_collection_name == "music_chunks_v2"
+    assert settings.embedding_dimension == 1024
+
+
+@pytest.mark.parametrize(
+    ("variable", "value"),
+    [
+        ("SAXO_CHROMA_PERSIST_DIRECTORY", ""),
+        ("SAXO_CHROMA_PERSIST_DIRECTORY", "../outside"),
+        ("SAXO_CHROMA_COLLECTION_NAME", ""),
+        ("SAXO_CHROMA_COLLECTION_NAME", "bad name"),
+        ("SAXO_EMBEDDING_DIMENSION", "0"),
+        ("SAXO_EMBEDDING_DIMENSION", "-1"),
+        ("SAXO_EMBEDDING_DIMENSION", "not-an-integer"),
+    ],
+)
+def test_from_environment_rejects_invalid_chroma_and_embedding_configuration(
+    variable: str,
+    value: str,
+) -> None:
+    with pytest.raises(SettingsValidationError) as error:
+        AppSettings.from_environment({**VALID_ENVIRONMENT, variable: value})
+
+    assert variable in str(error.value)
 
 
 @pytest.mark.parametrize(

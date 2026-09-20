@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+import re
 from typing import Mapping
 from urllib.parse import urlsplit
 
@@ -29,6 +30,9 @@ class AppSettings:
     litellm_timeout_seconds: float = 30.0
     litellm_max_attempts: int = 1
     litellm_retry_backoff_seconds: float = 0.0
+    chroma_persist_directory: Path = Path("runtime/saxophone/chroma")
+    chroma_collection_name: str = "saxophone_chunks"
+    embedding_dimension: int = 1536
 
     @classmethod
     def from_environment(cls, environment: Mapping[str, str]) -> "AppSettings":
@@ -48,6 +52,12 @@ class AppSettings:
             environment.get("SAXO_LITELLM_ENDPOINT"),
             default=f"{base_url.rstrip('/')}/v1/invoke",
             variable="SAXO_LITELLM_ENDPOINT",
+        )
+        chroma_directory = _parse_chroma_directory(
+            environment.get("SAXO_CHROMA_PERSIST_DIRECTORY", str(data_root / "chroma")),
+        )
+        collection_name = _parse_collection_name(
+            environment.get("SAXO_CHROMA_COLLECTION_NAME", "saxophone_chunks"),
         )
         return cls(
             data_root=data_root,
@@ -93,6 +103,12 @@ class AppSettings:
                 environment.get("SAXO_LITELLM_RETRY_BACKOFF_SECONDS", "0"),
                 "SAXO_LITELLM_RETRY_BACKOFF_SECONDS",
             ),
+            chroma_persist_directory=chroma_directory,
+            chroma_collection_name=collection_name,
+            embedding_dimension=_parse_positive_integer(
+                environment.get("SAXO_EMBEDDING_DIMENSION", "1536"),
+                "SAXO_EMBEDDING_DIMENSION",
+            ),
         )
 
 
@@ -102,6 +118,17 @@ def _parse_data_root(value: str | None) -> Path:
     path = Path(value.strip())
     if not path.is_absolute() and ".." in path.parts:
         raise SettingsValidationError("SAXO_DATA_ROOT must not traverse parent directories")
+    return path
+
+
+def _parse_chroma_directory(value: str | None) -> Path:
+    if not value or not value.strip():
+        raise SettingsValidationError("SAXO_CHROMA_PERSIST_DIRECTORY must not be empty")
+    path = Path(value.strip())
+    if not path.is_absolute() and ".." in path.parts:
+        raise SettingsValidationError(
+            "SAXO_CHROMA_PERSIST_DIRECTORY must not traverse parent directories",
+        )
     return path
 
 
@@ -174,6 +201,14 @@ def _parse_positive_integer(value: str | None, variable: str) -> int:
 def _parse_required_text(value: str | None, variable: str) -> str:
     if not value or not value.strip():
         raise SettingsValidationError(f"{variable} must not be empty")
+    return value.strip()
+
+
+def _parse_collection_name(value: str | None) -> str:
+    if value is None or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{1,61}[A-Za-z0-9]", value.strip()):
+        raise SettingsValidationError(
+            "SAXO_CHROMA_COLLECTION_NAME must be 3-63 characters using letters, numbers, '_' or '-'",
+        )
     return value.strip()
 
 
