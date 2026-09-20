@@ -34,6 +34,36 @@ class IngestionCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class IngestionSourceChunk:
+    """A normalized source chunk before tagging, embedding, or indexing.
+
+    Keeping this contract separate from ``ChunkIndexRecord`` prevents the
+    ingestion boundary from inventing an embedding merely to represent source
+    content that has not reached the embedding provider yet.
+    """
+
+    chunk_id: str
+    document_ref: str
+    source_version: str
+    search_text: str
+    access_scope: str
+    metadata: Mapping[str, object]
+
+    def __post_init__(self) -> None:
+        for name in (
+            "chunk_id",
+            "document_ref",
+            "source_version",
+            "search_text",
+            "access_scope",
+        ):
+            _require_non_blank(name, getattr(self, name))
+        if not isinstance(self.metadata, Mapping):
+            raise ValueError("metadata must be a mapping")
+        object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
+
+
+@dataclass(frozen=True, slots=True)
 class EmbeddingRecord:
     """A validated vector ready for a vector-index port."""
 

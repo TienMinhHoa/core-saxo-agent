@@ -7,10 +7,60 @@ import pytest
 from saxophone.ingestion.models import (
     ChunkIndexRecord,
     EmbeddingRecord,
+    IngestionSourceChunk,
     IngestionCommand,
     IngestionReport,
     VectorHit,
 )
+
+
+def test_ingestion_source_chunk_is_a_pre_embedding_contract() -> None:
+    chunk = IngestionSourceChunk(
+        chunk_id="chunk-1",
+        document_ref="document-1",
+        source_version="extract-v1",
+        search_text="A source paragraph",
+        access_scope="private",
+        metadata={"page_start": 2, "heading_path": ["Harmony"]},
+    )
+
+    assert chunk.chunk_id == "chunk-1"
+    assert chunk.search_text == "A source paragraph"
+    assert chunk.metadata["page_start"] == 2
+
+    with pytest.raises(TypeError):
+        chunk.metadata["page_start"] = 3
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["chunk_id", "document_ref", "source_version", "search_text", "access_scope"],
+)
+def test_ingestion_source_chunk_rejects_blank_identity_fields(field: str) -> None:
+    values = {
+        "chunk_id": "chunk-1",
+        "document_ref": "document-1",
+        "source_version": "extract-v1",
+        "search_text": "source text",
+        "access_scope": "private",
+        "metadata": {},
+    }
+    values[field] = " "
+
+    with pytest.raises(ValueError, match=field):
+        IngestionSourceChunk(**values)
+
+
+def test_ingestion_source_chunk_requires_mapping_metadata() -> None:
+    with pytest.raises(ValueError, match="metadata"):
+        IngestionSourceChunk(
+            chunk_id="chunk-1",
+            document_ref="document-1",
+            source_version="extract-v1",
+            search_text="source text",
+            access_scope="private",
+            metadata=[],
+        )
 from saxophone.ingestion.ports import VectorIndex
 from saxophone.ingestion.adapters import ChromaVectorIndex
 
