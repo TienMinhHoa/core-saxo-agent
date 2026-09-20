@@ -23,6 +23,9 @@ class StructuredEvent:
     output_count: int
     result: str
     reason_code: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    cost_usd: float | None = None
 
     def __post_init__(self) -> None:
         for field_name in ("name", "correlation_id", "task", "model", "result"):
@@ -39,6 +42,10 @@ class StructuredEvent:
             raise ValueError("output_count must not be negative")
         if self.reason_code is not None and not self.reason_code.strip():
             raise ValueError("reason_code must be non-blank when provided")
+        for field_name in ("input_tokens", "output_tokens", "cost_usd"):
+            value = getattr(self, field_name)
+            if value is not None and value < 0:
+                raise ValueError(f"{field_name} must not be negative")
 
     def as_dict(self) -> dict[str, object]:
         """Return the allowlisted event fields for a structured logger."""
@@ -71,6 +78,8 @@ class MetricsSnapshot:
     durations_ms: tuple[tuple[str, tuple[float, ...]], ...]
     in_flight: tuple[tuple[str, int], ...]
     max_concurrency: tuple[tuple[str, int], ...]
+    token_usage: tuple[tuple[str, int, int], ...] = ()
+    cost_usd: tuple[tuple[str, float], ...] = ()
 
 
 class EventMetrics:
@@ -81,12 +90,20 @@ class EventMetrics:
         self._durations_ms: defaultdict[str, list[float]] = defaultdict(list)
         self._in_flight: Counter[str] = Counter()
         self._max_concurrency: Counter[str] = Counter()
+        self._token_usage: defaultdict[str, list[int]] = defaultdict(lambda: [0, 0])
+        self._cost_usd: defaultdict[str, float] = defaultdict(float)
         self._lock = Lock()
 
     def observe(self, event: StructuredEvent) -> None:
         with self._lock:
             self._counts[(event.name, event.task, event.result)] += 1
             self._durations_ms[event.task].append(event.duration_ms)
+            if event.input_tokens is not None:
+                self._token_usage[event.task][0] += event.input_tokens
+            if event.output_tokens is not None:
+                self._token_usage[event.task][1] += event.output_tokens
+            if event.cost_usd is not None:
+                self._cost_usd[event.task] += event.cost_usd
 
     def request_started(self, *, task: str) -> None:
         with self._lock:
@@ -117,6 +134,15 @@ class EventMetrics:
         with self._lock:
             return self._max_concurrency[task]
 
+    def token_usage(self, *, task: str) -> tuple[int, int]:
+        with self._lock:
+            values = self._token_usage[task]
+            return values[0], values[1]
+
+    def cost_usd(self, *, task: str) -> float:
+        with self._lock:
+            return self._cost_usd[task]
+
     def snapshot(self) -> MetricsSnapshot:
         """Return one consistent, detached view of all collected metrics."""
 
@@ -131,6 +157,11 @@ class EventMetrics:
                 ),
                 in_flight=tuple(sorted(self._in_flight.items())),
                 max_concurrency=tuple(sorted(self._max_concurrency.items())),
+                token_usage=tuple(
+                    (task, values[0], values[1])
+                    for task, values in sorted(self._token_usage.items())
+                ),
+                cost_usd=tuple(sorted(self._cost_usd.items())),
             )
 
 

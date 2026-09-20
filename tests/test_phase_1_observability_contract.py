@@ -34,6 +34,48 @@ def test_event_metrics_counts_results_and_preserves_task_durations() -> None:
     assert metrics.durations_ms(task="embed") == (4.5,)
 
 
+def test_event_metrics_accumulates_optional_token_usage_and_cost() -> None:
+    metrics = EventMetrics()
+    metrics.observe(
+        StructuredEvent(
+            name="model.request.completed",
+            correlation_id="corr-usage-1",
+            task="answer_generate",
+            model="profile-v1",
+            attempt=1,
+            duration_ms=4.5,
+            input_count=1,
+            output_count=1,
+            result="success",
+            input_tokens=120,
+            output_tokens=30,
+            cost_usd=0.0012,
+        )
+    )
+    metrics.observe(
+        StructuredEvent(
+            name="model.request.completed",
+            correlation_id="corr-usage-2",
+            task="answer_generate",
+            model="profile-v1",
+            attempt=1,
+            duration_ms=5.5,
+            input_count=1,
+            output_count=1,
+            result="success",
+            input_tokens=80,
+            output_tokens=20,
+            cost_usd=0.0008,
+        )
+    )
+
+    assert metrics.token_usage(task="answer_generate") == (200, 50)
+    assert metrics.cost_usd(task="answer_generate") == 0.002
+    snapshot = metrics.snapshot()
+    assert snapshot.token_usage == (("answer_generate", 200, 50),)
+    assert snapshot.cost_usd == (("answer_generate", 0.002),)
+
+
 def test_event_metrics_tracks_in_flight_and_peak_concurrency_per_task() -> None:
     metrics = EventMetrics()
 
@@ -110,6 +152,46 @@ def test_structured_event_keeps_only_safe_typed_fields() -> None:
         "output_count": 1,
         "result": "success",
     }
+
+
+def test_structured_event_includes_optional_usage_fields_when_present() -> None:
+    event = StructuredEvent(
+        name="model.request.completed",
+        correlation_id="corr-usage",
+        task="answer_generate",
+        model="profile-v1",
+        attempt=1,
+        duration_ms=1.0,
+        input_count=1,
+        output_count=1,
+        result="success",
+        input_tokens=10,
+        output_tokens=4,
+        cost_usd=0.0001,
+    )
+
+    assert event.as_dict()["input_tokens"] == 10
+    assert event.as_dict()["output_tokens"] == 4
+    assert event.as_dict()["cost_usd"] == 0.0001
+
+
+@pytest.mark.parametrize("field,value", [("input_tokens", -1), ("output_tokens", -1), ("cost_usd", -0.1)])
+def test_structured_event_rejects_negative_usage_fields(field: str, value: object) -> None:
+    fields = {
+        "name": "model.request.completed",
+        "correlation_id": "corr-usage-invalid",
+        "task": "answer_generate",
+        "model": "profile-v1",
+        "attempt": 1,
+        "duration_ms": 1.0,
+        "input_count": 0,
+        "output_count": 0,
+        "result": "success",
+        field: value,
+    }
+
+    with pytest.raises(ValueError, match=field):
+        StructuredEvent(**fields)
 
 
 @pytest.mark.parametrize("field,value", [("attempt", 0), ("duration_ms", -1.0), ("input_count", -1)])

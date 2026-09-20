@@ -80,6 +80,16 @@ deployment production.
   warning**; `compileall` và `git diff --check` thành công.
 - Chi tiết: `docs/ITERATION_25_METRICS_SNAPSHOT.md`.
 
+### Iteration 26 — token usage và cost tùy chọn
+
+- Mở rộng `StructuredEvent` với `input_tokens`, `output_tokens` và `cost_usd`
+  tùy chọn; validate không âm và không làm lộ payload/secret.
+- `EventMetrics` cộng dồn usage theo task và `MetricsSnapshot` giữ snapshot
+  bất biến của token/cost cùng các metric hiện có.
+- Contract test targeted: **14 passed**. Full suite, `compileall` và
+  `git diff --check` được chạy ở bước xác minh cuối iteration.
+- Chi tiết: `docs/ITERATION_26_USAGE_COST_METRICS.md`.
+
 ### Iteration 8 — loại bỏ workflow job lifecycle lỗi thời
 
 - Đã loại bỏ `WorkflowJob`, `JobStatus`, `remote_job_id` và export tương ứng khỏi
