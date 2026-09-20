@@ -104,7 +104,11 @@ def create_app(
     if remote_gpu_gateway is None or model_client is None:
         http_client = httpx.AsyncClient(verify=settings.remote_gpu_tls_verify)
     if remote_gpu_gateway is None:
-        remote_gpu_gateway = HttpRemoteGpuGateway(settings, http_client=http_client)
+        remote_gpu_gateway = HttpRemoteGpuGateway(
+            settings,
+            http_client=http_client,
+            timeout_seconds=settings.remote_gpu_health_timeout_seconds,
+        )
     cached_remote_gpu_gateway = CachedRemoteGpuGateway(
         remote_gpu_gateway,
         ttl_seconds=settings.remote_gpu_health_cache_seconds,

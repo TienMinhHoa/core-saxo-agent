@@ -31,7 +31,9 @@ def test_health_uses_shared_client_with_https_bearer_auth_and_stable_path() -> N
             )
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-            gateway = HttpRemoteGpuGateway(build_settings(), http_client=client)
+            gateway = HttpRemoteGpuGateway(
+                build_settings(), http_client=client, timeout_seconds=5.0
+            )
 
             health = await gateway.health()
 
@@ -45,13 +47,36 @@ def test_health_uses_shared_client_with_https_bearer_auth_and_stable_path() -> N
     assert requests[0].headers["Authorization"] == "Bearer token-used-only-in-contract-test"
 
 
+def test_health_uses_configured_timeout() -> None:
+    timeouts: list[object] = []
+
+    async def verify() -> None:
+        async def handler(request: httpx.Request) -> httpx.Response:
+            timeouts.append(request.extensions.get("timeout"))
+            return httpx.Response(200, json={"status": "ready"})
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            gateway = HttpRemoteGpuGateway(
+                build_settings(),
+                http_client=client,
+                timeout_seconds=2.5,
+            )
+
+            await gateway.health()
+
+    asyncio.run(verify())
+    assert timeouts == [{"connect": 2.5, "read": 2.5, "write": 2.5, "pool": 2.5}]
+
+
 def test_health_preserves_only_the_supported_remote_statuses() -> None:
     async def verify(status: str) -> None:
         async def handler(_request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, json={"status": status})
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-            gateway = HttpRemoteGpuGateway(build_settings(), http_client=client)
+            gateway = HttpRemoteGpuGateway(
+                build_settings(), http_client=client, timeout_seconds=5.0
+            )
 
             health = await gateway.health()
 
@@ -68,7 +93,9 @@ def test_health_returns_safe_unavailable_status_for_http_or_contract_failure() -
             return response
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-            gateway = HttpRemoteGpuGateway(build_settings(), http_client=client)
+            gateway = HttpRemoteGpuGateway(
+                build_settings(), http_client=client, timeout_seconds=5.0
+            )
 
             health = await gateway.health()
 
@@ -90,7 +117,9 @@ def test_health_returns_safe_unavailable_status_when_transport_fails() -> None:
             raise httpx.ConnectTimeout("GPU did not answer", request=request)
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-            gateway = HttpRemoteGpuGateway(build_settings(), http_client=client)
+            gateway = HttpRemoteGpuGateway(
+                build_settings(), http_client=client, timeout_seconds=5.0
+            )
 
             health = await gateway.health()
 
@@ -111,7 +140,9 @@ def test_health_filters_malformed_and_duplicate_capabilities_without_leaking_pay
             )
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-            gateway = HttpRemoteGpuGateway(build_settings(), http_client=client)
+            gateway = HttpRemoteGpuGateway(
+                build_settings(), http_client=client, timeout_seconds=5.0
+            )
 
             health = await gateway.health()
 

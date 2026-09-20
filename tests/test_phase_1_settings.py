@@ -21,6 +21,8 @@ def test_from_environment_uses_safe_defaults() -> None:
     assert settings.remote_gpu_tls_verify is True
     assert settings.remote_gpu_max_in_flight == 4
     assert settings.remote_gpu_retention_days == 30
+    assert settings.remote_gpu_health_cache_seconds == 5.0
+    assert settings.remote_gpu_health_timeout_seconds == 5.0
     assert settings.litellm_endpoint == "https://gpu.example.test/v1/invoke"
     assert settings.litellm_model_profile == "saxophone-default"
     assert settings.litellm_timeout_seconds == 30.0
@@ -35,6 +37,8 @@ def test_from_environment_accepts_explicit_typed_values() -> None:
         "SAXO_REMOTE_GPU_TLS_VERIFY": "FALSE",
         "SAXO_REMOTE_GPU_MAX_IN_FLIGHT": "8",
         "SAXO_REMOTE_GPU_RETENTION_DAYS": "90",
+        "SAXO_REMOTE_GPU_HEALTH_CACHE_SECONDS": "7.5",
+        "SAXO_REMOTE_GPU_HEALTH_TIMEOUT_SECONDS": "2.5",
         "SAXO_LITELLM_ENDPOINT": "https://llm.example.test/v1/chat",
         "SAXO_LITELLM_MODEL_PROFILE": "music-rag-v2",
         "SAXO_LITELLM_TIMEOUT_SECONDS": "12.5",
@@ -46,6 +50,8 @@ def test_from_environment_accepts_explicit_typed_values() -> None:
     assert settings.remote_gpu_tls_verify is False
     assert settings.remote_gpu_max_in_flight == 8
     assert settings.remote_gpu_retention_days == 90
+    assert settings.remote_gpu_health_cache_seconds == 7.5
+    assert settings.remote_gpu_health_timeout_seconds == 2.5
     assert settings.litellm_endpoint == "https://llm.example.test/v1/chat"
     assert settings.litellm_model_profile == "music-rag-v2"
     assert settings.litellm_timeout_seconds == 12.5
@@ -95,6 +101,8 @@ def test_from_environment_rejects_unsafe_remote_gpu_url(base_url: str) -> None:
         ("SAXO_REMOTE_GPU_MAX_IN_FLIGHT", "-1"),
         ("SAXO_REMOTE_GPU_RETENTION_DAYS", "0"),
         ("SAXO_REMOTE_GPU_RETENTION_DAYS", "-30"),
+        ("SAXO_REMOTE_GPU_HEALTH_TIMEOUT_SECONDS", "0"),
+        ("SAXO_REMOTE_GPU_HEALTH_TIMEOUT_SECONDS", "-1"),
     ],
 )
 def test_from_environment_rejects_invalid_boolean_and_positive_integer_values(

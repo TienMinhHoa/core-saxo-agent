@@ -87,16 +87,21 @@ class HttpRemoteGpuGateway:
         settings: AppSettings,
         *,
         http_client: httpx.AsyncClient,
+        timeout_seconds: float,
     ) -> None:
+        if timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be positive")
         self._health_url = f"{settings.remote_gpu_base_url.rstrip('/')}/v1/health"
         self._http_client = http_client
         self._headers = {"Authorization": f"Bearer {settings.remote_gpu_bearer_token}"}
+        self._timeout_seconds = timeout_seconds
 
     async def health(self) -> RemoteGpuHealth:
         try:
             response = await self._http_client.get(
                 self._health_url,
                 headers=self._headers,
+                timeout=self._timeout_seconds,
             )
             response.raise_for_status()
             payload = response.json()

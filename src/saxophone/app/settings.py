@@ -23,6 +23,7 @@ class AppSettings:
     remote_gpu_max_in_flight: int = 4
     remote_gpu_retention_days: int = 30
     remote_gpu_health_cache_seconds: float = 5.0
+    remote_gpu_health_timeout_seconds: float = 5.0
     litellm_endpoint: str = ""
     litellm_model_profile: str = "saxophone-default"
     litellm_timeout_seconds: float = 30.0
@@ -67,6 +68,11 @@ class AppSettings:
             remote_gpu_health_cache_seconds=_parse_non_negative_float(
                 environment.get("SAXO_REMOTE_GPU_HEALTH_CACHE_SECONDS", "5"),
                 "SAXO_REMOTE_GPU_HEALTH_CACHE_SECONDS",
+                strictly_positive=True,
+            ),
+            remote_gpu_health_timeout_seconds=_parse_non_negative_float(
+                environment.get("SAXO_REMOTE_GPU_HEALTH_TIMEOUT_SECONDS", "5"),
+                "SAXO_REMOTE_GPU_HEALTH_TIMEOUT_SECONDS",
                 strictly_positive=True,
             ),
             litellm_endpoint=endpoint,
