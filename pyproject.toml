@@ -24,6 +24,7 @@ legacy-ui = [
 ]
 
 [project.scripts]
+saxophone-api = "saxophone.main:main"
 music-rag = "music_rag.cli:main"
 pdf-layout-web = "pdf_layout_web:main"
 

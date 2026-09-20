@@ -28,6 +28,14 @@ cần chạy `app.py` cũ:
 uv sync --extra legacy-ui
 ```
 
+Entrypoint backend FastAPI chính là `saxophone-api`; lệnh này dùng factory
+`saxophone.main:create_application` để tạo một app duy nhất và không khởi động
+Gradio:
+
+```bash
+uv run saxophone-api --host 127.0.0.1 --port 8000
+```
+
 Môi trường mặc định không cài Paddle, CUDA hoặc model GPU. Các workload cần GPU
 sẽ được chuyển sang remote GPU server theo tài liệu kiến trúc; các script local
 Paddle hiện tại được xem là legacy cho đến khi có remote adapter.
