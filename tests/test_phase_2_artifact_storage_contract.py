@@ -149,6 +149,24 @@ def test_atomic_commit_does_not_replace_file_created_after_existence_check(
     assert list(tmp_path.rglob("*.tmp")) == []
 
 
+def test_atomic_commit_cleans_temporary_file_when_publish_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = LocalArtifactRepository(tmp_path)
+    artifact = _artifact()
+
+    def fail_publish(source: str, target: str) -> None:
+        raise OSError("simulated publish failure")
+
+    monkeypatch.setattr("saxophone.platform.artifacts.os.link", fail_publish)
+
+    with pytest.raises(OSError, match="simulated publish failure"):
+        asyncio.run(repository.put(artifact, b"1234567"))
+
+    assert list(tmp_path.rglob("*.tmp")) == []
+    assert [path for path in tmp_path.rglob("*") if path.is_file()] == []
+
+
 def test_concurrent_puts_cannot_replace_the_same_immutable_artifact(
     tmp_path: Path,
 ) -> None:
