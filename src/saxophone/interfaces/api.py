@@ -11,7 +11,10 @@ from pydantic import BaseModel, Field
 
 from saxophone.chat.models import ChatResult
 from saxophone.documents.models import ArtifactKind, ArtifactRef
-from saxophone.documents.policies import is_safe_relative_image_reference
+from saxophone.documents.policies import (
+    is_image_media_type,
+    is_safe_relative_image_reference,
+)
 from saxophone.documents.ports import ArtifactRepository, ImageArtifactResolver
 from saxophone.extraction.models import PdfExtractionRequest, PdfExtractionResult
 from saxophone.ingestion.models import IndexInputRecord, IngestionCommand, IngestionReport
@@ -186,6 +189,8 @@ def build_capability_router(
             artifact = await image_artifact_resolver.resolve(normalized_ref)
             if artifact.kind is not ArtifactKind.IMAGE:
                 raise ValueError("resolved artifact kind must be IMAGE")
+            if not is_image_media_type(artifact.media_type):
+                raise ValueError("resolved image artifact must have an image media type")
             payload = await artifact_repository.get(artifact)
         except FileNotFoundError as error:
             raise HTTPException(status_code=404, detail="asset not found") from error

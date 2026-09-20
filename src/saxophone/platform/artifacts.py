@@ -10,7 +10,10 @@ from pathlib import Path
 import anyio
 
 from saxophone.documents.models import ArtifactKind, ArtifactRef
-from saxophone.documents.policies import is_safe_relative_image_reference
+from saxophone.documents.policies import (
+    is_image_media_type,
+    is_safe_relative_image_reference,
+)
 from saxophone.documents.ports import ArtifactRepository, ImageArtifactResolver
 from saxophone.platform.concurrency import create_blocking_io_limiter
 
@@ -44,6 +47,8 @@ class RepositoryBackedImageArtifactGate:
             artifact = await self._resolver.resolve(image_ref)
             if artifact.kind is not ArtifactKind.IMAGE:
                 raise ValueError("resolved artifact kind must be IMAGE")
+            if not is_image_media_type(artifact.media_type):
+                raise ValueError("resolved image artifact must have an image media type")
             payload = await self._repository.get(artifact)
             _validate_payload(artifact, payload)
         return safe_refs

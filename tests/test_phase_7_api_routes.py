@@ -986,6 +986,36 @@ def test_asset_route_rejects_resolved_non_image_artifact() -> None:
     assert response.json() == {"detail": "resolved artifact kind must be IMAGE"}
 
 
+def test_asset_route_rejects_image_kind_with_non_image_media_type() -> None:
+    artifact = ArtifactRef(
+        artifact_id="doc-1/images/page-1.png",
+        version="image-v1",
+        kind=ArtifactKind.IMAGE,
+        media_type="application/octet-stream",
+        sha256=hashlib.sha256(b"png-bytes").hexdigest(),
+        size_bytes=len(b"png-bytes"),
+    )
+    resolver = FakeImageArtifactResolver(artifact, [])
+    artifacts = FakeArtifacts(b"png-bytes")
+    app = create_app(
+        settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=FakeRemoteGpuGateway(),
+            model_client=FakeModelClient(),
+            artifact_repository=artifacts,
+            image_artifact_resolver=resolver,
+        ),
+    )
+
+    response = TestClient(app).get("/api/v1/assets/doc-1/images/page-1.png")
+
+    assert response.status_code == 422
+    assert response.json() == {
+        "detail": "resolved image artifact must have an image media type"
+    }
+    assert resolver.calls == ["doc-1/images/page-1.png"]
+
+
 def test_document_ingest_route_indexes_chunks_and_returns_report() -> None:
     vector_index = FakeVectorIndex()
     embedding_provider = FakeEmbeddingProvider()
