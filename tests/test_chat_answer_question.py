@@ -145,6 +145,10 @@ def test_chat_result_rejects_non_canonical_citation_refs() -> None:
     with pytest.raises(ValueError, match="canonical"):
         ChatResult(**base, citations=("book-1 ",))
 
+    decomposed_ref = "cafe\u0301"
+    with pytest.raises(ValueError, match="canonical"):
+        ChatResult(**base, citations=(decomposed_ref,))
+
 
 def test_chat_result_rejects_citations_when_evidence_is_insufficient() -> None:
     with pytest.raises(ValueError, match="citations"):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import unicodedata
 from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
@@ -73,6 +74,8 @@ class ChatResult:
         if any(not isinstance(ref, str) or not ref.strip() for ref in self.citations):
             raise ValueError("citations must contain non-blank refs")
         if any(ref != ref.strip() for ref in self.citations):
+            raise ValueError("citations must contain canonical refs")
+        if any(unicodedata.normalize("NFC", ref) != ref for ref in self.citations):
             raise ValueError("citations must contain canonical refs")
         if len(set(self.citations)) != len(self.citations):
             raise ValueError("citations must be unique")
