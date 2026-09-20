@@ -102,6 +102,10 @@ class PdfExtractionResult:
         _require_kind("markdown", self.markdown, ArtifactKind.MARKDOWN)
         _require_kind("layout", self.layout, ArtifactKind.LAYOUT)
         _require_kind("manifest", self.manifest, ArtifactKind.EXTRACTION_MANIFEST)
+        if not isinstance(self.coordinates, tuple):
+            raise ValueError("coordinates must be a tuple")
+        if any(not isinstance(coordinate, ExtractionCoordinate) for coordinate in self.coordinates):
+            raise ValueError("coordinates must contain ExtractionCoordinate values")
 
 
 def _require_kind(name: str, artifact: ArtifactRef, expected: ArtifactKind) -> None:

@@ -76,6 +76,43 @@ def test_extraction_result_requires_expected_artifact_kinds() -> None:
         )
 
 
+def test_extraction_result_requires_immutable_coordinate_tuple() -> None:
+    coordinate = ExtractionCoordinate(
+        coordinate_space=CoordinateSpace.PDF_PAGE,
+        page_index=0,
+        markdown_line_start=1,
+        markdown_line_end=1,
+        bbox=None,
+    )
+    fields = {
+        "document_ref": "document-123",
+        "source_version": "source-v1",
+        "markdown": artifact(ArtifactKind.MARKDOWN),
+        "layout": artifact(ArtifactKind.LAYOUT),
+        "manifest": artifact(ArtifactKind.EXTRACTION_MANIFEST),
+        "coordinates": [coordinate],
+        "model_profile": "pdf-layout-v1",
+    }
+
+    with pytest.raises(ValueError, match="coordinates must be a tuple"):
+        PdfExtractionResult(**fields)  # type: ignore[arg-type]
+
+
+def test_extraction_result_rejects_non_coordinate_entries() -> None:
+    fields = {
+        "document_ref": "document-123",
+        "source_version": "source-v1",
+        "markdown": artifact(ArtifactKind.MARKDOWN),
+        "layout": artifact(ArtifactKind.LAYOUT),
+        "manifest": artifact(ArtifactKind.EXTRACTION_MANIFEST),
+        "coordinates": ("not-a-coordinate",),
+        "model_profile": "pdf-layout-v1",
+    }
+
+    with pytest.raises(ValueError, match="coordinates must contain ExtractionCoordinate"):
+        PdfExtractionResult(**fields)  # type: ignore[arg-type]
+
+
 @pytest.mark.parametrize(
     "document_ref",
     ["../document-123", "document/123", "document-123\n", "document-cafe\u0301"],
