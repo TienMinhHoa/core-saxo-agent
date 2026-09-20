@@ -321,7 +321,8 @@ class ChromaVectorIndex(VectorIndex):
             where=filters,
             n_results=limit,
             include=["documents", "metadatas", "distances"],
-            )
+            ),
+            limiter=self._io_limiter,
         )
         return self._hits(result)
 

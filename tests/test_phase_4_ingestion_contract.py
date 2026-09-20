@@ -254,3 +254,24 @@ async def test_chroma_adapter_runs_upsert_delete_and_search_through_async_port()
     assert collection.delete_call == {"ids": ["chunk-1"]}
     assert collection.query_call["include"] == ["documents", "metadatas", "distances"]
     assert hits[0].distance == 0.2
+
+
+@pytest.mark.anyio
+async def test_chroma_search_passes_shared_blocking_io_limiter(monkeypatch) -> None:
+    collection = _FakeChromaCollection()
+    limiter = object()
+    index = ChromaVectorIndex(collection, io_limiter=limiter)
+    calls = []
+
+    async def run_sync(function, *args, **kwargs):
+        calls.append(kwargs)
+        return function(*args)
+
+    monkeypatch.setattr(
+        "saxophone.ingestion.adapters.anyio.to_thread.run_sync",
+        run_sync,
+    )
+
+    await index.search((0.3, 0.4), limit=1)
+
+    assert calls[-1]["limiter"] is limiter
