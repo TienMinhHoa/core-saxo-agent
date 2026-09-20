@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import unicodedata
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -114,7 +115,13 @@ def _require_kind(name: str, artifact: ArtifactRef, expected: ArtifactKind) -> N
 
 
 def _require_non_blank(name: str, value: str) -> None:
-    if not isinstance(value, str) or not value.strip():
+    if (
+        not isinstance(value, str)
+        or not value.strip()
+        or value != value.strip()
+        or unicodedata.normalize("NFC", value) != value
+        or any(ord(character) < 0x20 or ord(character) == 0x7F for character in value)
+    ):
         raise ValueError(f"{name} must not be blank")
 
 
