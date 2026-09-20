@@ -105,8 +105,8 @@ class EmbeddingRecord:
         _require_non_blank("model_profile", self.model_profile)
         if not self.vector:
             raise ValueError("vector must not be empty")
-        if any(not math.isfinite(value) for value in self.vector):
-            raise ValueError("vector values must be finite")
+        if any(_is_invalid_finite_number(value) for value in self.vector):
+            raise ValueError("vector values must be finite numbers")
 
     @property
     def dimension(self) -> int:
@@ -179,8 +179,8 @@ class ChunkIndexRecord:
             _require_non_blank(name, getattr(self, name))
         if not self.embedding:
             raise ValueError("embedding must not be empty")
-        if any(not math.isfinite(value) for value in self.embedding):
-            raise ValueError("embedding values must be finite")
+        if any(_is_invalid_finite_number(value) for value in self.embedding):
+            raise ValueError("embedding values must be finite numbers")
         if not isinstance(self.metadata, Mapping):
             raise ValueError("metadata must be a mapping")
         object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
@@ -213,3 +213,11 @@ class VectorHit:
 def _require_non_blank(name: str, value: str) -> None:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{name} must not be blank")
+
+
+def _is_invalid_finite_number(value: object) -> bool:
+    return (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+    )

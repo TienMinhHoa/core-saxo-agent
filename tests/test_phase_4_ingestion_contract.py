@@ -237,6 +237,30 @@ def _index_record() -> ChunkIndexRecord:
     )
 
 
+def test_chunk_index_record_rejects_boolean_vector_values() -> None:
+    with pytest.raises(ValueError, match="embedding values must be finite numbers"):
+        ChunkIndexRecord(
+            chunk_id="chunk-1",
+            document_ref="document-1",
+            source_version="extract-v1",
+            search_text="source text",
+            embedding=(True, 0.2),
+            embedding_profile="embed-v1",
+            access_scope="private",
+            metadata={},
+        )
+
+
+def test_embedding_record_rejects_boolean_vector_values() -> None:
+    with pytest.raises(ValueError, match="vector values must be finite numbers"):
+        EmbeddingRecord(
+            chunk_id="chunk-1",
+            source_version="extract-v1",
+            model_profile="embed-v1",
+            vector=(True, 0.2),
+        )
+
+
 @pytest.mark.anyio
 async def test_chroma_adapter_runs_upsert_delete_and_search_through_async_port() -> None:
     collection = _FakeChromaCollection()
