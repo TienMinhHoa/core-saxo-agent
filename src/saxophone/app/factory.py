@@ -4,10 +4,14 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+import re
 from typing import AsyncIterator
+from uuid import uuid4
 
 import httpx
 from fastapi import FastAPI
+from fastapi import Request
+from fastapi.responses import Response
 
 from saxophone.app.settings import AppSettings
 from saxophone.chat.service import AnswerQuestion
@@ -46,6 +50,16 @@ def _capability_status(*, configured: bool, model_service_status: str) -> str:
     if model_service_status == "ready":
         return "ready"
     return "degraded"
+
+
+_CORRELATION_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+
+
+def _correlation_id_from_request(request: Request) -> str:
+    candidate = request.headers.get("X-Correlation-ID", "").strip()
+    if _CORRELATION_ID_PATTERN.fullmatch(candidate):
+        return candidate
+    return str(uuid4())
 
 
 @dataclass(frozen=True, slots=True)
@@ -252,6 +266,15 @@ def create_app(
                 await http_client.aclose()
 
     app = FastAPI(title="Saxophone RAG backend", lifespan=lifespan)
+
+    @app.middleware("http")
+    async def correlation_id_middleware(request: Request, call_next) -> Response:
+        correlation_id = _correlation_id_from_request(request)
+        request.state.correlation_id = correlation_id
+        response = await call_next(request)
+        response.headers["X-Correlation-ID"] = correlation_id
+        return response
+
     app.state.container = container
     app.include_router(
         build_capability_router(

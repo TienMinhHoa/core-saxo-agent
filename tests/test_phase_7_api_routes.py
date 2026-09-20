@@ -676,6 +676,48 @@ def test_health_exposes_architecture_capabilities_without_provider_secrets() -> 
     assert "secret-token" not in response.text
 
 
+def test_http_boundary_preserves_safe_correlation_id_in_response() -> None:
+    app = create_app(
+        settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=FakeRemoteGpuGateway(),
+            model_client=FakeModelClient(),
+            disable_vector_index=True,
+        ),
+    )
+
+    response = TestClient(app).get(
+        "/api/v1/health",
+        headers={"X-Correlation-ID": "trace-19:readiness"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["X-Correlation-ID"] == "trace-19:readiness"
+
+
+def test_http_boundary_replaces_invalid_or_missing_correlation_id() -> None:
+    app = create_app(
+        settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=FakeRemoteGpuGateway(),
+            model_client=FakeModelClient(),
+            disable_vector_index=True,
+        ),
+    )
+
+    client = TestClient(app)
+    missing = client.get("/api/v1/health")
+    invalid = client.get(
+        "/api/v1/health",
+        headers={"X-Correlation-ID": "bad value"},
+    )
+
+    assert missing.status_code == invalid.status_code == 200
+    assert missing.headers["X-Correlation-ID"]
+    assert invalid.headers["X-Correlation-ID"]
+    assert missing.headers["X-Correlation-ID"] != invalid.headers["X-Correlation-ID"]
+
+
 def test_health_marks_configured_model_capabilities_degraded_when_service_is_unavailable() -> None:
     app = create_app(
         settings(),
