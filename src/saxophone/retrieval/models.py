@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Mapping
 
+from saxophone.documents.policies import is_safe_relative_image_reference
+
 
 @dataclass(frozen=True, slots=True)
 class ChunkHit:
@@ -78,6 +80,8 @@ class EvidenceBundle:
                 raise ValueError(f"{name} must contain canonical refs")
             if any(unicodedata.normalize("NFC", ref) != ref for ref in refs):
                 raise ValueError(f"{name} must contain canonical refs")
+        if any(not is_safe_relative_image_reference(ref) for ref in self.image_refs):
+            raise ValueError("unsafe image reference")
         hit_refs = tuple(hit.chunk_ref for hit in self.hits)
         if any(hit.retrieval_version != self.retrieval_version for hit in self.hits):
             raise ValueError("retrieval_version must match every evidence hit")

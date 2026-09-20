@@ -49,6 +49,10 @@ def is_safe_relative_image_reference(image_ref: object) -> bool:
 
     if not isinstance(image_ref, str) or not image_ref.strip():
         return False
+    if unicodedata.normalize("NFC", image_ref) != image_ref:
+        return False
+    if any(ord(character) < 0x20 or ord(character) == 0x7F for character in image_ref):
+        return False
     candidate = image_ref.strip().replace("\\", "/")
     if candidate != image_ref:
         return False

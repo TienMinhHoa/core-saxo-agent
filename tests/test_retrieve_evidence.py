@@ -115,6 +115,11 @@ def test_evidence_bundle_rejects_non_tuple_or_invalid_hits(
         (" images/page-1.png",),
         ("images/page-1.png ",),
         ("cafe\u0301.png",),
+        ("../secret.png",),
+        ("/absolute.png",),
+        ("https://example.test/image.png",),
+        ("images\\page-1.png",),
+        ("images/page-1.png\x00",),
         ("images/page-1.png", "images/page-1.png"),
     ],
 )
@@ -123,7 +128,7 @@ def test_evidence_bundle_rejects_non_canonical_or_duplicate_image_refs(
 ) -> None:
     hit = _hit("chunk-1")
 
-    with pytest.raises(ValueError, match="canonical|unique"):
+    with pytest.raises(ValueError, match="canonical|safe relative|unsafe image|unique"):
         EvidenceBundle(
             "find scales",
             "retrieval-v1",
