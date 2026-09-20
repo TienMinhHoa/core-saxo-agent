@@ -76,9 +76,7 @@ class EvidenceBundle:
         for name, refs in (("selected_refs", self.selected_refs), ("image_refs", self.image_refs)):
             if any(not isinstance(ref, str) or not ref.strip() for ref in refs):
                 raise ValueError(f"{name} must contain non-blank refs")
-            if any(ref != ref.strip() for ref in refs):
-                raise ValueError(f"{name} must contain canonical refs")
-            if any(unicodedata.normalize("NFC", ref) != ref for ref in refs):
+            if any(not _is_canonical(ref) for ref in refs):
                 raise ValueError(f"{name} must contain canonical refs")
         if any(not is_safe_relative_image_reference(ref) for ref in self.image_refs):
             raise ValueError("unsafe image reference")
@@ -111,5 +109,13 @@ def _require_non_blank(name: str, value: str) -> None:
 
 
 def _require_canonical(name: str, value: str) -> None:
-    if value != value.strip() or unicodedata.normalize("NFC", value) != value:
+    if not _is_canonical(value):
         raise ValueError(f"{name} must contain a canonical value")
+
+
+def _is_canonical(value: str) -> bool:
+    return (
+        value == value.strip()
+        and unicodedata.normalize("NFC", value) == value
+        and not any(ord(character) < 0x20 or ord(character) == 0x7F for character in value)
+    )

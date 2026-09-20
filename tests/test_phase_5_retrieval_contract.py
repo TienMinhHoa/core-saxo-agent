@@ -72,6 +72,20 @@ def test_evidence_bundle_rejects_non_canonical_source_text_keys(source_ref: str)
         )
 
 
+@pytest.mark.parametrize("source_ref", ["chunk-1\x00", "chunk-1\x1f", "chunk-1\x7f"])
+def test_evidence_bundle_rejects_control_characters_in_source_text_keys(
+    source_ref: str,
+) -> None:
+    with pytest.raises(ValueError, match="source_text ref"):
+        EvidenceBundle(
+            query="what is this?",
+            retrieval_version="retrieval-v1",
+            hits=(_hit(),),
+            selected_refs=("chunk-1",),
+            source_texts={"chunk-1": "Validated source text", source_ref: "outside"},
+        )
+
+
 @pytest.mark.parametrize("field_name", ["query", "retrieval_version"])
 @pytest.mark.parametrize("value", [" value", "value ", "cafe\u0301"])
 def test_evidence_bundle_rejects_non_canonical_identity_fields(
@@ -182,6 +196,28 @@ def test_evidence_bundle_rejects_string_refs_instead_of_tuples(field_name: str) 
 @pytest.mark.parametrize("field_name", ["source_ref", "chunk_ref", "retrieval_version"])
 @pytest.mark.parametrize("value", [" value", "value ", "cafe\u0301"])
 def test_chunk_hit_rejects_non_canonical_identity_fields(field_name: str, value: str) -> None:
+    values: dict[str, object] = {
+        "source_ref": "document-1",
+        "chunk_ref": "chunk-1",
+        "retrieval_version": "retrieval-v1",
+    }
+    values[field_name] = value
+
+    with pytest.raises(ValueError, match="canonical"):
+        ChunkHit(
+            values["source_ref"],  # type: ignore[arg-type]
+            values["chunk_ref"],  # type: ignore[arg-type]
+            1,
+            values["retrieval_version"],  # type: ignore[arg-type]
+            {"document": "text"},
+        )
+
+
+@pytest.mark.parametrize("field_name", ["source_ref", "chunk_ref", "retrieval_version"])
+@pytest.mark.parametrize("value", ["value\x00", "value\x1f", "value\x7f"])
+def test_chunk_hit_rejects_control_characters_in_identity_fields(
+    field_name: str, value: str
+) -> None:
     values: dict[str, object] = {
         "source_ref": "document-1",
         "chunk_ref": "chunk-1",
