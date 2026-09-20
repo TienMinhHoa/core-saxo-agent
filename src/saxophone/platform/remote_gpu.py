@@ -10,6 +10,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
+import httpx
+
+from saxophone.app.settings import AppSettings
+
 
 RemoteGpuStatus = Literal["ready", "degraded", "unavailable"]
 
@@ -32,4 +36,38 @@ class UnavailableRemoteGpuGateway:
     """Safe Phase 1 default until an HTTP gateway is wired at startup."""
 
     async def health(self) -> RemoteGpuHealth:
+        return RemoteGpuHealth(status="unavailable")
+
+
+class HttpRemoteGpuGateway:
+    """HTTP implementation of the remote GPU health port.
+
+    The application owns the lifecycle of the injected shared client.  This
+    adapter only performs a single authenticated capability-health request and
+    converts every transport or contract failure into the safe public state.
+    """
+
+    def __init__(
+        self,
+        settings: AppSettings,
+        *,
+        http_client: httpx.AsyncClient,
+    ) -> None:
+        self._health_url = f"{settings.remote_gpu_base_url.rstrip('/')}/v1/health"
+        self._http_client = http_client
+        self._headers = {"Authorization": f"Bearer {settings.remote_gpu_bearer_token}"}
+
+    async def health(self) -> RemoteGpuHealth:
+        try:
+            response = await self._http_client.get(
+                self._health_url,
+                headers=self._headers,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            status = payload.get("status") if isinstance(payload, dict) else None
+            if status in {"ready", "degraded", "unavailable"}:
+                return RemoteGpuHealth(status=status)
+        except (httpx.HTTPError, TypeError, ValueError):
+            pass
         return RemoteGpuHealth(status="unavailable")
