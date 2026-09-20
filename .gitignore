@@ -110,6 +110,7 @@ docs/*
 *.temp
 *.bak
 .pytest-tmp/
+.pytest-tmp-*/
 
 # IDE and operating-system files
 .idea/
@@ -273,3 +274,4 @@ Desktop.ini
 !docs/ITERATION_130_IMAGE_MEDIA_TYPE_VALIDATION.md
 !docs/ITERATION_131_DOCUMENT_REF_UNICODE_CONTROL_CONTRACT.md
 !docs/ITERATION_132_EXTRACTION_DOCUMENT_REF_CONTRACT.md
+!docs/ITERATION_133_INGESTION_DOCUMENT_REF_CONTRACT.md

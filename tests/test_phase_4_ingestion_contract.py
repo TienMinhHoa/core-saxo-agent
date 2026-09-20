@@ -10,6 +10,7 @@ from saxophone.ingestion.models import (
     IngestionSourceChunk,
     IngestionCommand,
     IngestionReport,
+    IndexInputRecord,
     VectorHit,
 )
 
@@ -60,6 +61,66 @@ def test_ingestion_source_chunk_requires_mapping_metadata() -> None:
             search_text="source text",
             access_scope="private",
             metadata=[],
+        )
+
+
+@pytest.mark.parametrize("document_ref", ["../document-1", "document/1", "document-1\n", "document-cafe\u0301"])
+def test_ingestion_dtos_reject_unsafe_document_references(document_ref: str) -> None:
+    common = {
+        "document_ref": document_ref,
+        "source_version": "extract-v1",
+        "search_text": "source text",
+        "access_scope": "private",
+        "metadata": {},
+    }
+
+    with pytest.raises(ValueError, match="document_ref"):
+        IngestionSourceChunk(
+            chunk_id="chunk-1",
+            **common,
+        )
+
+    with pytest.raises(ValueError, match="document_ref"):
+        IndexInputRecord(
+            chunk_id="chunk-1",
+            embedding_profile="embed-v1",
+            **common,
+        )
+
+    with pytest.raises(ValueError, match="document_ref"):
+        ChunkIndexRecord(
+            chunk_id="chunk-1",
+            embedding=(0.1,),
+            embedding_profile="embed-v1",
+            **common,
+        )
+
+    with pytest.raises(ValueError, match="document_ref"):
+        IngestionCommand(
+            document_ref=document_ref,
+            source_version="extract-v1",
+            chunking_profile="chunks-v1",
+            tagging_profile="tags-v1",
+            embedding_profile="embed-v1",
+            index_profile="index-v1",
+            access_scope="private",
+        )
+
+    with pytest.raises(ValueError, match="document_ref"):
+        IngestionReport(
+            document_ref=document_ref,
+            source_version="extract-v1",
+            chunk_count=0,
+            paragraph_count=0,
+            tagged_paragraph_count=0,
+            failed_paragraph_count=0,
+            embedded_count=0,
+            reused_embedding_count=0,
+            skipped_count=0,
+            index_version="index-v1",
+            indexed=False,
+            warnings=(),
+            errors=(),
         )
 from saxophone.ingestion.ports import VectorIndex
 from saxophone.ingestion.adapters import ChromaVectorIndex

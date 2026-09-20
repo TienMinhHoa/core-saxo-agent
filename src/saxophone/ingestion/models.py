@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Mapping
 
+from saxophone.documents.policies import is_safe_document_reference
+
 
 @dataclass(frozen=True, slots=True)
 class IngestionCommand:
@@ -31,6 +33,7 @@ class IngestionCommand:
             "access_scope",
         ):
             _require_non_blank(name, getattr(self, name))
+        _require_safe_document_reference(self.document_ref)
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +61,7 @@ class IngestionSourceChunk:
             "access_scope",
         ):
             _require_non_blank(name, getattr(self, name))
+        _require_safe_document_reference(self.document_ref)
         if not isinstance(self.metadata, Mapping):
             raise ValueError("metadata must be a mapping")
         object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
@@ -85,6 +89,7 @@ class IndexInputRecord:
             "access_scope",
         ):
             _require_non_blank(name, getattr(self, name))
+        _require_safe_document_reference(self.document_ref)
         if not isinstance(self.metadata, Mapping):
             raise ValueError("metadata must be a mapping")
         object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
@@ -133,6 +138,7 @@ class IngestionReport:
 
     def __post_init__(self) -> None:
         _require_non_blank("document_ref", self.document_ref)
+        _require_safe_document_reference(self.document_ref)
         _require_non_blank("source_version", self.source_version)
         _require_non_blank("index_version", self.index_version)
         for name in (
@@ -177,6 +183,7 @@ class ChunkIndexRecord:
             "access_scope",
         ):
             _require_non_blank(name, getattr(self, name))
+        _require_safe_document_reference(self.document_ref)
         if not self.embedding:
             raise ValueError("embedding must not be empty")
         if any(_is_invalid_finite_number(value) for value in self.embedding):
@@ -213,6 +220,11 @@ class VectorHit:
 def _require_non_blank(name: str, value: str) -> None:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{name} must not be blank")
+
+
+def _require_safe_document_reference(value: str) -> None:
+    if not is_safe_document_reference(value):
+        raise ValueError("document_ref must be a safe document reference")
 
 
 def _is_invalid_finite_number(value: object) -> bool:
