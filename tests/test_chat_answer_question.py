@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from saxophone.chat.models import ChatStatus, GeneratedAnswer
+from saxophone.chat.models import ChatResult, ChatStatus, GeneratedAnswer
 from saxophone.chat.service import AnswerQuestion
 from saxophone.platform.artifacts import SafeImageArtifactGate
 from saxophone.retrieval.models import ChunkHit
@@ -80,6 +80,24 @@ def test_generated_answer_rejects_negative_usage_and_blank_answer() -> None:
 
     with pytest.raises(ValueError, match="token_usage"):
         GeneratedAnswer("ok", "model-v1", {"total": -1}, 0.0)
+
+
+def test_chat_result_rejects_malformed_token_usage() -> None:
+    base = {
+        "status": ChatStatus.ANSWERED,
+        "answer": "Use long tones first.",
+        "citations": ("book-1",),
+        "evidence_bundle_ref": "evidence://retrieval-v1/ref",
+        "model_version": "answer-model-v1",
+        "cost": 0.0,
+    }
+
+    with pytest.raises(ValueError, match="token_usage"):
+        ChatResult(**base, token_usage={"total": -1})
+    with pytest.raises(ValueError, match="token_usage"):
+        ChatResult(**base, token_usage={"total": True})
+    with pytest.raises(ValueError, match="token_usage"):
+        ChatResult(**base, token_usage={" ": 1})
 
 
 @pytest.mark.anyio

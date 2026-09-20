@@ -27,17 +27,7 @@ class GeneratedAnswer:
     def __post_init__(self) -> None:
         _require_text("answer", self.answer)
         _require_text("model_version", self.model_version)
-        if not isinstance(self.token_usage, Mapping):
-            raise ValueError("token_usage must be a mapping")
-        if any(
-            not isinstance(key, str)
-            or not key.strip()
-            or not isinstance(value, int)
-            or isinstance(value, bool)
-            or value < 0
-            for key, value in self.token_usage.items()
-        ):
-            raise ValueError("token_usage must contain non-negative integer values")
+        _validate_token_usage(self.token_usage)
         if not math.isfinite(self.cost) or self.cost < 0:
             raise ValueError("cost must be finite and non-negative")
         object.__setattr__(self, "token_usage", MappingProxyType(dict(self.token_usage)))
@@ -73,6 +63,7 @@ class ChatResult:
             raise ValueError("answered result must not contain insufficiency reason")
         if any(not isinstance(ref, str) or not ref.strip() for ref in self.citations):
             raise ValueError("citations must contain non-blank refs")
+        _validate_token_usage(self.token_usage)
         if not math.isfinite(self.cost) or self.cost < 0:
             raise ValueError("cost must be finite and non-negative")
         object.__setattr__(self, "token_usage", MappingProxyType(dict(self.token_usage)))
@@ -86,3 +77,17 @@ def evidence_reference(retrieval_version: str, selected_refs: tuple[str, ...]) -
 def _require_text(name: str, value: object) -> None:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{name} must not be blank")
+
+
+def _validate_token_usage(value: object) -> None:
+    if not isinstance(value, Mapping):
+        raise ValueError("token_usage must be a mapping")
+    if any(
+        not isinstance(key, str)
+        or not key.strip()
+        or not isinstance(count, int)
+        or isinstance(count, bool)
+        or count < 0
+        for key, count in value.items()
+    ):
+        raise ValueError("token_usage must contain non-negative integer values")
