@@ -162,9 +162,9 @@ class LiteLLMModelClient:
         event_sink: EventSink | None = None,
         metrics: EventMetrics | None = None,
     ) -> None:
-        if not endpoint.strip():
+        if not isinstance(endpoint, str) or not endpoint.strip():
             raise ValueError("endpoint must not be empty")
-        if not bearer_token.strip():
+        if not isinstance(bearer_token, str) or not bearer_token.strip():
             raise ValueError("bearer_token must not be empty")
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
@@ -178,7 +178,7 @@ class LiteLLMModelClient:
             raise ValueError("circuit_breaker_failure_threshold must not be negative")
         if circuit_breaker_cooldown_seconds <= 0:
             raise ValueError("circuit_breaker_cooldown_seconds must be positive")
-        self._endpoint = endpoint.rstrip("/")
+        self._endpoint = endpoint.strip().rstrip("/")
         self._http_client = http_client
         self._headers = {"Authorization": f"Bearer {bearer_token.strip()}"}
         self._timeout_seconds = timeout_seconds

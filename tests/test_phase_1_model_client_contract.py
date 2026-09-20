@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
+import httpx
 import pytest
 
 from saxophone.platform.model_client import (
@@ -9,6 +10,7 @@ from saxophone.platform.model_client import (
     ModelResponse,
     ModelTask,
     ModelValidationError,
+    LiteLLMModelClient,
 )
 
 
@@ -159,3 +161,28 @@ def test_model_client_protocol_is_async_and_fake_can_return_validated_response()
         assert response.output == {"ok": True}
 
     asyncio.run(verify())
+
+
+@pytest.mark.parametrize("field", ["endpoint", "bearer_token"])
+def test_litellm_client_rejects_non_string_transport_configuration(field: str) -> None:
+    values: dict[str, object] = {
+        "endpoint": "https://model-service.test/v1",
+        "bearer_token": "secret",
+    }
+    values[field] = object()
+
+    with pytest.raises(ValueError, match=field):
+        LiteLLMModelClient(
+            **values,  # type: ignore[arg-type]
+            http_client=httpx.AsyncClient(),
+        )
+
+
+def test_litellm_client_canonicalizes_endpoint_whitespace_and_trailing_slash() -> None:
+    client = LiteLLMModelClient(
+        "  https://model-service.test/v1///  ",
+        bearer_token=" secret ",
+        http_client=httpx.AsyncClient(),
+    )
+
+    assert client.endpoint == "https://model-service.test/v1"
