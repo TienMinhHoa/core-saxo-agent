@@ -67,6 +67,18 @@ def test_health_uses_configured_timeout() -> None:
     assert timeouts == [{"connect": 2.5, "read": 2.5, "write": 2.5, "pool": 2.5}]
 
 
+def test_health_rejects_non_finite_timeout() -> None:
+    for timeout_seconds in (float("nan"), float("inf"), float("-inf")):
+        try:
+            HttpRemoteGpuGateway(
+                build_settings(), http_client=object(), timeout_seconds=timeout_seconds  # type: ignore[arg-type]
+            )
+        except ValueError as error:
+            assert str(error) == "timeout_seconds must be finite and positive"
+        else:
+            raise AssertionError("non-finite timeout values must be rejected")
+
+
 def test_health_preserves_only_the_supported_remote_statuses() -> None:
     async def verify(status: str) -> None:
         async def handler(_request: httpx.Request) -> httpx.Response:
