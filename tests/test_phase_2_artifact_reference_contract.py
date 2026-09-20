@@ -30,11 +30,15 @@ def test_artifact_reference_is_immutable_and_keeps_versioned_identity() -> None:
     [
         ("artifact_id", ""),
         ("version", "  "),
+        ("kind", "extraction_manifest"),
+        ("media_type", 123),
         ("media_type", ""),
         ("sha256", "not-a-sha256"),
+        ("size_bytes", True),
+        ("size_bytes", 1.5),
     ],
 )
-def test_artifact_reference_rejects_invalid_identity_fields(field: str, value: str) -> None:
+def test_artifact_reference_rejects_invalid_identity_fields(field: str, value: object) -> None:
     fields = {
         "artifact_id": "document-123/manifest",
         "version": "extract-v1",
