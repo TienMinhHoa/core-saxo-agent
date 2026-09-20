@@ -42,6 +42,56 @@ async def test_litellm_client_rejects_invalid_retry_jitter_ratio(ratio: float) -
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("timeout_seconds", "30"),
+        ("max_attempts", "2"),
+        ("retry_backoff_seconds", "1"),
+        ("circuit_breaker_failure_threshold", "2"),
+        ("circuit_breaker_cooldown_seconds", "30"),
+    ],
+)
+async def test_litellm_client_rejects_non_numeric_configuration_types(
+    field: str,
+    value: object,
+) -> None:
+    async with httpx.AsyncClient() as http_client:
+        with pytest.raises(ValueError, match=field):
+            LiteLLMModelClient(
+                "https://model.example.test/v1/invoke",
+                http_client=http_client,
+                bearer_token="secret-token",
+                **{field: value},
+            )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("timeout_seconds", True),
+        ("max_attempts", False),
+        ("retry_backoff_seconds", True),
+        ("circuit_breaker_failure_threshold", True),
+        ("circuit_breaker_cooldown_seconds", False),
+    ],
+)
+async def test_litellm_client_rejects_boolean_numeric_configuration_types(
+    field: str,
+    value: object,
+) -> None:
+    async with httpx.AsyncClient() as http_client:
+        with pytest.raises(ValueError, match=field):
+            LiteLLMModelClient(
+                "https://model.example.test/v1/invoke",
+                http_client=http_client,
+                bearer_token="secret-token",
+                **{field: value},
+            )
+
+
+@pytest.mark.anyio
 async def test_litellm_client_sends_typed_envelope_and_maps_response() -> None:
     requests: list[httpx.Request] = []
 

@@ -130,6 +130,20 @@ def _require_canonical_text(field_name: str, value: object) -> None:
         raise ModelValidationError(f"{field_name} must be canonical text")
 
 
+def _require_numeric_configuration(
+    field_name: str,
+    value: object,
+    *,
+    integer: bool = False,
+) -> None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name} must be a numeric value")
+    if integer and not isinstance(value, int):
+        raise ValueError(f"{field_name} must be an integer")
+    if not math.isfinite(float(value)):
+        raise ValueError(f"{field_name} must be finite")
+
+
 class ModelClient(Protocol):
     """Async port hiding LiteLLM/HTTP transport from application code."""
 
@@ -166,6 +180,19 @@ class LiteLLMModelClient:
             raise ValueError("endpoint must not be empty")
         if not isinstance(bearer_token, str) or not bearer_token.strip():
             raise ValueError("bearer_token must not be empty")
+        _require_numeric_configuration("timeout_seconds", timeout_seconds)
+        _require_numeric_configuration("max_attempts", max_attempts, integer=True)
+        _require_numeric_configuration("retry_backoff_seconds", retry_backoff_seconds)
+        _require_numeric_configuration("retry_jitter_ratio", retry_jitter_ratio)
+        _require_numeric_configuration(
+            "circuit_breaker_failure_threshold",
+            circuit_breaker_failure_threshold,
+            integer=True,
+        )
+        _require_numeric_configuration(
+            "circuit_breaker_cooldown_seconds",
+            circuit_breaker_cooldown_seconds,
+        )
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
         if max_attempts <= 0:
