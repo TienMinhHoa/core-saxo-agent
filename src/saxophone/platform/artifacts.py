@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import tempfile
+import threading
 from pathlib import Path
 
 import anyio
@@ -65,6 +66,7 @@ class LocalArtifactRepository:
     ) -> None:
         self._root = root.resolve()
         self._io_limiter = io_limiter or create_blocking_io_limiter()
+        self._write_lock = threading.Lock()
 
     async def put(self, artifact: ArtifactRef, payload: bytes) -> None:
         _require_artifact_ref(artifact)
@@ -96,24 +98,25 @@ class LocalArtifactRepository:
         return path
 
     def _write_atomically(self, artifact: ArtifactRef, payload: bytes) -> None:
-        path = self._path_for(artifact)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        if path.exists():
-            if path.read_bytes() == payload:
-                return
-            raise FileExistsError("artifact identity is immutable")
-        fd, temporary_name = tempfile.mkstemp(
-            prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
-        )
-        try:
-            with os.fdopen(fd, "wb") as temporary:
-                temporary.write(payload)
-                temporary.flush()
-                os.fsync(temporary.fileno())
-            os.replace(temporary_name, path)
-        except BaseException:
-            Path(temporary_name).unlink(missing_ok=True)
-            raise
+        with self._write_lock:
+            path = self._path_for(artifact)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if path.exists():
+                if path.read_bytes() == payload:
+                    return
+                raise FileExistsError("artifact identity is immutable")
+            fd, temporary_name = tempfile.mkstemp(
+                prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+            )
+            try:
+                with os.fdopen(fd, "wb") as temporary:
+                    temporary.write(payload)
+                    temporary.flush()
+                    os.fsync(temporary.fileno())
+                os.replace(temporary_name, path)
+            except BaseException:
+                Path(temporary_name).unlink(missing_ok=True)
+                raise
 
     @staticmethod
     def _validate_payload(artifact: ArtifactRef, payload: bytes) -> None:

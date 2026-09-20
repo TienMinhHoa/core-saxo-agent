@@ -124,6 +124,35 @@ def test_put_is_idempotent_for_same_bytes_but_rejects_replacement(tmp_path: Path
         asyncio.run(repository.put(replacement, b"7654321"))
 
 
+def test_concurrent_puts_cannot_replace_the_same_immutable_artifact(
+    tmp_path: Path,
+) -> None:
+    repository = LocalArtifactRepository(tmp_path)
+    first = _artifact()
+    replacement = ArtifactRef(
+        artifact_id=first.artifact_id,
+        version=first.version,
+        kind=first.kind,
+        media_type=first.media_type,
+        sha256=hashlib.sha256(b"7654321").hexdigest(),
+        size_bytes=7,
+    )
+
+    async def write_both() -> list[BaseException | None]:
+        results = await asyncio.gather(
+            repository.put(first, b"1234567"),
+            repository.put(replacement, b"7654321"),
+            return_exceptions=True,
+        )
+        return results
+
+    results = asyncio.run(write_both())
+
+    assert sum(result is None for result in results) == 1
+    assert sum(isinstance(result, FileExistsError) for result in results) == 1
+    assert asyncio.run(repository.get(first)) == b"1234567"
+
+
 def test_local_repository_bounds_concurrent_blocking_writes(tmp_path: Path) -> None:
     repository = LocalArtifactRepository(
         tmp_path,
