@@ -550,7 +550,10 @@ def test_from_environment_rejects_windows_trimmed_path_components(
     "field_name",
     ["data_root", "chroma_persist_directory"],
 )
-@pytest.mark.parametrize("component", ["cache:stream", "bad<name", "bad>name", "bad|name", "bad?name", "bad*name"])
+@pytest.mark.parametrize(
+    "component",
+    ["cache:stream", "bad<name", "bad>name", 'bad"name', "bad|name", "bad?name", "bad*name"],
+)
 def test_direct_settings_construction_rejects_windows_invalid_path_characters(
     field_name: str,
     component: str,
@@ -575,7 +578,10 @@ def test_direct_settings_construction_rejects_windows_invalid_path_characters(
         ("SAXO_CHROMA_PERSIST_DIRECTORY", "chroma_persist_directory"),
     ],
 )
-@pytest.mark.parametrize("component", ["cache:stream", "bad<name", "bad>name", "bad|name", "bad?name", "bad*name"])
+@pytest.mark.parametrize(
+    "component",
+    ["cache:stream", "bad<name", "bad>name", 'bad"name', "bad|name", "bad?name", "bad*name"],
+)
 def test_from_environment_rejects_windows_invalid_path_characters(
     variable: str,
     field_name: str,
