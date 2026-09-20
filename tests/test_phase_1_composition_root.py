@@ -304,6 +304,48 @@ def test_default_composition_rejects_existing_chroma_dimension_mismatch(monkeypa
         create_app(settings)
 
 
+def test_default_composition_rejects_non_mapping_chroma_metadata(monkeypatch) -> None:
+    class FakeCollection:
+        metadata = ["not-a-metadata-mapping"]
+
+    class FakeClient:
+        def __init__(self, *, path: str) -> None:
+            pass
+
+        def get_or_create_collection(self, *, name: str, metadata: dict[str, object]):
+            return FakeCollection()
+
+    class FakeChroma:
+        PersistentClient = FakeClient
+
+    monkeypatch.setitem(__import__("sys").modules, "chromadb", FakeChroma)
+
+    with pytest.raises(ValueError, match="metadata"):
+        create_app(build_settings())
+
+
+def test_default_composition_rejects_boolean_chroma_dimension(monkeypatch) -> None:
+    class FakeCollection:
+        metadata = {"embedding_dimension": True, "schema_version": "saxo-chunk-v1"}
+
+    class FakeClient:
+        def __init__(self, *, path: str) -> None:
+            pass
+
+        def get_or_create_collection(self, *, name: str, metadata: dict[str, object]):
+            return FakeCollection()
+
+    class FakeChroma:
+        PersistentClient = FakeClient
+
+    monkeypatch.setitem(__import__("sys").modules, "chromadb", FakeChroma)
+
+    settings = AppSettings.from_environment({**VALID_ENVIRONMENT, "SAXO_EMBEDDING_DIMENSION": "1"})
+
+    with pytest.raises(ValueError, match="embedding dimension"):
+        create_app(settings)
+
+
 def test_default_composition_closes_persistent_chroma_client_on_shutdown(monkeypatch) -> None:
     class FakeCollection:
         metadata = {"embedding_dimension": 1536, "schema_version": "saxo-chunk-v1"}

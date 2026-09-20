@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from saxophone.app.settings import AppSettings
@@ -27,8 +28,15 @@ def create_chroma_vector_index(
             "schema_version": _CHROMA_SCHEMA_VERSION,
         },
     )
-    metadata = getattr(collection, "metadata", None) or {}
+    metadata = getattr(collection, "metadata", None)
+    if metadata is not None and not isinstance(metadata, Mapping):
+        raise ValueError("Chroma collection metadata must be a mapping")
+    metadata = metadata or {}
     stored_dimension = metadata.get("embedding_dimension")
+    if stored_dimension is not None and (
+        type(stored_dimension) is not int or stored_dimension <= 0
+    ):
+        raise ValueError("Chroma collection embedding dimension metadata is invalid")
     if stored_dimension is not None and stored_dimension != settings.embedding_dimension:
         raise ValueError(
             "Chroma collection embedding dimension does not match configured embedding dimension"
