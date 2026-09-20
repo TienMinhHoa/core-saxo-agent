@@ -116,6 +116,20 @@ def test_chat_result_rejects_mutable_or_untyped_citations() -> None:
         ChatResult(**base, citations="book-1")
 
 
+def test_chat_result_rejects_duplicate_citations() -> None:
+    base = {
+        "status": ChatStatus.ANSWERED,
+        "answer": "Use long tones first.",
+        "evidence_bundle_ref": "evidence://retrieval-v1/ref",
+        "model_version": "answer-model-v1",
+        "token_usage": {"total": 1},
+        "cost": 0.0,
+    }
+
+    with pytest.raises(ValueError, match="unique"):
+        ChatResult(**base, citations=("book-1", "book-1"))
+
+
 def test_chat_result_rejects_citations_when_evidence_is_insufficient() -> None:
     with pytest.raises(ValueError, match="citations"):
         ChatResult(
