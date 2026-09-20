@@ -650,3 +650,36 @@ def test_document_ingest_route_is_explicitly_unavailable_without_vector_index() 
 
     assert response.status_code == 503
     assert response.json() == {"detail": "ingestion capability is not configured"}
+
+
+def test_process_and_ingest_route_is_explicitly_unavailable_without_vector_index() -> None:
+    app = create_app(
+        settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=FakeRemoteGpuGateway(),
+        ),
+    )
+
+    response = TestClient(app).post(
+        "/api/v1/documents/doc-1/process-and-ingest",
+        json={
+            "source": {
+                "artifact_id": "source",
+                "version": "v1",
+                "kind": "source_pdf",
+                "media_type": "application/pdf",
+                "sha256": "41cf6794ba4200b839c53531555f0f3998df4cbb01a4d5cb0b94e3ca5e23947d",
+                "size_bytes": 6,
+            },
+            "source_version": "source-v1",
+            "correlation_id": "corr-1",
+            "model_profile": "extractor-v1",
+            "chunking_profile": "header-v1",
+            "embedding_profile": "embed-v1",
+            "index_profile": "index-v1",
+            "access_scope": "public",
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "extracted document ingestion capability is not configured"}

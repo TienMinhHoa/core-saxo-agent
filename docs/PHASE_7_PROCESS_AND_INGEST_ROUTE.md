@@ -19,6 +19,11 @@ persist, chunk theo workflow ingestion và upsert vào vector index.
 
 ## Bằng chứng kiểm thử
 
+- Có contract test riêng cho trạng thái composition root không có `VectorIndex`:
+  `POST /api/v1/documents/{document_ref}/process-and-ingest` trả `503` với thông báo
+  `extracted document ingestion capability is not configured`, thay vì chạy fallback
+  hoặc báo indexed giả.
+
 ```text
 uv run pytest tests/test_phase_7_api_routes.py -q
 11 passed, 1 warning
