@@ -9,7 +9,7 @@ khi có feature parity và quyết định migration riêng.
 
 - Các capability đích đã có trong package `src/saxophone`: composition root,
   extraction, ingestion, retrieval, chat, tagging, workflow và API adapters.
-- Bằng chứng offline hiện tại: `uv run pytest` đạt **289 passed, 2 skipped**;
+- Bằng chứng offline hiện tại: `uv run pytest` đạt **290 passed, 2 skipped**;
   `compileall` và `git diff --check` đã được chạy ở lát cắt gần nhất.
 - Chưa được phép kết luận production-ready: checkout không có remote
   model-service endpoint/credential để chạy live smoke thật. Trạng thái này
@@ -31,7 +31,7 @@ khi có feature parity và quyết định migration riêng.
 | 10 | Hybrid-ready retrieval | Đạt offline | `retrieval/adapters.py` có `InMemoryLexicalRetriever` và `HybridRetriever` (RRF); `tests/test_hybrid_retrieval.py` |
 | 11 | Giữ provenance/page/layout/image refs | Đạt offline | extraction models, Chroma sidecar contract và Phase 3/4 tests |
 | 12 | Output model không hợp lệ không fallback im lặng | Đạt offline | `test_phase_1_model_response_json_validation.py` và remote adapter tests |
-| 13 | Unit/contract/integration/API/golden offline | Đạt offline | `uv run pytest`: 289 passed, 2 skipped |
+| 13 | Unit/contract/integration/API/golden offline | Đạt offline | `uv run pytest`: 290 passed, 2 skipped |
 | 14 | Live model-service smoke được báo riêng | Đạt về tài liệu; chưa chạy live | `LIVE_MODEL_SERVICE_SMOKE_STATUS.md` |
 | 15 | Legacy chỉ xóa sau parity và quyết định migration | Có compatibility adapter; chưa có golden parity đầy đủ | `retrieval/adapters.py`, `tests/test_hybrid_retrieval.py`, `docs/PHASE_5_LEGACY_COMPATIBILITY_ADAPTER.md`; chưa có parity report để retire |
 | 16 | Runtime đích không phụ thuộc frontend/UI | Đạt offline | `saxophone-api`, `test_phase_7_backend_entrypoint.py` |

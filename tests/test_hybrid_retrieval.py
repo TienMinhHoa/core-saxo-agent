@@ -147,3 +147,11 @@ async def test_legacy_semantic_retriever_requires_access_scope_filter(tmp_path) 
 
     with pytest.raises(ValueError, match="access_scope"):
         await retriever.search("pulse")
+
+
+@pytest.mark.anyio
+async def test_legacy_semantic_retriever_rejects_blank_query_at_port_boundary(tmp_path) -> None:
+    retriever = LegacySemanticRetriever(CatalogStore(tmp_path), object())
+
+    with pytest.raises(ValueError, match="query must not be blank"):
+        await retriever.search("  ", filters={"access_scope": "public"})

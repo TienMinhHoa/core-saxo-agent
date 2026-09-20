@@ -130,6 +130,8 @@ class LegacySemanticRetriever(ChunkRetriever):
     ) -> list[ChunkHit]:
         if limit < 1:
             return []
+        if not isinstance(query, str) or not query.strip():
+            raise ValueError("query must not be blank")
         access_scope = (filters or {}).get("access_scope")
         if not isinstance(access_scope, str) or not access_scope.strip():
             raise ValueError("access_scope filter is required")
@@ -141,7 +143,7 @@ class LegacySemanticRetriever(ChunkRetriever):
                 semantic_search,
                 self._store,
                 self._embedding_provider,
-                query,
+                query.strip(),
                 access_scope,
                 limit,
             ),
