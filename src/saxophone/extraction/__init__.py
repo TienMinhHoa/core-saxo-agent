@@ -6,7 +6,7 @@ from .models import (
     PdfExtractionRequest,
     PdfExtractionResult,
 )
-from .ports import PdfExtractor
+from .ports import ExtractionArtifactPayloadProvider, PdfExtractor
 from .remote import RemotePdfExtractor
 
 __all__ = [
@@ -15,5 +15,6 @@ __all__ = [
     "PdfExtractionRequest",
     "PdfExtractionResult",
     "PdfExtractor",
+    "ExtractionArtifactPayloadProvider",
     "RemotePdfExtractor",
 ]

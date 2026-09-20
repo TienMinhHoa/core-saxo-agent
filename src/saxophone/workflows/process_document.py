@@ -6,7 +6,8 @@ import hashlib
 
 from saxophone.documents.ports import ArtifactRepository
 from saxophone.extraction.models import PdfExtractionRequest, PdfExtractionResult
-from saxophone.extraction.ports import PdfExtractor
+from saxophone.extraction.persistence import PersistExtractionArtifacts
+from saxophone.extraction.ports import ExtractionArtifactPayloadProvider, PdfExtractor
 
 
 class ProcessDocument:
@@ -36,3 +37,22 @@ class ProcessDocument:
             raise ValueError("extraction result source_version does not match request")
         if result.model_profile != request.model_profile:
             raise ValueError("extraction result model_profile does not match request")
+
+
+class ProcessAndPersistDocument:
+    """Run extraction and persist its verified outputs in one request boundary."""
+
+    def __init__(
+        self,
+        process: ProcessDocument,
+        payloads: ExtractionArtifactPayloadProvider,
+        artifacts: ArtifactRepository,
+    ) -> None:
+        self._process = process
+        self._payloads = payloads
+        self._persist = PersistExtractionArtifacts(artifacts)
+
+    async def execute(self, request: PdfExtractionRequest) -> PdfExtractionResult:
+        result = await self._process.execute(request)
+        payloads = await self._payloads.fetch(result)
+        return await self._persist.execute(result, payloads)
