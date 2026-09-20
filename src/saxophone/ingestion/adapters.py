@@ -499,9 +499,22 @@ def _validated_chroma_rows(
         raise ValueError("Chroma result documents must contain strings")
     if any(not isinstance(item, Mapping) for item in metadatas):
         raise ValueError("Chroma result metadatas must contain mappings")
+    if any(
+        not _is_valid_chroma_metadata_mapping(item)
+        for item in metadatas
+    ):
+        raise ValueError("Chroma result metadata must contain valid projections")
     if any(isinstance(item, bool) or not isinstance(item, (int, float)) or not math.isfinite(item) for item in distances):
         raise ValueError("Chroma result distances must be finite numbers")
     return ids, documents, metadatas, distances
+
+
+def _is_valid_chroma_metadata_mapping(value: Mapping[object, object]) -> bool:
+    """Validate provider metadata before exposing it as a typed vector hit."""
+    return (
+        all(isinstance(key, str) and key.strip() for key in value)
+        and all(_is_valid_chroma_metadata_value(item) for item in value.values())
+    )
 
 
 def _validated_chunk_ids(chunk_ids: Sequence[str]) -> list[str]:

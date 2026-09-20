@@ -536,6 +536,24 @@ async def test_chroma_search_preserves_valid_scalar_filters() -> None:
         {
             "ids": [["chunk-1"]],
             "documents": [["text"]],
+            "metadatas": [[{"page": float("nan")}]],
+            "distances": [[0.1]],
+        },
+        {
+            "ids": [["chunk-1"]],
+            "documents": [["text"]],
+            "metadatas": [[{"tags": [["nested"]]}]],
+            "distances": [[0.1]],
+        },
+        {
+            "ids": [["chunk-1"]],
+            "documents": [["text"]],
+            "metadatas": [[{" ": "private"}]],
+            "distances": [[0.1]],
+        },
+        {
+            "ids": [["chunk-1"]],
+            "documents": [["text"]],
             "metadatas": [[{}]],
             "distances": [[float("nan")]],
         },
