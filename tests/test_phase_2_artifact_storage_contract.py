@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import os
 import threading
 import time
 from pathlib import Path
@@ -122,6 +123,30 @@ def test_put_is_idempotent_for_same_bytes_but_rejects_replacement(tmp_path: Path
 
     with pytest.raises(FileExistsError, match="immutable"):
         asyncio.run(repository.put(replacement, b"7654321"))
+
+
+def test_atomic_commit_does_not_replace_file_created_after_existence_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = LocalArtifactRepository(tmp_path)
+    artifact = _artifact()
+    destination = tmp_path / "document-123" / "manifest" / "extract-v1"
+    real_link = os.link
+
+    def create_competing_file_then_link(source: str, target: str) -> None:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(b"external")
+        real_link(source, target)
+
+    monkeypatch.setattr(
+        "saxophone.platform.artifacts.os.link", create_competing_file_then_link
+    )
+
+    with pytest.raises(FileExistsError):
+        asyncio.run(repository.put(artifact, b"1234567"))
+
+    assert destination.read_bytes() == b"external"
+    assert list(tmp_path.rglob("*.tmp")) == []
 
 
 def test_concurrent_puts_cannot_replace_the_same_immutable_artifact(

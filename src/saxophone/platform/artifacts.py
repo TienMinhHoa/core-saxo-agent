@@ -113,10 +113,14 @@ class LocalArtifactRepository:
                     temporary.write(payload)
                     temporary.flush()
                     os.fsync(temporary.fileno())
-                os.replace(temporary_name, path)
+                # Linking a fully flushed temporary file publishes it atomically
+                # without replacing a destination created by another writer.
+                os.link(temporary_name, path)
             except BaseException:
                 Path(temporary_name).unlink(missing_ok=True)
                 raise
+            else:
+                Path(temporary_name).unlink(missing_ok=True)
 
     @staticmethod
     def _validate_payload(artifact: ArtifactRef, payload: bytes) -> None:
