@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from saxophone.retrieval.models import ChunkHit
+from saxophone.retrieval.models import ChunkHit, EvidenceBundle
 from saxophone.retrieval.use_cases import RetrieveEvidence
 
 
@@ -74,3 +74,16 @@ async def test_retrieve_evidence_rejects_mixed_retrieval_versions() -> None:
 
     with pytest.raises(ValueError, match="retrieval version"):
         await RetrieveEvidence(retriever).execute("find scales")
+
+
+def test_evidence_bundle_rejects_source_text_not_selected_or_backed_by_a_hit() -> None:
+    hit = _hit("chunk-1")
+
+    with pytest.raises(ValueError, match="source_texts must match selected_refs"):
+        EvidenceBundle(
+            "find scales",
+            "retrieval-v1",
+            (hit,),
+            ("chunk-1",),
+            {"chunk-1": "source text", "unselected": "must not cross boundary"},
+        )

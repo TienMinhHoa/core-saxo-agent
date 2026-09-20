@@ -64,6 +64,8 @@ class EvidenceBundle:
             raise ValueError("selected_refs must be unique")
         if any(ref not in hit_refs for ref in self.selected_refs):
             raise ValueError("selected_refs must refer to evidence hits")
+        if set(self.source_texts) != set(self.selected_refs):
+            raise ValueError("source_texts must match selected_refs")
         if any(ref not in self.source_texts for ref in self.selected_refs):
             raise ValueError("source_texts must contain every selected ref")
         if not self.hits and not self.insufficiency_reason:
