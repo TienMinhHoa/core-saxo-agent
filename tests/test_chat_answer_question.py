@@ -130,6 +130,20 @@ def test_chat_result_rejects_citations_when_evidence_is_insufficient() -> None:
         )
 
 
+def test_chat_result_rejects_provider_metadata_when_evidence_is_insufficient() -> None:
+    with pytest.raises(ValueError, match="model metadata"):
+        ChatResult(
+            status=ChatStatus.INSUFFICIENT_EVIDENCE,
+            answer=None,
+            citations=(),
+            evidence_bundle_ref=None,
+            model_version="answer-model-v1",
+            token_usage={},
+            cost=0.0,
+            insufficiency_reason="no matching evidence",
+        )
+
+
 @pytest.mark.anyio
 async def test_answer_question_requires_a_safe_gate_for_image_evidence() -> None:
     class ImageRetriever(_Retriever):
