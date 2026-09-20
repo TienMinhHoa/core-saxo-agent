@@ -272,6 +272,15 @@ class ChromaVectorIndex(VectorIndex):
     def __init__(self, collection: Any) -> None:
         self._collection = collection
 
+    async def list_chunk_ids(self, *, document_ref: str) -> tuple[str, ...]:
+        result = await anyio.to_thread.run_sync(
+            partial(self._collection.get, where={"document_ref": document_ref})
+        )
+        ids = result.get("ids") if isinstance(result, Mapping) else None
+        if not isinstance(ids, list):
+            return ()
+        return tuple(item for item in ids if isinstance(item, str) and item.strip())
+
     async def upsert_chunks(self, records: Sequence[ChunkIndexRecord]) -> None:
         if not records:
             return

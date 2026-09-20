@@ -37,6 +37,11 @@ class VectorIndex(ABC):
     """Async port hiding the blocking vector database client."""
 
     @abstractmethod
+    async def list_chunk_ids(self, *, document_ref: str) -> tuple[str, ...]:
+        """Return the currently indexed chunk IDs for one document."""
+        raise NotImplementedError
+
+    @abstractmethod
     async def upsert_chunks(self, records: Sequence[ChunkIndexRecord]) -> None:
         raise NotImplementedError
 

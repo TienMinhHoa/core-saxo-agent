@@ -191,6 +191,7 @@ def test_vector_hit_exposes_distance_and_source_metadata() -> None:
 
 
 def test_vector_index_is_async_port() -> None:
+    assert hasattr(VectorIndex, "list_chunk_ids")
     assert hasattr(VectorIndex, "upsert_chunks")
     assert hasattr(VectorIndex, "delete_chunks")
     assert hasattr(VectorIndex, "search")
@@ -200,7 +201,12 @@ class _FakeChromaCollection:
     def __init__(self) -> None:
         self.upsert_call = None
         self.delete_call = None
+        self.get_call = None
         self.query_call = None
+
+    def get(self, **kwargs):
+        self.get_call = kwargs
+        return {"ids": ["chunk-1", "stale-chunk"]}
 
     def upsert(self, **kwargs):
         self.upsert_call = kwargs
@@ -236,10 +242,13 @@ async def test_chroma_adapter_runs_upsert_delete_and_search_through_async_port()
     collection = _FakeChromaCollection()
     index = ChromaVectorIndex(collection)
 
+    ids = await index.list_chunk_ids(document_ref="document-1")
     await index.upsert_chunks([_index_record()])
     await index.delete_chunks(["chunk-1"])
     hits = await index.search((0.3, 0.4), filters={"access_scope": "private"}, limit=3)
 
+    assert ids == ("chunk-1", "stale-chunk")
+    assert collection.get_call == {"where": {"document_ref": "document-1"}}
     assert collection.upsert_call["ids"] == ["chunk-1"]
     assert collection.upsert_call["metadatas"][0]["source_version"] == "extract-v1"
     assert collection.delete_call == {"ids": ["chunk-1"]}

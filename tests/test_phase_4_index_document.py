@@ -45,9 +45,17 @@ def _record(
 
 
 class FakeIndex:
-    def __init__(self, error: Exception | None = None) -> None:
+    def __init__(self, error: Exception | None = None, existing_ids=()) -> None:
         self.records = None
         self.error = error
+        self.existing_ids = tuple(existing_ids)
+        self.deleted_ids = ()
+
+    async def list_chunk_ids(self, *, document_ref):
+        return self.existing_ids
+
+    async def delete_chunks(self, chunk_ids):
+        self.deleted_ids = tuple(chunk_ids)
 
     async def upsert_chunks(self, records):
         if self.error:
@@ -91,6 +99,17 @@ async def test_index_document_publishes_records_and_report() -> None:
     assert report.chunk_count == 1
     assert report.tagged_paragraph_count == 1
     assert report.errors == ()
+
+
+@pytest.mark.anyio
+async def test_index_document_reconciles_stale_chunks_for_document() -> None:
+    index = FakeIndex(existing_ids=("chunk-1", "stale-chunk"))
+    provider = FakeEmbeddingProvider((_embedding(),))
+
+    report = await IndexDocument(index, provider).execute(_command(), [_record()])
+
+    assert report.indexed is True
+    assert index.deleted_ids == ("stale-chunk",)
 
 
 @pytest.mark.anyio
