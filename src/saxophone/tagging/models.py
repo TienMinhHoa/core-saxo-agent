@@ -162,6 +162,27 @@ class TagGenerationResult:
         object.__setattr__(self, "tags", normalized)
 
 
+@dataclass(frozen=True, slots=True)
+class TaggedParagraph:
+    """Source-preserving paragraph projection after tag resolution."""
+
+    paragraph_id: str
+    text: str
+    generated_tags: tuple[str, ...]
+    tags: tuple[str, ...]
+    status: str
+
+    def __post_init__(self) -> None:
+        _require_non_blank("paragraph_id", self.paragraph_id)
+        _require_non_blank("text", self.text)
+        if self.status not in {"completed", "failed", "skipped"}:
+            raise ValueError("status must be completed, failed, or skipped")
+        _validate_tags(self.generated_tags, "generated_tags")
+        _validate_tags(self.tags, "tags")
+        object.__setattr__(self, "generated_tags", tuple(tag.strip() for tag in self.generated_tags))
+        object.__setattr__(self, "tags", tuple(tag.strip() for tag in self.tags))
+
+
 def _require_non_blank(name: str, value: str) -> None:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{name} must not be blank")
