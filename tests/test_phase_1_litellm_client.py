@@ -86,3 +86,57 @@ async def test_litellm_client_propagates_http_failure_without_job_translation() 
                 http_client=http_client,
                 bearer_token="secret-token",
             ).invoke(_request())
+
+
+@pytest.mark.anyio
+async def test_litellm_client_retries_transient_http_failure_with_bounded_attempts() -> None:
+    attempts = 0
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return httpx.Response(503, json={"detail": "busy"})
+        return httpx.Response(
+            200,
+            json={
+                "task_type": "answer_generate",
+                "model": "answer-model-v1",
+                "response_format": "answer-v1",
+                "output": {"answer": "Use long tones."},
+                "source_version": "model-source-v1",
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        response = await LiteLLMModelClient(
+            "https://model.example.test/v1/invoke",
+            http_client=http_client,
+            bearer_token="secret-token",
+            timeout_seconds=2.5,
+            max_attempts=2,
+        ).invoke(_request())
+
+    assert response.output["answer"] == "Use long tones."
+    assert attempts == 2
+
+
+@pytest.mark.anyio
+async def test_litellm_client_does_not_retry_contract_or_auth_failures() -> None:
+    attempts = 0
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        return httpx.Response(401, json={"detail": "invalid token"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        with pytest.raises(httpx.HTTPStatusError):
+            await LiteLLMModelClient(
+                "https://model.example.test/v1/invoke",
+                http_client=http_client,
+                bearer_token="secret-token",
+                max_attempts=3,
+            ).invoke(_request())
+
+    assert attempts == 1

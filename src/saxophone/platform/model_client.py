@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
@@ -100,28 +101,36 @@ class LiteLLMModelClient:
         *,
         http_client: httpx.AsyncClient,
         bearer_token: str,
+        timeout_seconds: float = 30.0,
+        max_attempts: int = 1,
+        retry_backoff_seconds: float = 0.0,
     ) -> None:
         if not endpoint.strip():
             raise ValueError("endpoint must not be empty")
         if not bearer_token.strip():
             raise ValueError("bearer_token must not be empty")
+        if timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be positive")
+        if max_attempts <= 0:
+            raise ValueError("max_attempts must be positive")
+        if retry_backoff_seconds < 0:
+            raise ValueError("retry_backoff_seconds must not be negative")
         self._endpoint = endpoint.rstrip("/")
         self._http_client = http_client
         self._headers = {"Authorization": f"Bearer {bearer_token.strip()}"}
+        self._timeout_seconds = timeout_seconds
+        self._max_attempts = max_attempts
+        self._retry_backoff_seconds = retry_backoff_seconds
 
     async def invoke(self, request: ModelRequest) -> ModelResponse:
-        response = await self._http_client.post(
-            self._endpoint,
-            headers=self._headers,
-            json={
-                "model": request.model,
-                "task_type": request.task.value,
-                "input": dict(request.input),
-                "metadata": dict(request.metadata),
-                "response_format": request.response_schema,
-            },
-        )
-        response.raise_for_status()
+        payload = {
+            "model": request.model,
+            "task_type": request.task.value,
+            "input": dict(request.input),
+            "metadata": dict(request.metadata),
+            "response_format": request.response_schema,
+        }
+        response = await self._post_with_retry(payload)
         payload = response.json()
         if not isinstance(payload, Mapping):
             raise ModelValidationError("model response must be a mapping")
@@ -132,6 +141,36 @@ class LiteLLMModelClient:
             output=_required_mapping(payload, "output"),
             source_version=_required_text(payload, "source_version"),
         )
+
+    async def _post_with_retry(self, payload: Mapping[str, object]) -> httpx.Response:
+        for attempt in range(1, self._max_attempts + 1):
+            try:
+                response = await self._http_client.post(
+                    self._endpoint,
+                    headers=self._headers,
+                    json=payload,
+                    timeout=self._timeout_seconds,
+                )
+                if response.status_code not in {408, 429, 500, 502, 503, 504}:
+                    response.raise_for_status()
+                    return response
+                response.raise_for_status()
+            except httpx.RequestError:
+                if attempt == self._max_attempts:
+                    raise
+            except httpx.HTTPStatusError:
+                if attempt == self._max_attempts or response.status_code not in {
+                    408,
+                    429,
+                    500,
+                    502,
+                    503,
+                    504,
+                }:
+                    raise
+            if self._retry_backoff_seconds:
+                await asyncio.sleep(self._retry_backoff_seconds)
+        raise AssertionError("retry loop must return or raise")
 
 
 def _parse_task(value: object) -> ModelTask:
