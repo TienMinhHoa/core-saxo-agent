@@ -388,6 +388,18 @@ async def test_chroma_list_chunk_ids_rejects_malformed_provider_ids(result) -> N
 
 
 @pytest.mark.anyio
+async def test_chroma_list_chunk_ids_rejects_duplicate_provider_ids() -> None:
+    class _DuplicateIdCollection:
+        def get(self, **kwargs):
+            return {"ids": ["chunk-1", "chunk-1"]}
+
+    index = ChromaVectorIndex(_DuplicateIdCollection())
+
+    with pytest.raises(ValueError, match="unique"):
+        await index.list_chunk_ids(document_ref="document-1")
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("document_ref", ["", "   ", 42, None])
 async def test_chroma_list_chunk_ids_rejects_invalid_document_ref_before_provider_io(
     document_ref,

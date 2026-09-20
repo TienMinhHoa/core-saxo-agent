@@ -315,6 +315,8 @@ class ChromaVectorIndex(VectorIndex):
             not isinstance(item, str) or not item.strip() for item in ids
         ):
             raise ValueError("Chroma result ids must be a list of non-blank strings")
+        if len(ids) != len(set(ids)):
+            raise ValueError("Chroma result ids must be unique")
         return tuple(ids)
 
     async def upsert_chunks(self, records: Sequence[ChunkIndexRecord]) -> None:
