@@ -219,7 +219,7 @@ class _FakeChromaCollection:
         return {
             "ids": [["chunk-1"]],
             "documents": [["source text"]],
-            "metadatas": [[{"source_version": "extract-v1"}]],
+            "metadatas": [[{"chunk_id": "chunk-1", "source_version": "extract-v1"}]],
             "distances": [[0.2]],
         }
 
@@ -602,6 +602,23 @@ async def test_chroma_vector_index_rejects_search_metadata_with_wrong_chunk_iden
             }
 
     index = ChromaVectorIndex(_MismatchedMetadataCollection())
+
+    with pytest.raises(ValueError, match="chunk_id"):
+        await index.search((0.3, 0.4), limit=1)
+
+
+@pytest.mark.anyio
+async def test_chroma_vector_index_rejects_search_metadata_without_chunk_identity() -> None:
+    class _MissingChunkIdentityCollection:
+        def query(self, **kwargs):
+            return {
+                "ids": [["chunk-1"]],
+                "documents": [["text"]],
+                "metadatas": [[{"source_version": "extract-v1"}]],
+                "distances": [[0.1]],
+            }
+
+    index = ChromaVectorIndex(_MissingChunkIdentityCollection())
 
     with pytest.raises(ValueError, match="chunk_id"):
         await index.search((0.3, 0.4), limit=1)
