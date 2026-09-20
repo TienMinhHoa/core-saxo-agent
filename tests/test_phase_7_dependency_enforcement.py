@@ -35,6 +35,25 @@ def _import_roots(path: Path) -> set[str]:
     return roots
 
 
+def _saxophone_imports(path: Path) -> set[str]:
+    """Return internal module paths so layer rules stay independent of SDK rules."""
+
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    imports: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imports.update(
+                alias.name for alias in node.names if alias.name.startswith("saxophone.")
+            )
+        elif (
+            isinstance(node, ast.ImportFrom)
+            and node.module is not None
+            and node.module.startswith("saxophone.")
+        ):
+            imports.add(node.module)
+    return imports
+
+
 def test_fastapi_inbound_adapter_does_not_import_provider_sdks() -> None:
     imports = _import_roots(SOURCE_ROOT / "interfaces" / "api.py")
 
@@ -85,5 +104,48 @@ def test_backend_source_does_not_reintroduce_removed_job_lifecycle_contract() ->
         for path in SOURCE_ROOT.rglob("*.py")
         if any(symbol in path.read_text(encoding="utf-8") for symbol in REMOVED_WORKFLOW_LIFECYCLE_SYMBOLS)
     }
+
+    assert violations == {}
+
+
+def test_business_layers_do_not_depend_on_inbound_or_composition_layers() -> None:
+    """Keep HTTP/bootstrap details at the outer edge of the modular monolith."""
+
+    business_packages = ("documents", "extraction", "ingestion", "retrieval", "chat", "tagging", "workflows")
+    forbidden_prefixes = ("saxophone.interfaces", "saxophone.app", "saxophone.main")
+    violations = {
+        str(path.relative_to(SOURCE_ROOT)): sorted(
+            imported
+            for imported in _saxophone_imports(path)
+            if imported.startswith(forbidden_prefixes)
+        )
+        for package in business_packages
+        for path in (SOURCE_ROOT / package).rglob("*.py")
+        if any(
+            imported.startswith(forbidden_prefixes)
+            for imported in _saxophone_imports(path)
+        )
+    }
+
+    assert violations == {}
+
+
+def test_retrieval_and_chat_remain_separate_application_boundaries() -> None:
+    """Retrieval supplies evidence; chat consumes its public contract only."""
+
+    violations: dict[str, list[str]] = {}
+    for package, forbidden_prefixes in {
+        "retrieval": ("saxophone.chat", "saxophone.interfaces"),
+        "chat": ("saxophone.retrieval.adapters", "saxophone.interfaces"),
+        "ingestion": ("saxophone.interfaces",),
+    }.items():
+        for path in (SOURCE_ROOT / package).rglob("*.py"):
+            found = sorted(
+                imported
+                for imported in _saxophone_imports(path)
+                if imported.startswith(forbidden_prefixes)
+            )
+            if found:
+                violations[str(path.relative_to(SOURCE_ROOT))] = found
 
     assert violations == {}
