@@ -33,4 +33,4 @@ def create_chroma_vector_index(
         raise ValueError(
             "Chroma collection embedding dimension does not match configured embedding dimension"
         )
-    return ChromaVectorIndex(collection, io_limiter=io_limiter)
+    return ChromaVectorIndex(collection, client=client, io_limiter=io_limiter)

@@ -270,9 +270,23 @@ class RemoteEmbeddingProvider(EmbeddingProvider):
 class ChromaVectorIndex(VectorIndex):
     """Async Chroma adapter; every blocking SDK call runs in a worker thread."""
 
-    def __init__(self, collection: Any, *, io_limiter: Any | None = None) -> None:
+    def __init__(
+        self,
+        collection: Any,
+        *,
+        client: Any | None = None,
+        io_limiter: Any | None = None,
+    ) -> None:
         self._collection = collection
+        self._client = client
         self._io_limiter = io_limiter or create_blocking_io_limiter()
+
+    def close(self) -> None:
+        """Release the Chroma client owned by the composition root, when present."""
+        if self._client is not None:
+            close = getattr(self._client, "close", None)
+            if callable(close):
+                close()
 
     async def list_chunk_ids(self, *, document_ref: str) -> tuple[str, ...]:
         result = await anyio.to_thread.run_sync(

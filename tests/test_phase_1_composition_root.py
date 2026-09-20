@@ -233,6 +233,9 @@ def test_default_composition_builds_persistent_chroma_vector_index(monkeypatch) 
         def __init__(self, *, path: str) -> None:
             calls.append(("client", path))
 
+        def close(self) -> None:
+            calls.append(("close",))
+
         def get_or_create_collection(self, *, name: str, metadata: dict[str, object]):
             calls.append(("collection", name, metadata))
             return FakeCollection()
@@ -281,6 +284,35 @@ def test_default_composition_rejects_existing_chroma_dimension_mismatch(monkeypa
 
     with pytest.raises(ValueError, match="embedding dimension"):
         create_app(settings)
+
+
+def test_default_composition_closes_persistent_chroma_client_on_shutdown(monkeypatch) -> None:
+    class FakeCollection:
+        metadata = {"embedding_dimension": 1536, "schema_version": "saxo-chunk-v1"}
+
+    class FakeClient:
+        closed = False
+
+        def __init__(self, *, path: str) -> None:
+            pass
+
+        def get_or_create_collection(self, *, name: str, metadata: dict[str, object]):
+            return FakeCollection()
+
+        def close(self) -> None:
+            self.closed = True
+
+    class FakeChroma:
+        PersistentClient = FakeClient
+
+    monkeypatch.setitem(__import__("sys").modules, "chromadb", FakeChroma)
+    app = create_app(build_settings())
+    client = app.state.container.vector_index._client
+
+    with TestClient(app):
+        assert client.closed is False
+
+    assert client.closed is True
 
 
 def test_indexing_composition_uses_durable_reuse_store_by_default() -> None:
