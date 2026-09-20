@@ -57,6 +57,9 @@ class EvidenceBundle:
             if not isinstance(text, str) or not text.strip():
                 raise ValueError("source_texts values must not be blank")
         for name, refs in (("selected_refs", self.selected_refs), ("image_refs", self.image_refs)):
+            if not isinstance(refs, tuple):
+                raise ValueError(f"{name} must be a tuple")
+        for name, refs in (("selected_refs", self.selected_refs), ("image_refs", self.image_refs)):
             if any(not isinstance(ref, str) or not ref.strip() for ref in refs):
                 raise ValueError(f"{name} must contain non-blank refs")
         hit_refs = tuple(hit.chunk_ref for hit in self.hits)

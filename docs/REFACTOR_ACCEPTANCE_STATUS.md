@@ -9,7 +9,7 @@ khi có feature parity và quyết định migration riêng.
 
 - Các capability đích đã có trong package `src/saxophone`: composition root,
   extraction, ingestion, retrieval, chat, tagging, workflow và API adapters.
-- Bằng chứng offline hiện tại: `uv run pytest` đạt **336 passed, 2 skipped, 1 warning**;
+- Bằng chứng offline hiện tại: `uv run pytest` đạt **347 passed, 2 skipped, 1 warning**;
   `compileall` và `git diff --check` đã được chạy ở lát cắt gần nhất.
 - Chưa được phép kết luận production-ready: checkout không có remote
   model-service endpoint/credential để chạy live smoke thật. Trạng thái này
@@ -31,7 +31,7 @@ khi có feature parity và quyết định migration riêng.
 | 10 | Hybrid-ready retrieval | Đạt offline | `retrieval/adapters.py` có `InMemoryLexicalRetriever` và `HybridRetriever` (RRF); `tests/test_hybrid_retrieval.py` |
 | 11 | Giữ provenance/page/layout/image refs | Đạt offline | extraction models, Chroma sidecar contract và Phase 3/4 tests |
 | 12 | Output model không hợp lệ không fallback im lặng | Đạt offline | `test_phase_1_model_response_json_validation.py` và remote adapter tests |
-| 13 | Unit/contract/integration/API/golden offline | Đạt offline | `uv run pytest`: 336 passed, 2 skipped, 1 warning |
+| 13 | Unit/contract/integration/API/golden offline | Đạt offline | `uv run pytest`: 347 passed, 2 skipped, 1 warning |
 | 14 | Live model-service smoke được báo riêng | Đạt về tài liệu; chưa chạy live | `LIVE_MODEL_SERVICE_SMOKE_STATUS.md` |
 | 15 | Legacy chỉ xóa sau parity và quyết định migration | Có compatibility adapter; đã có golden parity offline tối thiểu, chưa có parity production | `retrieval/adapters.py`, `tests/test_hybrid_retrieval.py`, `tests/fixtures/golden/legacy_retrieval/catalog.json`, `docs/LEGACY_RETRIEVAL_PARITY.md`; chưa retire legacy |
 | 16 | Runtime đích không phụ thuộc frontend/UI | Đạt offline | `saxophone-api`, `test_phase_7_backend_entrypoint.py` |
@@ -71,6 +71,14 @@ deployment production.
 - Đã bổ sung `HybridRetriever` dùng Reciprocal Rank Fusion; kết quả giữ semantic score, keyword score, fused score và rank mới.
 - Đã thêm unit tests cho lexical matching, RRF merge, filter forwarding và validation `rrf_k`.
 - Xác minh: targeted retrieval tests **9 passed**; toàn bộ suite **287 passed, 2 skipped**. Live model-service smoke vẫn chưa thể chạy vì checkout chưa có endpoint/credential thật.
+
+### Iteration 52 - khóa kiểu refs tại EvidenceBundle
+
+- `EvidenceBundle` từ chối `selected_refs` và `image_refs` không phải tuple,
+  tránh chuỗi bị duyệt như danh sách ký tự tại retrieval → chat boundary.
+- Test contract được viết trước implementation; targeted **9 passed**.
+- Full suite hiện tại **347 passed, 2 skipped, 1 warning**; `compileall` và
+  `git diff --check` đạt. Chi tiết: `docs/ITERATION_52_EVIDENCE_REF_TUPLE_CONTRACT.md`.
 
 ## Việc còn lại trước khi đóng refactor
 

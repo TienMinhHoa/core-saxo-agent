@@ -92,3 +92,22 @@ def test_evidence_bundle_requires_selected_refs_to_match_hits_and_source_texts()
 
 def test_chunk_retriever_is_async_application_port() -> None:
     assert hasattr(ChunkRetriever, "search")
+
+
+@pytest.mark.parametrize("field_name", ["selected_refs", "image_refs"])
+def test_evidence_bundle_rejects_string_refs_instead_of_tuples(field_name: str) -> None:
+    values: dict[str, object] = {
+        "selected_refs": ("chunk-1",),
+        "image_refs": (),
+    }
+    values[field_name] = "chunk-1"
+
+    with pytest.raises(ValueError, match=field_name):
+        EvidenceBundle(
+            "query",
+            "retrieval-v1",
+            (_hit(),),
+            values["selected_refs"],  # type: ignore[arg-type]
+            {"chunk-1": "text"},
+            values["image_refs"],  # type: ignore[arg-type]
+        )
