@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import importlib
 
+import httpx
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from saxophone.app.factory import AppContainer, AppOverrides, create_app
 from saxophone.app.settings import AppSettings
-from saxophone.platform.remote_gpu import RemoteGpuHealth
+from saxophone.platform.remote_gpu import HttpRemoteGpuGateway, RemoteGpuHealth
 
 
 VALID_ENVIRONMENT = {
@@ -52,6 +53,21 @@ def test_create_app_composes_fastapi_and_exposes_container() -> None:
     assert isinstance(app.state.container, AppContainer)
     assert app.state.container.settings == build_settings()
     assert app.state.container.remote_gpu_gateway is gateway
+
+
+def test_default_composition_owns_one_http_client_and_closes_it_with_lifespan() -> None:
+    """The production gateway must not leak a client after ASGI shutdown."""
+    app = create_app(build_settings())
+    container = app.state.container
+
+    assert isinstance(container.remote_gpu_gateway, HttpRemoteGpuGateway)
+    assert isinstance(container.http_client, httpx.AsyncClient)
+    assert not container.http_client.is_closed
+
+    with TestClient(app):
+        assert not container.http_client.is_closed
+
+    assert container.http_client.is_closed
 
 
 def test_health_uses_override_and_returns_stable_disabled_capabilities() -> None:
