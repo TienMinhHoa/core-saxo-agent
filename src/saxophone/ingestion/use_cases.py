@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping, Sequence
 
+from saxophone.documents.knowledge import KnowledgeChunk
+from saxophone.documents.ports import KnowledgeRepository
 from saxophone.tagging.models import TaggedParagraph
 from saxophone.tagging.models import ParagraphBlock
 from saxophone.tagging.use_cases import TagAndPersistParagraph
@@ -27,10 +30,13 @@ class IndexDocument:
         vector_index: VectorIndex,
         embedding_provider: EmbeddingProvider,
         embedding_reuse: EmbeddingReuseStore | None = None,
+        *,
+        knowledge_repository: KnowledgeRepository | None = None,
     ) -> None:
         self._vector_index = vector_index
         self._embedding_provider = embedding_provider
         self._embedding_reuse = embedding_reuse
+        self._knowledge_repository = knowledge_repository
 
     async def execute(
         self,
@@ -55,6 +61,9 @@ class IndexDocument:
             list_chunk_ids = getattr(self._vector_index, "list_chunk_ids", None)
             if list_chunk_ids is not None:
                 existing_ids = await list_chunk_ids(document_ref=command.document_ref)
+            if self._knowledge_repository is not None:
+                for record in indexed_records:
+                    await self._knowledge_repository.upsert(_knowledge_chunk(record))
             await self._vector_index.upsert_chunks(indexed_records)
             if list_chunk_ids is not None:
                 current_ids = {record.chunk_id for record in indexed_records}
@@ -293,3 +302,39 @@ def _validate_chunk_scope(command: IngestionCommand, chunk: IngestionSourceChunk
         raise ValueError("all chunks must match the command source version")
     if chunk.access_scope != command.access_scope:
         raise ValueError("all chunks must match the command access scope")
+
+
+def _knowledge_chunk(record: ChunkIndexRecord) -> KnowledgeChunk:
+    metadata = record.metadata
+    heading_path_value = metadata.get("heading_path", ())
+    if isinstance(heading_path_value, str):
+        heading_path = (heading_path_value,)
+    else:
+        heading_path = tuple(heading_path_value) if isinstance(heading_path_value, (list, tuple)) else ()
+    if not heading_path and isinstance(metadata.get("heading"), str):
+        heading_path = (metadata["heading"],)
+    tags_value = metadata.get("tags", ())
+    image_refs_value = metadata.get("image_refs", ())
+    return KnowledgeChunk(
+        chunk_id=record.chunk_id,
+        document_id=record.document_ref,
+        source_version=record.source_version,
+        source_ref=f"knowledge://{record.document_ref}/{record.chunk_id}",
+        search_text=record.search_text,
+        content_hash=hashlib.sha256(record.search_text.encode("utf-8")).hexdigest(),
+        page_start=_metadata_page(metadata.get("page_start")),
+        page_end=_metadata_page(metadata.get("page_end")),
+        heading_path=heading_path,
+        tags=tuple(tags_value) if isinstance(tags_value, (list, tuple)) else (),
+        image_refs=tuple(image_refs_value) if isinstance(image_refs_value, (list, tuple)) else (),
+        paragraph_count=_metadata_non_negative_int(metadata.get("paragraph_count")),
+        image_count=_metadata_non_negative_int(metadata.get("image_count")),
+    )
+
+
+def _metadata_page(value: object) -> int:
+    return value if isinstance(value, int) and value >= 0 else -1
+
+
+def _metadata_non_negative_int(value: object) -> int:
+    return value if isinstance(value, int) and value >= 0 else 0

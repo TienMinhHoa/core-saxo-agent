@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import pytest
 
 from saxophone.documents.models import ArtifactKind, ArtifactRef
+from saxophone.documents.knowledge import KnowledgeChunk
 from saxophone.documents.ports import ArtifactRepository
 from saxophone.extraction.models import PdfExtractionResult
 from saxophone.ingestion.models import EmbeddingRecord
@@ -81,6 +82,20 @@ class FakeVectorIndex:
         raise AssertionError("not used")
 
 
+class FakeKnowledgeRepository:
+    def __init__(self) -> None:
+        self.chunks: list[KnowledgeChunk] = []
+
+    async def upsert(self, chunk: KnowledgeChunk) -> None:
+        self.chunks.append(chunk)
+
+    async def get(self, chunk_id: str) -> KnowledgeChunk:
+        return next(chunk for chunk in self.chunks if chunk.chunk_id == chunk_id)
+
+    async def delete(self, chunk_id: str) -> None:
+        self.chunks = [chunk for chunk in self.chunks if chunk.chunk_id != chunk_id]
+
+
 class FakeTagAndPersist:
     async def execute(self, paragraph, *, tagging_profile, resolution_profile):
         return TaggedParagraph(
@@ -117,6 +132,63 @@ async def test_ingest_extracted_document_builds_index_inputs_from_persisted_mark
     assert index.records[0].search_text == "A source paragraph."
     assert index.records[0].metadata["tags"] == ()
     assert embeddings.calls[0][0][0][1] == "A source paragraph."
+
+
+@pytest.mark.anyio
+async def test_index_document_persists_knowledge_before_vector_upsert() -> None:
+    knowledge = FakeKnowledgeRepository()
+    index = FakeVectorIndex()
+    workflow = IngestExtractedDocument(
+        FakeArtifacts({"markdown": b"## Harmony\nA source paragraph."}),
+        IndexDocument(index, FakeEmbeddingProvider(), knowledge_repository=knowledge),
+    )
+
+    report = await workflow.execute(
+        _result(b"## Harmony\nA source paragraph."),
+        chunking_profile="header-v1",
+        embedding_profile="embed-v1",
+        index_profile="index-v1",
+        access_scope="tenant-a",
+    )
+
+    assert report.indexed is True
+    assert len(knowledge.chunks) == 1
+    stored = knowledge.chunks[0]
+    assert stored.chunk_id == index.records[0].chunk_id
+    assert stored.document_id == "doc-1"
+    assert stored.source_version == "source-v1"
+    assert stored.search_text == "A source paragraph."
+    assert stored.heading_path == ("Harmony",)
+    assert stored.content_hash == hashlib.sha256(stored.search_text.encode()).hexdigest()
+
+
+@pytest.mark.anyio
+async def test_index_document_does_not_index_when_knowledge_persistence_fails() -> None:
+    class FailingKnowledgeRepository(FakeKnowledgeRepository):
+        async def upsert(self, chunk: KnowledgeChunk) -> None:
+            raise RuntimeError("knowledge store unavailable")
+
+    index = FakeVectorIndex()
+    workflow = IngestExtractedDocument(
+        FakeArtifacts({"markdown": b"## Intro\nsource"}),
+        IndexDocument(
+            index,
+            FakeEmbeddingProvider(),
+            knowledge_repository=FailingKnowledgeRepository(),
+        ),
+    )
+
+    report = await workflow.execute(
+        _result(b"## Intro\nsource"),
+        chunking_profile="header-v1",
+        embedding_profile="embed-v1",
+        index_profile="index-v1",
+        access_scope="tenant-a",
+    )
+
+    assert report.indexed is False
+    assert report.errors == ("knowledge store unavailable",)
+    assert index.records == ()
 
 
 @pytest.mark.anyio
