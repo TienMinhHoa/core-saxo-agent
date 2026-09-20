@@ -16,7 +16,7 @@ from fastapi.responses import Response
 from saxophone.app.settings import AppSettings
 from saxophone.chat.service import AnswerQuestion
 from saxophone.chat.ports import AnswerGenerator, ImageArtifactGate
-from saxophone.documents.ports import ArtifactRepository, KnowledgeRepository
+from saxophone.documents.ports import ArtifactRepository, ImageArtifactResolver, KnowledgeRepository
 from saxophone.extraction.persistence import RepositoryExtractionArtifactPayloadProvider
 from saxophone.extraction.ports import PdfExtractor
 from saxophone.extraction.remote import RemotePdfExtractor
@@ -82,6 +82,7 @@ class AppContainer:
     embedding_reuse: EmbeddingReuseStore | None = None
     vector_index: VectorIndex | None = None
     artifact_repository: ArtifactRepository | None = None
+    image_artifact_resolver: ImageArtifactResolver | None = None
     process_document: ProcessDocument | None = None
     process_and_persist_document: ProcessAndPersistDocument | None = None
     index_document: IndexDocument | None = None
@@ -109,6 +110,7 @@ class AppOverrides:
     embedding_provider: EmbeddingProvider | None = None
     embedding_reuse: EmbeddingReuseStore | None = None
     artifact_repository: ArtifactRepository | None = None
+    image_artifact_resolver: ImageArtifactResolver | None = None
     process_document: ProcessDocument | None = None
     process_and_persist_document: ProcessAndPersistDocument | None = None
     vector_index: VectorIndex | None = None
@@ -276,6 +278,7 @@ def create_app(
         embedding_reuse=embedding_reuse,
         vector_index=vector_index,
         artifact_repository=artifact_repository,
+        image_artifact_resolver=resolved_overrides.image_artifact_resolver,
         process_document=process_document,
         process_and_persist_document=process_and_persist_document,
         index_document=index_document,
@@ -318,6 +321,7 @@ def create_app(
             process_workflow=container.process_document,
             process_and_persist_workflow=container.process_and_persist_document,
             artifact_repository=container.artifact_repository,
+            image_artifact_resolver=container.image_artifact_resolver,
             index_document=container.index_document,
             ingest_extracted_document=container.ingest_extracted_document,
             max_upload_bytes=settings.max_upload_bytes,

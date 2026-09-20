@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from dataclasses import dataclass
 
@@ -10,7 +11,7 @@ from saxophone.app.factory import AppOverrides, create_app
 from saxophone.app.settings import AppSettings
 from saxophone.chat.models import ChatResult, ChatStatus
 from saxophone.documents.models import ArtifactKind, ArtifactRef
-from saxophone.documents.ports import ArtifactRepository
+from saxophone.documents.ports import ArtifactRepository, ImageArtifactResolver
 from saxophone.extraction.models import PdfExtractionResult
 from saxophone.ingestion.adapters import InMemoryEmbeddingReuseStore
 from saxophone.ingestion.models import EmbeddingRecord
@@ -119,6 +120,16 @@ class MultiArtifactRepository(ArtifactRepository):
 
     async def get(self, artifact: ArtifactRef) -> bytes:
         return self.payloads[artifact.artifact_id]
+
+
+@dataclass
+class FakeImageArtifactResolver(ImageArtifactResolver):
+    artifact: ArtifactRef
+    calls: list[str]
+
+    async def resolve(self, image_ref: str) -> ArtifactRef:
+        self.calls.append(image_ref)
+        return self.artifact
 
 
 class FakeVectorIndex:
@@ -873,6 +884,77 @@ def test_source_upload_rejects_payload_over_configured_limit_without_persisting(
         "detail": "uploaded file exceeds maximum size of 4 bytes"
     }
     assert artifacts.puts == []
+
+
+def test_asset_route_resolves_verifies_and_returns_image_bytes() -> None:
+    payload = b"png-bytes"
+    artifact = ArtifactRef(
+        artifact_id="doc-1/images/page-1.png",
+        version="image-v1",
+        kind=ArtifactKind.IMAGE,
+        media_type="image/png",
+        sha256=hashlib.sha256(payload).hexdigest(),
+        size_bytes=len(payload),
+    )
+    artifacts = FakeArtifacts(payload)
+    resolver = FakeImageArtifactResolver(artifact, [])
+    app = create_app(
+        settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=FakeRemoteGpuGateway(),
+            model_client=FakeModelClient(),
+            artifact_repository=artifacts,
+            image_artifact_resolver=resolver,
+        ),
+    )
+
+    response = TestClient(app).get("/api/v1/assets/doc-1/images/page-1.png")
+
+    assert response.status_code == 200
+    assert response.content == payload
+    assert response.headers["content-type"] == "image/png"
+    assert resolver.calls == ["doc-1/images/page-1.png"]
+
+
+def test_asset_route_is_explicitly_unavailable_without_resolver() -> None:
+    app = create_app(
+        settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=FakeRemoteGpuGateway(),
+            model_client=FakeModelClient(),
+        ),
+    )
+
+    response = TestClient(app).get("/api/v1/assets/doc-1/images/page-1.png")
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "asset resolution capability is not configured"}
+
+
+def test_asset_route_rejects_resolved_non_image_artifact() -> None:
+    artifact = ArtifactRef(
+        artifact_id="doc-1/manifest.json",
+        version="manifest-v1",
+        kind=ArtifactKind.EXTRACTION_MANIFEST,
+        media_type="application/json",
+        sha256=hashlib.sha256(b"{}").hexdigest(),
+        size_bytes=2,
+    )
+    resolver = FakeImageArtifactResolver(artifact, [])
+    app = create_app(
+        settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=FakeRemoteGpuGateway(),
+            model_client=FakeModelClient(),
+            artifact_repository=FakeArtifacts(b"{}"),
+            image_artifact_resolver=resolver,
+        ),
+    )
+
+    response = TestClient(app).get("/api/v1/assets/doc-1/manifest.json")
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "resolved artifact kind must be IMAGE"}
 
 
 def test_document_ingest_route_indexes_chunks_and_returns_report() -> None:

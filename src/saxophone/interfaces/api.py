@@ -6,11 +6,12 @@ import hashlib
 from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from saxophone.chat.models import ChatResult
 from saxophone.documents.models import ArtifactKind, ArtifactRef
-from saxophone.documents.ports import ArtifactRepository
+from saxophone.documents.ports import ArtifactRepository, ImageArtifactResolver
 from saxophone.extraction.models import PdfExtractionRequest, PdfExtractionResult
 from saxophone.ingestion.models import IndexInputRecord, IngestionCommand, IngestionReport
 from saxophone.ingestion.use_cases import IndexDocument
@@ -80,6 +81,7 @@ def build_capability_router(
     process_workflow: ProcessDocument | None = None,
     process_and_persist_workflow: ProcessAndPersistDocument | None = None,
     artifact_repository: ArtifactRepository | None = None,
+    image_artifact_resolver: ImageArtifactResolver | None = None,
     index_document: IndexDocument | None = None,
     ingest_extracted_document: IngestExtractedDocument | None = None,
     max_upload_bytes: int = 200 * 1024 * 1024,
@@ -168,6 +170,25 @@ def build_capability_router(
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         return _artifact_response(artifact)
+
+    @router.get("/assets/{asset_ref:path}")
+    async def get_asset(asset_ref: str) -> Response:
+        if image_artifact_resolver is None or artifact_repository is None:
+            raise HTTPException(
+                status_code=503,
+                detail="asset resolution capability is not configured",
+            )
+        normalized_ref = _normalized_text(asset_ref, "asset_ref")
+        try:
+            artifact = await image_artifact_resolver.resolve(normalized_ref)
+            if artifact.kind is not ArtifactKind.IMAGE:
+                raise ValueError("resolved artifact kind must be IMAGE")
+            payload = await artifact_repository.get(artifact)
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail="asset not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return Response(content=payload, media_type=artifact.media_type)
 
     @router.post("/documents/{document_ref}/process-and-ingest")
     async def process_and_ingest_document(
