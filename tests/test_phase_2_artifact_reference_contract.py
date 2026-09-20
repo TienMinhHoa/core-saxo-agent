@@ -147,6 +147,29 @@ def test_artifact_reference_accepts_nfc_unicode_identity() -> None:
     assert artifact.artifact_id == "document/caf\u00e9/manifest"
 
 
+@pytest.mark.parametrize(
+    "document_ref",
+    [
+        "document\nnext",
+        "document\tdebug",
+        "document\x7fdebug",
+        "document/cafe\u0301",
+    ],
+)
+def test_document_reference_policy_rejects_control_characters_and_non_nfc(
+    document_ref: str,
+) -> None:
+    from saxophone.documents.policies import is_safe_document_reference
+
+    assert is_safe_document_reference(document_ref) is False
+
+
+def test_document_reference_policy_accepts_nfc_unicode_identity() -> None:
+    from saxophone.documents.policies import is_safe_document_reference
+
+    assert is_safe_document_reference("document-caf\u00e9") is True
+
+
 @pytest.mark.parametrize("size_bytes", [-1, -100])
 def test_artifact_reference_rejects_negative_size(size_bytes: int) -> None:
     with pytest.raises(ValueError, match="size_bytes"):

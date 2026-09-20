@@ -34,6 +34,10 @@ def is_safe_document_reference(document_ref: object) -> bool:
         return False
     if document_ref != document_ref.strip():
         return False
+    if unicodedata.normalize("NFC", document_ref) != document_ref:
+        return False
+    if any(ord(character) < 0x20 or ord(character) == 0x7F for character in document_ref):
+        return False
     if any(character in document_ref for character in ("/", "\\", "\x00", ":")):
         return False
     parsed = urlparse(document_ref)
