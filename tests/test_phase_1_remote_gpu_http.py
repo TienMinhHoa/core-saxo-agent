@@ -254,6 +254,24 @@ def test_cached_health_rejects_non_callable_clock() -> None:
         raise AssertionError("a non-callable clock dependency must be rejected")
 
 
+def test_cached_health_rejects_invalid_gateway_result() -> None:
+    async def verify() -> None:
+        class InvalidGateway:
+            async def health(self) -> object:
+                return {"status": "ready"}
+
+        cached = CachedRemoteGpuGateway(InvalidGateway(), ttl_seconds=1.0)
+
+        try:
+            await cached.health()
+        except TypeError as error:
+            assert str(error) == "gateway.health must return RemoteGpuHealth"
+        else:
+            raise AssertionError("invalid gateway results must be rejected")
+
+    asyncio.run(verify())
+
+
 def test_cached_health_coalesces_concurrent_refreshes() -> None:
     async def verify() -> None:
         refresh_started = asyncio.Event()

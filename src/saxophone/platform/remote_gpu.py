@@ -68,6 +68,8 @@ class CachedRemoteGpuGateway:
             if self._cached is not None and now - self._cached[0] < self._ttl_seconds:
                 return self._cached[1]
             health = await self._gateway.health()
+            if not isinstance(health, RemoteGpuHealth):
+                raise TypeError("gateway.health must return RemoteGpuHealth")
             self._cached = (self._clock(), health)
             return health
 
