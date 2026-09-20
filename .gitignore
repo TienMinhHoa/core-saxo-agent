@@ -67,6 +67,7 @@ docs/*
 !docs/PHASE_4_INDEX_EMBEDDING_BOUNDARY.md
 !docs/PHASE_4_INGESTION_WORKFLOW_API.md
 !docs/PHASE_4_SOURCE_CHUNK_CONTRACT.md
+!docs/PHASE_4_MARKDOWN_CHUNKING.md
 
 # Logs and temporary files
 *.log
