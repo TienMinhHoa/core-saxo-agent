@@ -42,6 +42,26 @@ def test_model_response_requires_schema_and_profile_provenance() -> None:
     assert response.source_version == "sha256:abc"
 
 
+@pytest.mark.parametrize("field", ["model", "response_schema", "source_version"])
+@pytest.mark.parametrize("value", [" value ", "value\n", "e\u0301"])
+def test_model_response_rejects_non_canonical_contract_text(field: str, value: str) -> None:
+    values = {
+        "model": "extractor-v1",
+        "response_schema": "pdf-extraction-v1",
+        "source_version": "sha256:abc",
+    }
+    values[field] = value
+
+    with pytest.raises(ModelValidationError, match=field):
+        ModelResponse(
+            task=ModelTask.PDF_EXTRACT,
+            model=values["model"],
+            response_schema=values["response_schema"],
+            output={},
+            source_version=values["source_version"],
+        )
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [

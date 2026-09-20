@@ -15,6 +15,15 @@ khi có feature parity và quyết định migration riêng.
   model-service endpoint/credential để chạy live smoke thật. Trạng thái này
   được tách riêng tại `LIVE_MODEL_SERVICE_SMOKE_STATUS.md`.
 
+### Iteration 156 — canonical contract của `ModelResponse`
+
+- Siết `ModelResponse` để từ chối `model`, `response_schema` và
+  `source_version` có whitespace đầu/cuối, control character/DEL hoặc Unicode
+  chưa NFC; không còn `.strip()` âm thầm che khuất response drift.
+- Regression tests cho 9 trường hợp không canonical; targeted adapter suite đạt
+  **47 passed**. Chi tiết tại
+  `docs/ITERATION_156_MODEL_RESPONSE_CANONICAL_CONTRACT.md`.
+
 ## Đối chiếu tiêu chí bắt buộc
 
 | # | Tiêu chí | Trạng thái | Bằng chứng chính |

@@ -6,6 +6,7 @@ import asyncio
 import math
 import random
 import time
+import unicodedata
 from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
@@ -84,16 +85,21 @@ class ModelResponse:
     def __post_init__(self) -> None:
         if not isinstance(self.task, ModelTask):
             raise ModelValidationError("task must be a ModelTask")
-        if not isinstance(self.model, str) or not self.model.strip():
-            raise ModelValidationError("model must not be empty")
-        if not isinstance(self.response_schema, str) or not self.response_schema.strip():
-            raise ModelValidationError("response_schema must not be empty")
-        if not isinstance(self.source_version, str) or not self.source_version.strip():
-            raise ModelValidationError("source_version must not be empty")
-        object.__setattr__(self, "model", self.model.strip())
-        object.__setattr__(self, "response_schema", self.response_schema.strip())
-        object.__setattr__(self, "source_version", self.source_version.strip())
+        _require_canonical_text("model", self.model)
+        _require_canonical_text("response_schema", self.response_schema)
+        _require_canonical_text("source_version", self.source_version)
         object.__setattr__(self, "output", _immutable_mapping(self.output, "output"))
+
+
+def _require_canonical_text(field_name: str, value: object) -> None:
+    if (
+        not isinstance(value, str)
+        or not value.strip()
+        or value != value.strip()
+        or unicodedata.normalize("NFC", value) != value
+        or any(ord(character) < 0x20 or ord(character) == 0x7F for character in value)
+    ):
+        raise ModelValidationError(f"{field_name} must be canonical text")
 
 
 class ModelClient(Protocol):
