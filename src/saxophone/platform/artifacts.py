@@ -91,6 +91,8 @@ class LocalArtifactRepository:
 
     @staticmethod
     def _read_file(path: Path) -> bytes:
+        if path.is_symlink():
+            raise FileExistsError("artifact identity must not be a symbolic link")
         if not path.exists():
             raise FileNotFoundError(path)
         if not path.is_file():
@@ -101,14 +103,17 @@ class LocalArtifactRepository:
         relative = Path(artifact.artifact_id) / artifact.version
         if relative.is_absolute() or ".." in relative.parts:
             raise ValueError("artifact_id must stay within the artifact root")
-        path = (self._root / relative).resolve()
-        if path != self._root and self._root not in path.parents:
+        path = self._root / relative
+        resolved = path.resolve()
+        if resolved != self._root and self._root not in resolved.parents:
             raise ValueError("artifact_id must stay within the artifact root")
         return path
 
     def _write_atomically(self, artifact: ArtifactRef, payload: bytes) -> None:
         with self._write_lock:
             path = self._path_for(artifact)
+            if path.is_symlink():
+                raise FileExistsError("artifact identity must not be a symbolic link")
             path.parent.mkdir(parents=True, exist_ok=True)
             if path.exists():
                 if not path.is_file():

@@ -159,6 +159,49 @@ def test_get_raises_file_not_found_for_missing_artifact(tmp_path: Path) -> None:
         asyncio.run(repository.get(_artifact()))
 
 
+def test_repository_rejects_symbolic_link_at_artifact_identity(
+    tmp_path: Path,
+) -> None:
+    repository = LocalArtifactRepository(tmp_path)
+    artifact = _artifact()
+    destination = tmp_path / "document-123" / "manifest" / "extract-v1"
+    target = tmp_path / "other-artifact"
+    target.write_bytes(b"1234567")
+    destination.parent.mkdir(parents=True)
+    try:
+        destination.symlink_to(target)
+    except OSError as exc:
+        pytest.skip(f"symbolic links unavailable: {exc}")
+
+    with pytest.raises(FileExistsError, match="symbolic link"):
+        asyncio.run(repository.get(artifact))
+
+    with pytest.raises(FileExistsError, match="symbolic link"):
+        asyncio.run(repository.put(artifact, b"1234567"))
+
+
+def test_repository_symbolic_link_guard_is_fail_closed_without_link_privilege(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = LocalArtifactRepository(tmp_path)
+    artifact = _artifact()
+    destination = tmp_path / "document-123" / "manifest" / "extract-v1"
+    real_is_symlink = Path.is_symlink
+
+    def pretend_symlink(path: Path) -> bool:
+        return path == destination or real_is_symlink(path)
+
+    monkeypatch.setattr(Path, "is_symlink", pretend_symlink)
+
+    with pytest.raises(FileExistsError, match="symbolic link"):
+        asyncio.run(repository.get(artifact))
+
+    with pytest.raises(FileExistsError, match="symbolic link"):
+        asyncio.run(repository.put(artifact, b"1234567"))
+
+    assert list(tmp_path.rglob("*")) == []
+
+
 def test_atomic_commit_does_not_replace_file_created_after_existence_check(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
