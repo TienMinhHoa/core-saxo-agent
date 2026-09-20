@@ -14,6 +14,7 @@ from typing import Any, Iterator, Mapping, Sequence
 
 import anyio
 
+from saxophone.documents.policies import is_safe_document_reference
 from saxophone.platform.concurrency import create_blocking_io_limiter
 from saxophone.platform.model_client import (
     ModelClient,
@@ -577,8 +578,8 @@ def _validated_chunk_ids(chunk_ids: Sequence[str]) -> list[str]:
 
 def _validated_document_ref(document_ref: str) -> str:
     """Validate the reconcile scope before issuing a provider read."""
-    if not isinstance(document_ref, str) or not document_ref.strip():
-        raise ValueError("document_ref must be a non-blank string")
+    if not is_safe_document_reference(document_ref):
+        raise ValueError("document_ref must be a safe document reference")
     return document_ref
 
 

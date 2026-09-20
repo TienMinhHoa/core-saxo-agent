@@ -838,7 +838,20 @@ async def test_chroma_list_chunk_ids_rejects_duplicate_provider_ids() -> None:
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("document_ref", ["", "   ", 42, None])
+@pytest.mark.parametrize(
+    "document_ref",
+    [
+        "",
+        "   ",
+        42,
+        None,
+        "../outside",
+        "document/child",
+        "document\\child",
+        "document\nchild",
+        "document-cafe\u0301",
+    ],
+)
 async def test_chroma_list_chunk_ids_rejects_invalid_document_ref_before_provider_io(
     document_ref,
 ) -> None:
