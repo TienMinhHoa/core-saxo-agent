@@ -196,3 +196,29 @@ def test_settings_representation_and_validation_errors_never_leak_bearer_token()
         })
 
     assert VALID_ENVIRONMENT["SAXO_REMOTE_GPU_BEARER_TOKEN"] not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("remote_gpu_health_cache_seconds", float("nan")),
+        ("remote_gpu_health_timeout_seconds", float("inf")),
+        ("litellm_timeout_seconds", float("-inf")),
+        ("litellm_retry_backoff_seconds", float("nan")),
+        ("litellm_retry_jitter_ratio", 1.5),
+        ("litellm_circuit_breaker_cooldown_seconds", 0.0),
+    ],
+)
+def test_direct_settings_construction_rejects_invalid_float_contracts(
+    field_name: str,
+    value: float,
+) -> None:
+    with pytest.raises(SettingsValidationError) as error:
+        AppSettings(
+            data_root=Path("runtime/saxophone"),
+            remote_gpu_base_url="https://gpu.example.test",
+            remote_gpu_bearer_token="secret",
+            **{field_name: value},
+        )
+
+    assert field_name in str(error.value)

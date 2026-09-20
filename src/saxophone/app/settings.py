@@ -39,6 +39,38 @@ class AppSettings:
     embedding_dimension: int = 1536
     max_upload_bytes: int = 200 * 1024 * 1024
 
+    def __post_init__(self) -> None:
+        """Keep direct construction subject to the same runtime contract."""
+        _validate_runtime_float(
+            self.remote_gpu_health_cache_seconds,
+            "remote_gpu_health_cache_seconds",
+            strictly_positive=True,
+        )
+        _validate_runtime_float(
+            self.remote_gpu_health_timeout_seconds,
+            "remote_gpu_health_timeout_seconds",
+            strictly_positive=True,
+        )
+        _validate_runtime_float(
+            self.litellm_timeout_seconds,
+            "litellm_timeout_seconds",
+            strictly_positive=True,
+        )
+        _validate_runtime_float(
+            self.litellm_retry_backoff_seconds,
+            "litellm_retry_backoff_seconds",
+        )
+        _validate_runtime_float(
+            self.litellm_retry_jitter_ratio,
+            "litellm_retry_jitter_ratio",
+            maximum=1.0,
+        )
+        _validate_runtime_float(
+            self.litellm_circuit_breaker_cooldown_seconds,
+            "litellm_circuit_breaker_cooldown_seconds",
+            strictly_positive=True,
+        )
+
     @classmethod
     def from_environment(cls, environment: Mapping[str, str]) -> "AppSettings":
         """Create settings from an explicit environment mapping.
@@ -269,3 +301,19 @@ def _parse_ratio(value: str | None, variable: str) -> float:
     if number > 1:
         raise SettingsValidationError(f"{variable} must be between 0 and 1")
     return number
+
+
+def _validate_runtime_float(
+    value: object,
+    field_name: str,
+    *,
+    strictly_positive: bool = False,
+    maximum: float | None = None,
+) -> None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise SettingsValidationError(f"{field_name} must be a finite number")
+    if (strictly_positive and value <= 0) or (not strictly_positive and value < 0):
+        requirement = "positive" if strictly_positive else "non-negative"
+        raise SettingsValidationError(f"{field_name} must be {requirement}")
+    if maximum is not None and value > maximum:
+        raise SettingsValidationError(f"{field_name} must be between 0 and {maximum:g}")
