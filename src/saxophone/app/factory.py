@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from saxophone.app.settings import AppSettings
 from saxophone.chat.service import AnswerQuestion
 from saxophone.documents.ports import ArtifactRepository
+from saxophone.extraction.persistence import RepositoryExtractionArtifactPayloadProvider
 from saxophone.extraction.ports import PdfExtractor
 from saxophone.extraction.remote import RemotePdfExtractor
 from saxophone.ingestion.adapters import RemoteEmbeddingProvider
@@ -132,6 +133,13 @@ def create_app(
     process_document = resolved_overrides.process_document
     if process_document is None:
         process_document = ProcessDocument(artifact_repository, pdf_extractor)
+    process_and_persist_document = resolved_overrides.process_and_persist_document
+    if process_and_persist_document is None and resolved_overrides.process_document is None:
+        process_and_persist_document = ProcessAndPersistDocument(
+            process_document,
+            RepositoryExtractionArtifactPayloadProvider(artifact_repository),
+            artifact_repository,
+        )
     index_document = resolved_overrides.index_document
     if index_document is None and resolved_overrides.vector_index is not None:
         index_document = IndexDocument(
@@ -150,7 +158,7 @@ def create_app(
         embedding_provider=embedding_provider,
         artifact_repository=artifact_repository,
         process_document=process_document,
-        process_and_persist_document=resolved_overrides.process_and_persist_document,
+        process_and_persist_document=process_and_persist_document,
         index_document=index_document,
         tagged_paragraph_repository=tagged_paragraph_repository,
         tag_catalog_repository=tag_catalog_repository,

@@ -12,6 +12,7 @@ from saxophone.app.settings import AppSettings
 from saxophone.platform.remote_gpu import HttpRemoteGpuGateway, RemoteGpuHealth
 from saxophone.platform.model_client import LiteLLMModelClient
 from saxophone.extraction.remote import RemotePdfExtractor
+from saxophone.extraction.persistence import RepositoryExtractionArtifactPayloadProvider
 from saxophone.ingestion.adapters import RemoteEmbeddingProvider
 from saxophone.tagging.persistence import (
     JsonTagCatalogRepository,
@@ -123,6 +124,18 @@ def test_default_composition_wires_remote_pdf_extractor_to_shared_model_client()
 
     assert isinstance(extractor, RemotePdfExtractor)
     assert extractor.model == build_settings().litellm_model_profile
+
+
+def test_default_composition_wires_extraction_persistence_workflow() -> None:
+    app = create_app(build_settings())
+
+    container = app.state.container
+
+    assert container.process_and_persist_document is not None
+    assert isinstance(
+        container.process_and_persist_document._payloads,
+        RepositoryExtractionArtifactPayloadProvider,
+    )
 
 
 def test_default_composition_wires_remote_embedding_provider_to_shared_model_client() -> None:

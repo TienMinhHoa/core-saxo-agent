@@ -54,3 +54,18 @@ class PersistExtractionArtifacts:
                 raise ValueError(f"extraction payload {name} size mismatch")
             if hashlib.sha256(payload).hexdigest() != artifact.sha256:
                 raise ValueError(f"extraction payload {name} checksum mismatch")
+
+
+class RepositoryExtractionArtifactPayloadProvider:
+    """Load extraction outputs from the backend-owned artifact repository."""
+
+    _OUTPUT_NAMES = ("markdown", "layout", "manifest")
+
+    def __init__(self, artifacts: ArtifactRepository) -> None:
+        self._artifacts = artifacts
+
+    async def fetch(self, result: PdfExtractionResult) -> dict[str, bytes]:
+        return {
+            name: await self._artifacts.get(getattr(result, name))
+            for name in self._OUTPUT_NAMES
+        }
