@@ -65,6 +65,8 @@ class IngestExtractedDocument:
             source_version=result.source_version,
             access_scope=access_scope,
         )
+        if tagging_profile != "none-v1" and self._ingest_document is None:
+            raise ValueError("tagging workflow is required for a non-none tagging profile")
         if self._ingest_document is not None and tagging_profile != "none-v1":
             paragraphs = tuple(
                 paragraph

@@ -160,3 +160,22 @@ async def test_ingest_extracted_document_can_run_paragraph_tagging_before_indexi
 
     assert report.tagged_paragraph_count == 1
     assert index.records[0].metadata["tags"] == ("music",)
+
+
+@pytest.mark.anyio
+async def test_ingest_extracted_document_rejects_tagging_without_tagging_workflow() -> None:
+    workflow = IngestExtractedDocument(
+        FakeArtifacts({"markdown": b"## Intro\ntext"}),
+        IndexDocument(FakeVectorIndex(), FakeEmbeddingProvider()),
+    )
+
+    with pytest.raises(ValueError, match="tagging workflow"):
+        await workflow.execute(
+            _result(b"## Intro\ntext"),
+            chunking_profile="header-v1",
+            embedding_profile="embed-v1",
+            index_profile="index-v1",
+            access_scope="tenant-a",
+            tagging_profile="tags-v1",
+            resolution_profile="resolve-v1",
+        )
