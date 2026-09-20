@@ -7,6 +7,7 @@ from typing import Any, Mapping
 
 import anyio
 
+from saxophone.platform.concurrency import create_blocking_io_limiter
 from .models import ChunkHit
 from .ports import ChunkRetriever
 
@@ -20,12 +21,14 @@ class ChromaSemanticRetriever(ChunkRetriever):
         embedding_provider: Any,
         *,
         retrieval_version: str = "chroma-v1",
+        io_limiter: Any | None = None,
     ) -> None:
         if not isinstance(retrieval_version, str) or not retrieval_version.strip():
             raise ValueError("retrieval_version must not be blank")
         self._collection = collection
         self._embedding_provider = embedding_provider
         self._retrieval_version = retrieval_version
+        self._io_limiter = io_limiter or create_blocking_io_limiter()
 
     async def search(
         self,
@@ -40,7 +43,8 @@ class ChromaSemanticRetriever(ChunkRetriever):
             raise ValueError("query must not be blank")
 
         vectors = await anyio.to_thread.run_sync(
-            partial(self._embedding_provider.embed, [query.strip()])
+            partial(self._embedding_provider.embed, [query.strip()]),
+            limiter=self._io_limiter,
         )
         if not vectors:
             return []
@@ -51,7 +55,8 @@ class ChromaSemanticRetriever(ChunkRetriever):
                 where=dict(filters or {}),
                 n_results=limit,
                 include=["documents", "metadatas", "distances"],
-            )
+            ),
+            limiter=self._io_limiter,
         )
         return self._map_hits(result)
 

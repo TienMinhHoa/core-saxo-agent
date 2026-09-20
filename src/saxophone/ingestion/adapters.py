@@ -12,6 +12,7 @@ from typing import Any, Iterator, Mapping, Sequence
 
 import anyio
 
+from saxophone.platform.concurrency import create_blocking_io_limiter
 from saxophone.platform.model_client import (
     ModelClient,
     ModelRequest,
@@ -269,12 +270,14 @@ class RemoteEmbeddingProvider(EmbeddingProvider):
 class ChromaVectorIndex(VectorIndex):
     """Async Chroma adapter; every blocking SDK call runs in a worker thread."""
 
-    def __init__(self, collection: Any) -> None:
+    def __init__(self, collection: Any, *, io_limiter: Any | None = None) -> None:
         self._collection = collection
+        self._io_limiter = io_limiter or create_blocking_io_limiter()
 
     async def list_chunk_ids(self, *, document_ref: str) -> tuple[str, ...]:
         result = await anyio.to_thread.run_sync(
-            partial(self._collection.get, where={"document_ref": document_ref})
+            partial(self._collection.get, where={"document_ref": document_ref}),
+            limiter=self._io_limiter,
         )
         ids = result.get("ids") if isinstance(result, Mapping) else None
         if not isinstance(ids, list):
@@ -291,13 +294,15 @@ class ChromaVectorIndex(VectorIndex):
             embeddings=[list(record.embedding) for record in records],
             documents=[record.search_text for record in records],
             metadatas=[self._metadata(record) for record in records],
-            )
+            ),
+            limiter=self._io_limiter,
         )
 
     async def delete_chunks(self, chunk_ids: Sequence[str]) -> None:
         if chunk_ids:
             await anyio.to_thread.run_sync(
-                partial(self._collection.delete, ids=list(chunk_ids))
+                partial(self._collection.delete, ids=list(chunk_ids)),
+                limiter=self._io_limiter,
             )
 
     async def search(
