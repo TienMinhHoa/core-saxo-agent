@@ -253,3 +253,14 @@ deployment production.
   chi tiet tai `docs/ITERATION_183_REMOTE_HEALTH_HTTP_CLIENT_CONTRACT.md`.
 - Live model-service smoke va production parity van chua xac minh do checkout
   thieu endpoint, credential va production catalog.
+
+### Iteration 191 — đồng bộ safe-path contract cho direct `AppSettings`
+
+- `_validate_runtime_path` giờ từ chối parent traversal trên path tương đối,
+  áp dụng nhất quán cho `data_root` và `chroma_persist_directory` cả khi
+  settings được khởi tạo trực tiếp.
+- Regression test TDD chứng minh trước sửa có **2 failed** và sau sửa phải
+  chuyển xanh; bằng chứng chi tiết tại
+  `docs/ITERATION_191_SETTINGS_DIRECT_PATH_TRAVERSAL.md`.
+- Live model-service smoke và production golden parity vẫn chưa xác minh do
+  checkout thiếu endpoint, credential và catalog production.
