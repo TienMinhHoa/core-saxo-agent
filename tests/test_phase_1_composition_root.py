@@ -151,6 +151,9 @@ def test_default_composition_uses_litellm_settings_for_model_client() -> None:
         "SAXO_LITELLM_TIMEOUT_SECONDS": "12.5",
         "SAXO_LITELLM_MAX_ATTEMPTS": "3",
         "SAXO_LITELLM_RETRY_BACKOFF_SECONDS": "0.25",
+        "SAXO_LITELLM_RETRY_JITTER_RATIO": "0.2",
+        "SAXO_LITELLM_CIRCUIT_BREAKER_FAILURE_THRESHOLD": "5",
+        "SAXO_LITELLM_CIRCUIT_BREAKER_COOLDOWN_SECONDS": "45.5",
     })
 
     app = create_app(settings)
@@ -161,6 +164,9 @@ def test_default_composition_uses_litellm_settings_for_model_client() -> None:
     assert client.timeout_seconds == 12.5
     assert client.max_attempts == 3
     assert client.retry_backoff_seconds == 0.25
+    assert client.retry_jitter_ratio == 0.2
+    assert client.circuit_breaker_failure_threshold == 5
+    assert client.circuit_breaker_cooldown_seconds == 45.5
 
 
 def test_default_composition_wires_remote_pdf_extractor_to_shared_model_client() -> None:

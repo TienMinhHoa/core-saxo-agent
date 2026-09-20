@@ -30,6 +30,9 @@ class AppSettings:
     litellm_timeout_seconds: float = 30.0
     litellm_max_attempts: int = 1
     litellm_retry_backoff_seconds: float = 0.0
+    litellm_retry_jitter_ratio: float = 0.0
+    litellm_circuit_breaker_failure_threshold: int = 0
+    litellm_circuit_breaker_cooldown_seconds: float = 30.0
     chroma_persist_directory: Path = Path("runtime/saxophone/chroma")
     chroma_collection_name: str = "saxophone_chunks"
     embedding_dimension: int = 1536
@@ -103,6 +106,19 @@ class AppSettings:
             litellm_retry_backoff_seconds=_parse_non_negative_float(
                 environment.get("SAXO_LITELLM_RETRY_BACKOFF_SECONDS", "0"),
                 "SAXO_LITELLM_RETRY_BACKOFF_SECONDS",
+            ),
+            litellm_retry_jitter_ratio=_parse_ratio(
+                environment.get("SAXO_LITELLM_RETRY_JITTER_RATIO", "0"),
+                "SAXO_LITELLM_RETRY_JITTER_RATIO",
+            ),
+            litellm_circuit_breaker_failure_threshold=_parse_non_negative_integer(
+                environment.get("SAXO_LITELLM_CIRCUIT_BREAKER_FAILURE_THRESHOLD", "0"),
+                "SAXO_LITELLM_CIRCUIT_BREAKER_FAILURE_THRESHOLD",
+            ),
+            litellm_circuit_breaker_cooldown_seconds=_parse_non_negative_float(
+                environment.get("SAXO_LITELLM_CIRCUIT_BREAKER_COOLDOWN_SECONDS", "30"),
+                "SAXO_LITELLM_CIRCUIT_BREAKER_COOLDOWN_SECONDS",
+                strictly_positive=True,
             ),
             chroma_persist_directory=chroma_directory,
             chroma_collection_name=collection_name,
@@ -203,6 +219,16 @@ def _parse_positive_integer(value: str | None, variable: str) -> int:
     return number
 
 
+def _parse_non_negative_integer(value: str | None, variable: str) -> int:
+    try:
+        number = int(value) if value is not None else -1
+    except ValueError as error:
+        raise SettingsValidationError(f"{variable} must be a non-negative integer") from error
+    if number < 0:
+        raise SettingsValidationError(f"{variable} must be a non-negative integer")
+    return number
+
+
 def _parse_required_text(value: str | None, variable: str) -> str:
     if not value or not value.strip():
         raise SettingsValidationError(f"{variable} must not be empty")
@@ -230,4 +256,11 @@ def _parse_non_negative_float(
     if (strictly_positive and number <= 0) or (not strictly_positive and number < 0):
         requirement = "positive" if strictly_positive else "non-negative"
         raise SettingsValidationError(f"{variable} must be {requirement}")
+    return number
+
+
+def _parse_ratio(value: str | None, variable: str) -> float:
+    number = _parse_non_negative_float(value, variable)
+    if number > 1:
+        raise SettingsValidationError(f"{variable} must be between 0 and 1")
     return number

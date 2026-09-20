@@ -170,6 +170,18 @@ class LiteLLMModelClient:
     def retry_backoff_seconds(self) -> float:
         return self._retry_backoff_seconds
 
+    @property
+    def retry_jitter_ratio(self) -> float:
+        return self._retry_jitter_ratio
+
+    @property
+    def circuit_breaker_failure_threshold(self) -> int:
+        return self._circuit_breaker_failure_threshold
+
+    @property
+    def circuit_breaker_cooldown_seconds(self) -> float:
+        return self._circuit_breaker_cooldown_seconds
+
     async def invoke(self, request: ModelRequest) -> ModelResponse:
         payload = {
             "model": request.model,

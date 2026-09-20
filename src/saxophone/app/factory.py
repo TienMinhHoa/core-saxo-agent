@@ -129,6 +129,9 @@ def create_app(
             timeout_seconds=settings.litellm_timeout_seconds,
             max_attempts=settings.litellm_max_attempts,
             retry_backoff_seconds=settings.litellm_retry_backoff_seconds,
+            retry_jitter_ratio=settings.litellm_retry_jitter_ratio,
+            circuit_breaker_failure_threshold=settings.litellm_circuit_breaker_failure_threshold,
+            circuit_breaker_cooldown_seconds=settings.litellm_circuit_breaker_cooldown_seconds,
         )
 
     pdf_extractor = resolved_overrides.pdf_extractor

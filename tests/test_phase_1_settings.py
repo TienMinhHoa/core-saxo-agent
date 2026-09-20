@@ -29,6 +29,9 @@ def test_from_environment_uses_safe_defaults() -> None:
     assert settings.litellm_timeout_seconds == 30.0
     assert settings.litellm_max_attempts == 1
     assert settings.litellm_retry_backoff_seconds == 0.0
+    assert settings.litellm_retry_jitter_ratio == 0.0
+    assert settings.litellm_circuit_breaker_failure_threshold == 0
+    assert settings.litellm_circuit_breaker_cooldown_seconds == 30.0
     assert settings.chroma_persist_directory == Path("runtime/saxophone/chroma")
     assert settings.chroma_collection_name == "saxophone_chunks"
     assert settings.embedding_dimension == 1536
@@ -48,6 +51,9 @@ def test_from_environment_accepts_explicit_typed_values() -> None:
         "SAXO_LITELLM_TIMEOUT_SECONDS": "12.5",
         "SAXO_LITELLM_MAX_ATTEMPTS": "3",
         "SAXO_LITELLM_RETRY_BACKOFF_SECONDS": "0.25",
+        "SAXO_LITELLM_RETRY_JITTER_RATIO": "0.2",
+        "SAXO_LITELLM_CIRCUIT_BREAKER_FAILURE_THRESHOLD": "5",
+        "SAXO_LITELLM_CIRCUIT_BREAKER_COOLDOWN_SECONDS": "45.5",
         "SAXO_CHROMA_PERSIST_DIRECTORY": "D:/saxo-data/chroma",
         "SAXO_CHROMA_COLLECTION_NAME": "music_chunks_v2",
         "SAXO_EMBEDDING_DIMENSION": "1024",
@@ -65,6 +71,9 @@ def test_from_environment_accepts_explicit_typed_values() -> None:
     assert settings.litellm_timeout_seconds == 12.5
     assert settings.litellm_max_attempts == 3
     assert settings.litellm_retry_backoff_seconds == 0.25
+    assert settings.litellm_retry_jitter_ratio == 0.2
+    assert settings.litellm_circuit_breaker_failure_threshold == 5
+    assert settings.litellm_circuit_breaker_cooldown_seconds == 45.5
     assert settings.chroma_persist_directory == Path("D:/saxo-data/chroma")
     assert settings.chroma_collection_name == "music_chunks_v2"
     assert settings.embedding_dimension == 1024
@@ -143,6 +152,25 @@ def test_from_environment_rejects_unsafe_remote_gpu_url(base_url: str) -> None:
     ],
 )
 def test_from_environment_rejects_invalid_boolean_and_positive_integer_values(
+    variable: str,
+    value: str,
+) -> None:
+    with pytest.raises(SettingsValidationError) as error:
+        AppSettings.from_environment({**VALID_ENVIRONMENT, variable: value})
+
+    assert variable in str(error.value)
+
+
+@pytest.mark.parametrize(
+    ("variable", "value"),
+    [
+        ("SAXO_LITELLM_RETRY_JITTER_RATIO", "-0.1"),
+        ("SAXO_LITELLM_RETRY_JITTER_RATIO", "1.1"),
+        ("SAXO_LITELLM_CIRCUIT_BREAKER_FAILURE_THRESHOLD", "-1"),
+        ("SAXO_LITELLM_CIRCUIT_BREAKER_COOLDOWN_SECONDS", "0"),
+    ],
+)
+def test_from_environment_rejects_invalid_model_retry_configuration(
     variable: str,
     value: str,
 ) -> None:
