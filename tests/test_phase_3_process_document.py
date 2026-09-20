@@ -145,3 +145,32 @@ async def test_process_document_rejects_source_checksum_mismatch_without_calling
         await use_case.execute(request)
 
     assert extractor.calls == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("field", "expected"),
+    [
+        ("document_ref", "doc-other"),
+        ("source_version", "source-other"),
+        ("model_profile", "extractor-other"),
+    ],
+)
+async def test_process_document_rejects_result_that_does_not_match_request(
+    field: str, expected: str
+) -> None:
+    artifacts = FakeArtifacts(b"pdf")
+    extractor_result = _result()
+    extractor_result = replace(extractor_result, **{field: expected})
+    extractor = FakeExtractor([], extractor_result)
+    use_case = ProcessDocument(artifacts, extractor)
+    request = PdfExtractionRequest(
+        document_ref="doc-1",
+        source=_source(),
+        source_version="source-v1",
+        correlation_id="corr-1",
+        model_profile="extractor-v1",
+    )
+
+    with pytest.raises(ValueError, match=field):
+        await use_case.execute(request)

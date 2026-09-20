@@ -22,4 +22,17 @@ class ProcessDocument:
             raise ValueError("source artifact payload size does not match metadata")
         if hashlib.sha256(payload).hexdigest() != request.source.sha256:
             raise ValueError("source artifact payload checksum does not match metadata")
-        return await self._extractor.extract(request)
+        result = await self._extractor.extract(request)
+        self._validate_result_scope(request, result)
+        return result
+
+    @staticmethod
+    def _validate_result_scope(
+        request: PdfExtractionRequest, result: PdfExtractionResult
+    ) -> None:
+        if result.document_ref != request.document_ref:
+            raise ValueError("extraction result document_ref does not match request")
+        if result.source_version != request.source_version:
+            raise ValueError("extraction result source_version does not match request")
+        if result.model_profile != request.model_profile:
+            raise ValueError("extraction result model_profile does not match request")
