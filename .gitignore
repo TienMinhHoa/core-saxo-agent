@@ -99,6 +99,7 @@ docs/*
 !docs/PHASE_4_INDEX_RECONCILIATION.md
 !docs/PHASE_7_DEPENDENCY_ENFORCEMENT.md
 !docs/PHASE_7_BACKEND_ENTRYPOINT.md
+!docs/PHASE_7_ENTRYPOINT_SMOKE.md
 
 # Logs and temporary files
 *.log
