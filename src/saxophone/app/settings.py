@@ -41,6 +41,9 @@ class AppSettings:
 
     def __post_init__(self) -> None:
         """Keep direct construction subject to the same runtime contract."""
+        _validate_runtime_path(self.data_root, "data_root")
+        _validate_runtime_path(self.chroma_persist_directory, "chroma_persist_directory")
+        _validate_runtime_boolean(self.remote_gpu_tls_verify, "remote_gpu_tls_verify")
         _parse_remote_gpu_base_url(self.remote_gpu_base_url)
         _parse_required_token(self.remote_gpu_bearer_token)
         if self.litellm_endpoint.strip():
@@ -348,6 +351,16 @@ def _validate_runtime_float(
         raise SettingsValidationError(f"{field_name} must be {requirement}")
     if maximum is not None and value > maximum:
         raise SettingsValidationError(f"{field_name} must be between 0 and {maximum:g}")
+
+
+def _validate_runtime_path(value: object, field_name: str) -> None:
+    if not isinstance(value, Path):
+        raise SettingsValidationError(f"{field_name} must be a filesystem path")
+
+
+def _validate_runtime_boolean(value: object, field_name: str) -> None:
+    if not isinstance(value, bool):
+        raise SettingsValidationError(f"{field_name} must be a boolean")
 
 
 def _validate_runtime_integer(

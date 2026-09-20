@@ -278,3 +278,28 @@ def test_direct_settings_construction_rejects_invalid_textual_contracts(
         AppSettings(**values)
 
     assert error_marker in str(error.value)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("data_root", "runtime/saxophone"),
+        ("chroma_persist_directory", "runtime/saxophone/chroma"),
+        ("remote_gpu_tls_verify", "true"),
+    ],
+)
+def test_direct_settings_construction_rejects_invalid_runtime_types(
+    field_name: str,
+    value: object,
+) -> None:
+    values = {
+        "data_root": Path("runtime/saxophone"),
+        "remote_gpu_base_url": "https://gpu.example.test",
+        "remote_gpu_bearer_token": "secret",
+    }
+    values[field_name] = value
+
+    with pytest.raises(SettingsValidationError) as error:
+        AppSettings(**values)
+
+    assert field_name in str(error.value)
