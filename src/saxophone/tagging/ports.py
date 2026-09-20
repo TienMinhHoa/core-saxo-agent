@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from .models import TagGenerationRequest, TagGenerationResult
+from .models import (
+    TagConflictResolution,
+    TagConflictResolutionRequest,
+    TagGenerationRequest,
+    TagGenerationResult,
+)
 
 
 class TagGenerator(ABC):
@@ -14,4 +19,14 @@ class TagGenerator(ABC):
     async def generate(
         self, request: TagGenerationRequest
     ) -> TagGenerationResult:
+        raise NotImplementedError
+
+
+class TagConflictResolver(ABC):
+    """Async port for the separate existing-vs-new tag resolution task."""
+
+    @abstractmethod
+    async def resolve(
+        self, request: TagConflictResolutionRequest
+    ) -> TagConflictResolution:
         raise NotImplementedError
