@@ -102,6 +102,8 @@ class LocalArtifactRepository:
             path = self._path_for(artifact)
             path.parent.mkdir(parents=True, exist_ok=True)
             if path.exists():
+                if not path.is_file():
+                    raise FileExistsError("artifact identity is immutable")
                 if path.read_bytes() == payload:
                     return
                 raise FileExistsError("artifact identity is immutable")

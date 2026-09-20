@@ -125,6 +125,21 @@ def test_put_is_idempotent_for_same_bytes_but_rejects_replacement(tmp_path: Path
         asyncio.run(repository.put(replacement, b"7654321"))
 
 
+def test_put_rejects_existing_directory_at_immutable_artifact_path(
+    tmp_path: Path,
+) -> None:
+    repository = LocalArtifactRepository(tmp_path)
+    artifact = _artifact()
+    destination = tmp_path / artifact.artifact_id / artifact.version
+    destination.mkdir(parents=True)
+
+    with pytest.raises(FileExistsError, match="immutable"):
+        asyncio.run(repository.put(artifact, b"1234567"))
+
+    assert destination.is_dir()
+    assert list(tmp_path.rglob("*.tmp")) == []
+
+
 def test_atomic_commit_does_not_replace_file_created_after_existence_check(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
