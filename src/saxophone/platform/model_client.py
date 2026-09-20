@@ -191,6 +191,8 @@ class LiteLLMModelClient:
     async def _post_with_retry(self, payload: Mapping[str, object]) -> httpx.Response:
         self._ensure_circuit_closed()
         for attempt in range(1, self._max_attempts + 1):
+            retry_delay = self._retry_backoff_seconds
+            response: httpx.Response | None = None
             try:
                 response = await self._http_client.post(
                     self._endpoint,
@@ -219,10 +221,11 @@ class LiteLLMModelClient:
                     504,
                     }:
                     raise
-            retry_delay = _retry_delay_seconds(
-                response,
-                fallback=self._retry_backoff_seconds,
-            )
+            if response is not None:
+                retry_delay = _retry_delay_seconds(
+                    response,
+                    fallback=self._retry_backoff_seconds,
+                )
             if retry_delay:
                 await asyncio.sleep(retry_delay)
         raise AssertionError("retry loop must return or raise")
