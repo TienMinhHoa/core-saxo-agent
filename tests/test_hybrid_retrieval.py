@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
+
 import pytest
+from pathlib import Path
 
 from music_rag.store import CatalogStore
 from saxophone.retrieval.adapters import (
@@ -9,6 +12,9 @@ from saxophone.retrieval.adapters import (
     LegacySemanticRetriever,
 )
 from saxophone.retrieval.models import ChunkHit
+
+
+FIXTURE = Path(__file__).parent / "fixtures" / "golden" / "legacy_retrieval" / "catalog.json"
 
 
 def _hit(
@@ -155,3 +161,27 @@ async def test_legacy_semantic_retriever_rejects_blank_query_at_port_boundary(tm
 
     with pytest.raises(ValueError, match="query must not be blank"):
         await retriever.search("  ", filters={"access_scope": "public"})
+
+
+@pytest.mark.anyio
+async def test_legacy_adapter_matches_golden_catalog_order_scores_and_provenance(tmp_path) -> None:
+    class _Provider:
+        model = "legacy-golden-v1"
+
+        def embed(self, texts):
+            return [[1.0, 0.0] for _ in texts]
+
+    store = CatalogStore(tmp_path)
+    store.save(json.loads(FIXTURE.read_text(encoding="utf-8")))
+    retriever = LegacySemanticRetriever(store, _Provider())
+
+    hits = await retriever.search("pulse", filters={"access_scope": "public"}, limit=2)
+
+    assert [(hit.chunk_ref, hit.source_ref) for hit in hits] == [
+        ("semantic_item-pulse:1:1", "doc-public:v1"),
+        ("semantic_item-rhythm:1:1", "doc-public:v1"),
+    ]
+    assert hits[0].semantic_score == pytest.approx(1.0)
+    assert hits[0].keyword_score == pytest.approx(1.0)
+    assert hits[0].metadata["evidence_block_ids"] == ["block-pulse"]
+    assert all("private" not in hit.chunk_ref for hit in hits)

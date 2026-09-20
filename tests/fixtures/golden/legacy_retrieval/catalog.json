@@ -1,0 +1,19 @@
+{
+  "documents": {
+    "doc-public:v1": {"access_scope": "public"},
+    "doc-private:v1": {"access_scope": "private"}
+  },
+  "items": {
+    "item-pulse:1": {"item_id": "item-pulse", "item_version": 1, "document_id": "doc-public", "source_version": "v1", "review_status": "approved"},
+    "item-rhythm:1": {"item_id": "item-rhythm", "item_version": 1, "document_id": "doc-public", "source_version": "v1", "review_status": "approved"},
+    "item-private:1": {"item_id": "item-private", "item_version": 1, "document_id": "doc-private", "source_version": "v1", "review_status": "approved"}
+  },
+  "semantic_index": {
+    "provider_model": "legacy-golden-v1",
+    "units": [
+      {"search_unit_id": "semantic_item-pulse:1:1", "item_id": "item-pulse", "item_version": 1, "document_id": "doc-public", "source_version": "v1", "evidence_block_ids": ["block-pulse"], "evidence_scope": "item", "embedding": [1.0, 0.0], "search_text": "pulse rhythm"},
+      {"search_unit_id": "semantic_item-rhythm:1:1", "item_id": "item-rhythm", "item_version": 1, "document_id": "doc-public", "source_version": "v1", "evidence_block_ids": ["block-rhythm"], "evidence_scope": "item", "embedding": [0.0, 1.0], "search_text": "rhythm meter"},
+      {"search_unit_id": "semantic_item-private:1:1", "item_id": "item-private", "item_version": 1, "document_id": "doc-private", "source_version": "v1", "evidence_block_ids": ["block-private"], "evidence_scope": "item", "embedding": [1.0, 0.0], "search_text": "pulse private"}
+    ]
+  }
+}
