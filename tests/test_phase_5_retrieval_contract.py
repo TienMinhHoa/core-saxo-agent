@@ -60,6 +60,18 @@ def test_evidence_bundle_validates_source_text_and_keeps_mapping_immutable() -> 
         bundle.source_texts["chunk-1"] = "mutation"  # type: ignore[index]
 
 
+@pytest.mark.parametrize("source_ref", [" chunk-1", "chunk-1 ", "cafe\u0301"])
+def test_evidence_bundle_rejects_non_canonical_source_text_keys(source_ref: str) -> None:
+    with pytest.raises(ValueError, match="source_text ref"):
+        EvidenceBundle(
+            query="what is this?",
+            retrieval_version="retrieval-v1",
+            hits=(_hit(),),
+            selected_refs=("chunk-1",),
+            source_texts={source_ref: "Validated source text"},
+        )
+
+
 @pytest.mark.parametrize("field_name", ["query", "retrieval_version"])
 @pytest.mark.parametrize("value", [" value", "value ", "cafe\u0301"])
 def test_evidence_bundle_rejects_non_canonical_identity_fields(

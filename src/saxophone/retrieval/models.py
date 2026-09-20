@@ -65,6 +65,7 @@ class EvidenceBundle:
             raise ValueError("source_texts must be a mapping")
         for ref, text in self.source_texts.items():
             _require_non_blank("source_text ref", ref)
+            _require_canonical("source_text ref", ref)
             if not isinstance(text, str) or not text.strip():
                 raise ValueError("source_texts values must not be blank")
         for name, refs in (("selected_refs", self.selected_refs), ("image_refs", self.image_refs)):
