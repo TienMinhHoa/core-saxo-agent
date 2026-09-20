@@ -346,6 +346,29 @@ def test_default_composition_rejects_boolean_chroma_dimension(monkeypatch) -> No
         create_app(settings)
 
 
+@pytest.mark.parametrize("schema_version", [True, 1, "", "  "])
+def test_default_composition_rejects_malformed_chroma_schema_version(
+    monkeypatch, schema_version: object
+) -> None:
+    class FakeCollection:
+        metadata = {"embedding_dimension": 1536, "schema_version": schema_version}
+
+    class FakeClient:
+        def __init__(self, *, path: str) -> None:
+            pass
+
+        def get_or_create_collection(self, *, name: str, metadata: dict[str, object]):
+            return FakeCollection()
+
+    class FakeChroma:
+        PersistentClient = FakeClient
+
+    monkeypatch.setitem(__import__("sys").modules, "chromadb", FakeChroma)
+
+    with pytest.raises(ValueError, match="schema version"):
+        create_app(build_settings())
+
+
 def test_default_composition_closes_persistent_chroma_client_on_shutdown(monkeypatch) -> None:
     class FakeCollection:
         metadata = {"embedding_dimension": 1536, "schema_version": "saxo-chunk-v1"}
