@@ -299,6 +299,7 @@ async def test_chroma_upsert_rejects_duplicate_chunk_ids_before_provider_io() ->
     [
         {"optional": None},
         {"nested": {"page": 1}},
+        {"nested": [["page"]]},
         {"score": float("nan")},
         {"payload": b"binary"},
         {1: "non-string-key"},

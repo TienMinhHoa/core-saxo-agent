@@ -435,8 +435,17 @@ def _is_valid_chroma_metadata_value(value: object) -> bool:
     if isinstance(value, (int, float)):
         return math.isfinite(value)
     if isinstance(value, list):
-        return all(_is_valid_chroma_metadata_value(item) for item in value)
+        return all(_is_valid_chroma_metadata_scalar(item) for item in value)
     return False
+
+
+def _is_valid_chroma_metadata_scalar(value: object) -> bool:
+    """Return whether a value is one Chroma-supported metadata list item."""
+    if value is None or isinstance(value, (bytes, bytearray, Mapping, list)):
+        return False
+    if isinstance(value, bool) or isinstance(value, str):
+        return True
+    return isinstance(value, (int, float)) and math.isfinite(value)
 
 
 def _validated_chroma_rows(
