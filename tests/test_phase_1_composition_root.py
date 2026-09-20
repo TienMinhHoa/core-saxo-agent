@@ -9,6 +9,10 @@ from fastapi.testclient import TestClient
 
 from saxophone.app.factory import AppContainer, AppOverrides, create_app
 from saxophone.app.settings import AppSettings
+from saxophone.chat.models import GeneratedAnswer
+from saxophone.chat.service import AnswerQuestion
+from saxophone.retrieval.models import ChunkHit
+from saxophone.retrieval.use_cases import RetrieveEvidence
 from saxophone.platform.remote_gpu import HttpRemoteGpuGateway, RemoteGpuHealth
 from saxophone.platform.model_client import LiteLLMModelClient
 from saxophone.extraction.remote import RemotePdfExtractor
@@ -44,6 +48,24 @@ class FakeModelClient:
 class FakePdfExtractor:
     async def extract(self, request):
         raise AssertionError("composition test must not invoke extraction")
+
+
+class FakeRetriever:
+    async def search(self, query, *, filters=None, limit=10):
+        return [
+            ChunkHit(
+                "document-1",
+                "chunk-1",
+                1,
+                "retrieval-test-v1",
+                {"document": "validated source text"},
+            )
+        ]
+
+
+class FakeAnswerGenerator:
+    async def generate(self, question, evidence):
+        return GeneratedAnswer("answer", "model-v1", {}, 0.0)
 
 
 def build_settings() -> AppSettings:
@@ -146,6 +168,27 @@ def test_default_composition_wires_remote_pdf_extractor_to_shared_model_client()
 
     assert isinstance(extractor, RemotePdfExtractor)
     assert extractor.model == build_settings().litellm_model_profile
+
+
+def test_composition_builds_retrieval_and_chat_from_application_ports() -> None:
+    retriever = FakeRetriever()
+    answer_generator = FakeAnswerGenerator()
+
+    app = create_app(
+        build_settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=FakeRemoteGpuGateway(status="ready"),
+            model_client=FakeModelClient(),
+            retriever=retriever,
+            answer_generator=answer_generator,
+        ),
+    )
+
+    container = app.state.container
+    assert isinstance(container.retrieve_evidence, RetrieveEvidence)
+    assert isinstance(container.answer_question, AnswerQuestion)
+    assert TestClient(app).get("/api/v1/health").json()["retrieval"] == "ready"
+    assert TestClient(app).get("/api/v1/health").json()["chat"] == "ready"
 
 
 def test_default_composition_wires_extraction_persistence_workflow() -> None:

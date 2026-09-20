@@ -11,6 +11,7 @@ from fastapi import FastAPI
 
 from saxophone.app.settings import AppSettings
 from saxophone.chat.service import AnswerQuestion
+from saxophone.chat.ports import AnswerGenerator, ImageArtifactGate
 from saxophone.documents.ports import ArtifactRepository
 from saxophone.extraction.persistence import RepositoryExtractionArtifactPayloadProvider
 from saxophone.extraction.ports import PdfExtractor
@@ -26,6 +27,7 @@ from saxophone.platform.remote_gpu import (
     RemoteGpuGateway,
 )
 from saxophone.retrieval.use_cases import RetrieveEvidence
+from saxophone.retrieval.ports import ChunkRetriever
 from saxophone.tagging.persistence import JsonTagCatalogRepository, JsonTaggedParagraphRepository
 from saxophone.tagging.adapters import RemoteParagraphTagger, RemoteTagConflictResolver
 from saxophone.tagging.ports import TagCatalogRepository, TagConflictResolver, TagGenerator, TaggedParagraphRepository
@@ -75,6 +77,9 @@ class AppOverrides:
     model_client: ModelClient | None = None
     retrieve_evidence: RetrieveEvidence | None = None
     answer_question: AnswerQuestion | None = None
+    retriever: ChunkRetriever | None = None
+    answer_generator: AnswerGenerator | None = None
+    image_artifact_gate: ImageArtifactGate | None = None
     pdf_extractor: PdfExtractor | None = None
     embedding_provider: EmbeddingProvider | None = None
     embedding_reuse: EmbeddingReuseStore | None = None
@@ -189,13 +194,25 @@ def create_app(
             ingest_document=IngestDocument(tag_and_persist, index_document),
         )
 
+    retrieve_evidence = resolved_overrides.retrieve_evidence
+    if retrieve_evidence is None and resolved_overrides.retriever is not None:
+        retrieve_evidence = RetrieveEvidence(resolved_overrides.retriever)
+    answer_question = resolved_overrides.answer_question
+    if answer_question is None and retrieve_evidence is not None:
+        if resolved_overrides.answer_generator is not None:
+            answer_question = AnswerQuestion(
+                retrieve_evidence,
+                resolved_overrides.answer_generator,
+                resolved_overrides.image_artifact_gate,
+            )
+
     container = AppContainer(
         settings=settings,
         remote_gpu_gateway=remote_gpu_gateway,
         model_client=model_client,
         http_client=http_client,
-        retrieve_evidence=resolved_overrides.retrieve_evidence,
-        answer_question=resolved_overrides.answer_question,
+        retrieve_evidence=retrieve_evidence,
+        answer_question=answer_question,
         pdf_extractor=pdf_extractor,
         embedding_provider=embedding_provider,
         embedding_reuse=embedding_reuse,

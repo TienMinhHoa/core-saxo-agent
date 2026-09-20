@@ -7,7 +7,18 @@ import argparse
 import os
 
 from fastapi import FastAPI
-import uvicorn
+
+
+class _UvicornProxy:
+    """Resolve uvicorn only when the server is actually started."""
+
+    def run(self, target: str, **kwargs: object) -> None:
+        import uvicorn
+
+        uvicorn.run(target, **kwargs)
+
+
+uvicorn = _UvicornProxy()
 
 from saxophone.app.factory import create_app
 from saxophone.app.settings import AppSettings
