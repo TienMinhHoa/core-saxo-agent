@@ -152,6 +152,13 @@ def test_get_rejects_directory_at_immutable_artifact_path(
         asyncio.run(repository.get(artifact))
 
 
+def test_get_raises_file_not_found_for_missing_artifact(tmp_path: Path) -> None:
+    repository = LocalArtifactRepository(tmp_path)
+
+    with pytest.raises(FileNotFoundError):
+        asyncio.run(repository.get(_artifact()))
+
+
 def test_atomic_commit_does_not_replace_file_created_after_existence_check(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

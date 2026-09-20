@@ -91,6 +91,8 @@ class LocalArtifactRepository:
 
     @staticmethod
     def _read_file(path: Path) -> bytes:
+        if not path.exists():
+            raise FileNotFoundError(path)
         if not path.is_file():
             raise FileExistsError("artifact identity is not a file")
         return path.read_bytes()
