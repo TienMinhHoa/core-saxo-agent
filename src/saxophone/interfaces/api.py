@@ -15,6 +15,7 @@ from saxophone.extraction.models import PdfExtractionRequest, PdfExtractionResul
 from saxophone.ingestion.models import IndexInputRecord, IngestionCommand, IngestionReport
 from saxophone.ingestion.use_cases import IndexDocument
 from saxophone.retrieval.models import EvidenceBundle
+from saxophone.workflows.ingest_extracted_document import IngestExtractedDocument
 from saxophone.workflows.process_document import ProcessAndPersistDocument, ProcessDocument
 
 
@@ -46,6 +47,15 @@ class DocumentProcessRequest(BaseModel):
     model_profile: str = Field(min_length=1)
 
 
+class DocumentProcessAndIngestRequest(DocumentProcessRequest):
+    chunking_profile: str = Field(min_length=1)
+    embedding_profile: str = Field(min_length=1)
+    index_profile: str = Field(min_length=1)
+    access_scope: str = Field(min_length=1)
+    tagging_profile: str = Field(default="none-v1", min_length=1)
+    resolution_profile: str = Field(default="none-v1", min_length=1)
+
+
 class IngestionChunkRequest(BaseModel):
     chunk_id: str = Field(min_length=1)
     search_text: str = Field(min_length=1)
@@ -71,6 +81,7 @@ def build_capability_router(
     process_and_persist_workflow: ProcessAndPersistDocument | None = None,
     artifact_repository: ArtifactRepository | None = None,
     index_document: IndexDocument | None = None,
+    ingest_extracted_document: IngestExtractedDocument | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1")
 
@@ -146,6 +157,45 @@ def build_capability_router(
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         return _artifact_response(artifact)
+
+    @router.post("/documents/{document_ref}/process-and-ingest")
+    async def process_and_ingest_document(
+        document_ref: str,
+        request: DocumentProcessAndIngestRequest,
+    ) -> dict[str, object]:
+        if process_and_persist_workflow is None:
+            raise HTTPException(
+                status_code=503,
+                detail="document persistence capability is not configured",
+            )
+        if ingest_extracted_document is None:
+            raise HTTPException(
+                status_code=503,
+                detail="extracted document ingestion capability is not configured",
+            )
+        normalized_ref = _normalized_text(document_ref, "document_ref")
+        try:
+            result = await process_and_persist_workflow.execute(
+                PdfExtractionRequest(
+                    document_ref=normalized_ref,
+                    source=ArtifactRef(**request.source.model_dump()),
+                    source_version=request.source_version,
+                    correlation_id=request.correlation_id,
+                    model_profile=request.model_profile,
+                ),
+            )
+            report = await ingest_extracted_document.execute(
+                result,
+                chunking_profile=request.chunking_profile,
+                embedding_profile=request.embedding_profile,
+                index_profile=request.index_profile,
+                access_scope=request.access_scope,
+                tagging_profile=request.tagging_profile,
+                resolution_profile=request.resolution_profile,
+            )
+        except (FileNotFoundError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return {"extraction": _extraction_response(result), "ingestion": _ingestion_response(report)}
 
     @router.post("/documents/{document_ref}/ingest")
     async def ingest_document(

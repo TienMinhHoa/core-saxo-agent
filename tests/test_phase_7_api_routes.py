@@ -65,8 +65,11 @@ class FakePdfExtractor:
 
 
 class FakeExtractionPayloads:
+    def __init__(self, markdown: bytes = b"markdown") -> None:
+        self.markdown = markdown
+
     async def fetch(self, result: PdfExtractionResult) -> dict[str, bytes]:
-        return {"markdown": b"markdown", "layout": b"layout", "manifest": b"manifest"}
+        return {"markdown": self.markdown, "layout": b"layout", "manifest": b"manifest"}
 
 
 @dataclass
@@ -81,6 +84,19 @@ class FakeArtifacts(ArtifactRepository):
 
     async def get(self, artifact: ArtifactRef) -> bytes:
         return self.payload
+
+
+@dataclass
+class MultiArtifactRepository(ArtifactRepository):
+    payloads: dict[str, bytes]
+    puts: list[tuple[ArtifactRef, bytes]]
+
+    async def put(self, artifact: ArtifactRef, payload: bytes) -> None:
+        self.payloads[artifact.artifact_id] = payload
+        self.puts.append((artifact, payload))
+
+    async def get(self, artifact: ArtifactRef) -> bytes:
+        return self.payloads[artifact.artifact_id]
 
 
 class FakeVectorIndex:
@@ -112,16 +128,17 @@ def settings() -> AppSettings:
     return AppSettings.from_environment(VALID_ENVIRONMENT)
 
 
-def _artifact(artifact_id: str, kind: ArtifactKind) -> ArtifactRef:
+def _artifact(artifact_id: str, kind: ArtifactKind, payload: bytes | None = None) -> ArtifactRef:
     import hashlib
 
+    payload = artifact_id.encode() if payload is None else payload
     return ArtifactRef(
         artifact_id=artifact_id,
         version="v1",
         kind=kind,
         media_type="application/octet-stream",
-        sha256=hashlib.sha256(artifact_id.encode()).hexdigest(),
-        size_bytes=len(artifact_id),
+        sha256=hashlib.sha256(payload).hexdigest(),
+        size_bytes=len(payload),
     )
 
 
@@ -219,6 +236,68 @@ def test_document_process_route_persists_outputs_when_persistence_workflow_is_co
         "layout",
         "manifest",
     ]
+
+
+def test_process_and_ingest_route_runs_persisted_markdown_through_indexing() -> None:
+    markdown = b"## Intro\nA source paragraph."
+    result = PdfExtractionResult(
+        document_ref="doc-1",
+        source_version="source-v1",
+        markdown=_artifact("markdown", ArtifactKind.MARKDOWN, markdown),
+        layout=_artifact("layout", ArtifactKind.LAYOUT),
+        manifest=_artifact("manifest", ArtifactKind.EXTRACTION_MANIFEST),
+        coordinates=(),
+        model_profile="extractor-v1",
+    )
+    extractor = FakePdfExtractor(result, [])
+    artifacts = MultiArtifactRepository(
+        {"source": b"source", "markdown": markdown},
+        [],
+    )
+    vector_index = FakeVectorIndex()
+    app = create_app(
+        settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=FakeRemoteGpuGateway(),
+            model_client=FakeModelClient(),
+            pdf_extractor=extractor,
+            artifact_repository=artifacts,
+            vector_index=vector_index,
+            embedding_provider=FakeEmbeddingProvider(),
+            process_and_persist_document=ProcessAndPersistDocument(
+                ProcessDocument(artifacts, extractor),
+                FakeExtractionPayloads(markdown),
+                artifacts,
+            ),
+        ),
+    )
+
+    response = TestClient(app).post(
+        "/api/v1/documents/doc-1/process-and-ingest",
+        json={
+            "source": {
+                "artifact_id": "source",
+                "version": "v1",
+                "kind": "source_pdf",
+                "media_type": "application/pdf",
+                "sha256": "41cf6794ba4200b839c53531555f0f3998df4cbb01a4d5cb0b94e3ca5e23947d",
+                "size_bytes": 6,
+            },
+            "source_version": "source-v1",
+            "correlation_id": "corr-1",
+            "model_profile": "extractor-v1",
+            "chunking_profile": "header-v1",
+            "embedding_profile": "embed-v1",
+            "index_profile": "index-v1",
+            "access_scope": "tenant-a",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ingestion"]["indexed"] is True
+    assert body["ingestion"]["chunk_count"] == 1
+    assert vector_index.records[0].search_text == "A source paragraph."
 
 
 def test_document_process_route_rejects_source_that_workflow_cannot_verify() -> None:

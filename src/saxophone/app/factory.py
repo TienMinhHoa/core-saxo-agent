@@ -29,6 +29,7 @@ from saxophone.tagging.persistence import JsonTagCatalogRepository, JsonTaggedPa
 from saxophone.tagging.ports import TagCatalogRepository, TaggedParagraphRepository
 from saxophone.interfaces.api import build_capability_router
 from saxophone.workflows.process_document import ProcessAndPersistDocument, ProcessDocument
+from saxophone.workflows.ingest_extracted_document import IngestExtractedDocument
 
 
 _DISABLED_CAPABILITIES: Final = {
@@ -55,6 +56,7 @@ class AppContainer:
     process_document: ProcessDocument | None = None
     process_and_persist_document: ProcessAndPersistDocument | None = None
     index_document: IndexDocument | None = None
+    ingest_extracted_document: IngestExtractedDocument | None = None
     tagged_paragraph_repository: TaggedParagraphRepository | None = None
     tag_catalog_repository: TagCatalogRepository | None = None
 
@@ -74,6 +76,7 @@ class AppOverrides:
     process_and_persist_document: ProcessAndPersistDocument | None = None
     vector_index: VectorIndex | None = None
     index_document: IndexDocument | None = None
+    ingest_extracted_document: IngestExtractedDocument | None = None
     tagged_paragraph_repository: TaggedParagraphRepository | None = None
     tag_catalog_repository: TagCatalogRepository | None = None
 
@@ -146,6 +149,12 @@ def create_app(
             resolved_overrides.vector_index,
             embedding_provider,
         )
+    ingest_extracted_document = resolved_overrides.ingest_extracted_document
+    if ingest_extracted_document is None and index_document is not None:
+        ingest_extracted_document = IngestExtractedDocument(
+            artifact_repository,
+            index_document,
+        )
 
     container = AppContainer(
         settings=settings,
@@ -160,6 +169,7 @@ def create_app(
         process_document=process_document,
         process_and_persist_document=process_and_persist_document,
         index_document=index_document,
+        ingest_extracted_document=ingest_extracted_document,
         tagged_paragraph_repository=tagged_paragraph_repository,
         tag_catalog_repository=tag_catalog_repository,
     )
@@ -183,6 +193,7 @@ def create_app(
             process_and_persist_workflow=container.process_and_persist_document,
             artifact_repository=container.artifact_repository,
             index_document=container.index_document,
+            ingest_extracted_document=container.ingest_extracted_document,
         ),
     )
 
