@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 
+import anyio
 import pytest
 
 from saxophone.tagging.models import TaggedParagraph
@@ -112,3 +113,19 @@ def test_json_tag_catalog_is_atomic_and_deterministic(tmp_path) -> None:
     asyncio.run(catalog.add(("Harmony definition",)))
 
     assert asyncio.run(catalog.list()) == ("Chord construction", "Harmony definition")
+
+
+def test_json_tag_repositories_accept_a_shared_bounded_io_limiter(tmp_path) -> None:
+    limiter = anyio.CapacityLimiter(1)
+
+    paragraph_repository = JsonTaggedParagraphRepository(
+        tmp_path / "paragraphs",
+        io_limiter=limiter,
+    )
+    catalog_repository = JsonTagCatalogRepository(
+        tmp_path / "tags.json",
+        io_limiter=limiter,
+    )
+
+    assert paragraph_repository._io_limiter is limiter
+    assert catalog_repository._io_limiter is limiter

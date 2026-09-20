@@ -446,6 +446,9 @@ def test_default_composition_wires_tag_persistence_under_data_root() -> None:
     assert container.tag_catalog_repository.path == (
         build_settings().data_root / "tag-catalog.json"
     ).resolve()
+    assert container.embedding_reuse is not None
+    assert container.tagged_paragraph_repository._io_limiter is container.embedding_reuse._io_limiter
+    assert container.tag_catalog_repository._io_limiter is container.embedding_reuse._io_limiter
 
 
 def test_tag_persistence_overrides_are_kept_in_container() -> None:

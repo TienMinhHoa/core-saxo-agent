@@ -2,21 +2,29 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import os
 import tempfile
 from pathlib import Path
 
+import anyio
+
+from saxophone.platform.concurrency import create_blocking_io_limiter
 from .models import TaggedParagraph
 
 
 class JsonTaggedParagraphRepository:
     """Persist one source-preserving tagged paragraph per JSON sidecar."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        io_limiter: anyio.CapacityLimiter | None = None,
+    ) -> None:
         self._root = root.resolve()
+        self._io_limiter = io_limiter or create_blocking_io_limiter()
 
     @property
     def root(self) -> Path:
@@ -24,10 +32,18 @@ class JsonTaggedParagraphRepository:
         return self._root
 
     async def upsert(self, paragraph: TaggedParagraph) -> None:
-        await asyncio.to_thread(self._write, paragraph)
+        await anyio.to_thread.run_sync(
+            self._write,
+            paragraph,
+            limiter=self._io_limiter,
+        )
 
     async def get(self, paragraph_id: str) -> TaggedParagraph:
-        payload = await asyncio.to_thread(self._read, paragraph_id)
+        payload = await anyio.to_thread.run_sync(
+            self._read,
+            paragraph_id,
+            limiter=self._io_limiter,
+        )
         paragraph = TaggedParagraph(**payload)
         if paragraph.paragraph_id != paragraph_id:
             raise ValueError("stored paragraph ID does not match requested paragraph ID")
@@ -35,7 +51,7 @@ class JsonTaggedParagraphRepository:
 
     async def delete(self, paragraph_id: str) -> None:
         path = self._path_for(paragraph_id)
-        await asyncio.to_thread(path.unlink)
+        await anyio.to_thread.run_sync(path.unlink, limiter=self._io_limiter)
 
     def _write(self, paragraph: TaggedParagraph) -> None:
         self._root.mkdir(parents=True, exist_ok=True)
@@ -65,8 +81,14 @@ class JsonTaggedParagraphRepository:
 class JsonTagCatalogRepository:
     """Persist a deduplicated, deterministic plain-English tag catalog."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(
+        self,
+        path: Path,
+        *,
+        io_limiter: anyio.CapacityLimiter | None = None,
+    ) -> None:
         self._path = path.resolve()
+        self._io_limiter = io_limiter or create_blocking_io_limiter()
 
     @property
     def path(self) -> Path:
@@ -74,10 +96,10 @@ class JsonTagCatalogRepository:
         return self._path
 
     async def add(self, tags: tuple[str, ...]) -> None:
-        await asyncio.to_thread(self._add, tags)
+        await anyio.to_thread.run_sync(self._add, tags, limiter=self._io_limiter)
 
     async def list(self) -> tuple[str, ...]:
-        return await asyncio.to_thread(self._list)
+        return await anyio.to_thread.run_sync(self._list, limiter=self._io_limiter)
 
     def _add(self, tags: tuple[str, ...]) -> None:
         current = set(self._list())

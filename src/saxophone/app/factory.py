@@ -187,11 +187,13 @@ def create_app(
     if tagged_paragraph_repository is None:
         tagged_paragraph_repository = JsonTaggedParagraphRepository(
             settings.data_root / "tagged-paragraphs",
+            io_limiter=io_limiter,
         )
     tag_catalog_repository = resolved_overrides.tag_catalog_repository
     if tag_catalog_repository is None:
         tag_catalog_repository = JsonTagCatalogRepository(
             settings.data_root / "tag-catalog.json",
+            io_limiter=io_limiter,
         )
     tag_generator = resolved_overrides.tag_generator or RemoteParagraphTagger(
         model_client, model=settings.litellm_model_profile,
