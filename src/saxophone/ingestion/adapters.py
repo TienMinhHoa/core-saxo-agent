@@ -515,8 +515,15 @@ def _validated_chroma_rows(
             raise ValueError("Chroma result metadata chunk_id must match result id")
         if not _has_valid_reserved_metadata(metadata):
             raise ValueError("Chroma result reserved metadata must be non-blank strings")
-    if any(isinstance(item, bool) or not isinstance(item, (int, float)) or not math.isfinite(item) for item in distances):
+    if any(
+        isinstance(item, bool)
+        or not isinstance(item, (int, float))
+        or not math.isfinite(item)
+        for item in distances
+    ):
         raise ValueError("Chroma result distances must be finite numbers")
+    if any(item < 0 for item in distances):
+        raise ValueError("Chroma result distances must be non-negative")
     return ids, documents, metadatas, distances
 
 

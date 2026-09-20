@@ -676,6 +676,26 @@ async def test_chroma_vector_index_rejects_invalid_reserved_search_metadata(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("distance", [-0.1, -1])
+async def test_chroma_vector_index_rejects_negative_search_distances(
+    distance: float,
+) -> None:
+    class _NegativeDistanceCollection:
+        def query(self, **kwargs):
+            return {
+                "ids": [["chunk-1"]],
+                "documents": [["text"]],
+                "metadatas": [[{"chunk_id": "chunk-1"}]],
+                "distances": [[distance]],
+            }
+
+    index = ChromaVectorIndex(_NegativeDistanceCollection())
+
+    with pytest.raises(ValueError, match="non-negative"):
+        await index.search((0.3, 0.4), limit=1)
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     "result",
     [
