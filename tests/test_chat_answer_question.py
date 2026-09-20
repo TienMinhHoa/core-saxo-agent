@@ -116,6 +116,20 @@ def test_chat_result_rejects_mutable_or_untyped_citations() -> None:
         ChatResult(**base, citations="book-1")
 
 
+def test_chat_result_rejects_citations_when_evidence_is_insufficient() -> None:
+    with pytest.raises(ValueError, match="citations"):
+        ChatResult(
+            status=ChatStatus.INSUFFICIENT_EVIDENCE,
+            answer=None,
+            citations=("book-1",),
+            evidence_bundle_ref=None,
+            model_version=None,
+            token_usage={},
+            cost=0.0,
+            insufficiency_reason="no matching evidence",
+        )
+
+
 @pytest.mark.anyio
 async def test_answer_question_requires_a_safe_gate_for_image_evidence() -> None:
     class ImageRetriever(_Retriever):

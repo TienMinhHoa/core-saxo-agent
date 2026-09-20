@@ -53,6 +53,18 @@ Các lệnh trên chỉ chứng minh behavior offline và chất lượng checko
 không chứng minh remote model-service thật, credential, TLS/network policy hay
 deployment production.
 
+### Iteration 45 - chặn citations khi thiếu bằng chứng
+
+- Siết `ChatResult`: trạng thái `INSUFFICIENT_EVIDENCE` phải có citations rỗng,
+  tránh phát ra source refs khi không có evidence được grounding.
+- Bổ sung regression test tại `tests/test_chat_answer_question.py`; happy path
+  `ANSWERED` và nhánh không có hit vẫn giữ nguyên hành vi.
+- Xác minh: targeted **9 passed**; full suite **341 passed, 2 skipped, 1
+  warning**; `compileall` và `git diff --check` thành công.
+- Chi tiết: `docs/ITERATION_45_CHAT_INSUFFICIENT_CITATIONS.md`.
+- Live model-service smoke và production golden parity vẫn bị chặn bởi thiếu
+  endpoint, credential và catalog production thật.
+
 ## Ghi nhận iteration 2
 
 - Đã bổ sung lexical retrieval adapter in-memory, đọc header/content/tags từ metadata và trả về `ChunkHit` provider-independent.

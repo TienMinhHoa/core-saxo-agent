@@ -57,8 +57,12 @@ class ChatResult:
             _require_text("model_version", self.model_version)
             if not self.citations:
                 raise ValueError("answered result must contain citations")
-        elif self.answer is not None or self.evidence_bundle_ref is not None:
-            raise ValueError("insufficient result must not contain answer or evidence")
+        elif (
+            self.answer is not None
+            or self.evidence_bundle_ref is not None
+            or self.citations
+        ):
+            raise ValueError("insufficient result must not contain answer, evidence, or citations")
         if self.status is ChatStatus.INSUFFICIENT_EVIDENCE:
             _require_text("insufficiency_reason", self.insufficiency_reason)
         elif self.insufficiency_reason is not None:
