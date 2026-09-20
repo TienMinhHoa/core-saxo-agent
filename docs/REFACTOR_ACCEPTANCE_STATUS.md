@@ -9,7 +9,7 @@ khi có feature parity và quyết định migration riêng.
 
 - Các capability đích đã có trong package `src/saxophone`: composition root,
   extraction, ingestion, retrieval, chat, tagging, workflow và API adapters.
-- Bằng chứng offline hiện tại: `uv run pytest` đạt **347 passed, 2 skipped, 1 warning**;
+- Bằng chứng offline hiện tại: `uv run pytest` đạt **425 passed, 2 skipped**;
   `compileall` và `git diff --check` đã được chạy ở lát cắt gần nhất.
 - Chưa được phép kết luận production-ready: checkout không có remote
   model-service endpoint/credential để chạy live smoke thật. Trạng thái này
@@ -31,7 +31,7 @@ khi có feature parity và quyết định migration riêng.
 | 10 | Hybrid-ready retrieval | Đạt offline | `retrieval/adapters.py` có `InMemoryLexicalRetriever` và `HybridRetriever` (RRF); `tests/test_hybrid_retrieval.py` |
 | 11 | Giữ provenance/page/layout/image refs | Đạt offline | extraction models, Chroma sidecar contract và Phase 3/4 tests |
 | 12 | Output model không hợp lệ không fallback im lặng | Đạt offline | `test_phase_1_model_response_json_validation.py` và remote adapter tests |
-| 13 | Unit/contract/integration/API/golden offline | Đạt offline | `uv run pytest`: 347 passed, 2 skipped, 1 warning |
+| 13 | Unit/contract/integration/API/golden offline | Đạt offline | `uv run pytest`: 425 passed, 2 skipped |
 | 14 | Live model-service smoke được báo riêng | Đạt về tài liệu; chưa chạy live | `LIVE_MODEL_SERVICE_SMOKE_STATUS.md` |
 | 15 | Legacy chỉ xóa sau parity và quyết định migration | Có compatibility adapter; đã có golden parity offline tối thiểu, chưa có parity production | `retrieval/adapters.py`, `tests/test_hybrid_retrieval.py`, `tests/fixtures/golden/legacy_retrieval/catalog.json`, `docs/LEGACY_RETRIEVAL_PARITY.md`; chưa retire legacy |
 | 16 | Runtime đích không phụ thuộc frontend/UI | Đạt offline | `saxophone-api`, `test_phase_7_backend_entrypoint.py` |
@@ -40,6 +40,15 @@ khi có feature parity và quyết định migration riêng.
 | 19 | Backend chạy không GPU/CUDA/Paddle runtime | Đạt offline cho package đích | `test_phase_7_dependency_enforcement.py`; legacy extraction vẫn tách riêng |
 | 20 | OCR/VLM/embedding/LLM qua `LiteLLMModelClient`, có retry/validation | Đạt offline cho adapter đích | `platform/model_client.py`, remote adapter tests; live provider chưa xác minh |
 | 21 | Artifact URI/upload, size và checksum có kiểm soát | Đạt offline | `documents/models.py`, `platform/artifacts.py`, upload size/signature tests |
+
+### Iteration 74 — validate `document_ref` trước Chroma reconcile
+
+- `ChromaVectorIndex.list_chunk_ids()` hiện fail-closed với `document_ref` sai
+  kiểu hoặc blank trước khi gọi `collection.get()`.
+- Bổ sung 4 regression cases; targeted contract đạt **7 passed, 32 deselected**.
+- Chi tiết: `docs/ITERATION_74_CHROMA_DOCUMENT_REF_CONTRACT.md`.
+- Live model-service smoke và production golden parity vẫn bị chặn bởi thiếu
+  endpoint, credential và catalog production thật.
 
 ## Lệnh kiểm chứng
 

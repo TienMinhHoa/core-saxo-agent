@@ -305,8 +305,9 @@ class ChromaVectorIndex(VectorIndex):
                 close()
 
     async def list_chunk_ids(self, *, document_ref: str) -> tuple[str, ...]:
+        validated_document_ref = _validated_document_ref(document_ref)
         result = await anyio.to_thread.run_sync(
-            partial(self._collection.get, where={"document_ref": document_ref}),
+            partial(self._collection.get, where={"document_ref": validated_document_ref}),
             limiter=self._io_limiter,
         )
         ids = result.get("ids") if isinstance(result, Mapping) else None
@@ -442,6 +443,13 @@ def _validated_chunk_ids(chunk_ids: Sequence[str]) -> list[str]:
     if any(not isinstance(item, str) or not item.strip() for item in validated):
         raise ValueError("chunk_ids must be a sequence of non-blank strings")
     return validated
+
+
+def _validated_document_ref(document_ref: str) -> str:
+    """Validate the reconcile scope before issuing a provider read."""
+    if not isinstance(document_ref, str) or not document_ref.strip():
+        raise ValueError("document_ref must be a non-blank string")
+    return document_ref
 
 
 def _validated_query_vector(

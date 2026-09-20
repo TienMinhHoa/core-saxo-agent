@@ -388,6 +388,21 @@ async def test_chroma_list_chunk_ids_rejects_malformed_provider_ids(result) -> N
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("document_ref", ["", "   ", 42, None])
+async def test_chroma_list_chunk_ids_rejects_invalid_document_ref_before_provider_io(
+    document_ref,
+) -> None:
+    class _CollectionThatMustNotBeCalled:
+        def get(self, **kwargs):
+            raise AssertionError("invalid document_ref reached Chroma")
+
+    index = ChromaVectorIndex(_CollectionThatMustNotBeCalled())
+
+    with pytest.raises(ValueError, match="document_ref"):
+        await index.list_chunk_ids(document_ref=document_ref)
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("chunk_ids", ["chunk-1", ("",), ("chunk-1", 42)])
 async def test_chroma_delete_rejects_malformed_ids_before_provider_io(chunk_ids) -> None:
     class _CollectionThatMustNotBeCalled:
