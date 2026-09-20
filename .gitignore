@@ -35,6 +35,7 @@ docs/
 !docs/
 docs/*
 !docs/PHASE_2_WORKFLOW_JOB_CONTRACT.md
+!docs/PHASE_2_ARTIFACT_REFERENCE_CONTRACT.md
 
 # Logs and temporary files
 *.log
