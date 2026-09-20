@@ -44,6 +44,20 @@ class AppSettings:
         _validate_runtime_path(self.data_root, "data_root")
         _validate_runtime_path(self.chroma_persist_directory, "chroma_persist_directory")
         _validate_runtime_boolean(self.remote_gpu_tls_verify, "remote_gpu_tls_verify")
+        _validate_canonical_runtime_text(self.remote_gpu_base_url, "SAXO_REMOTE_GPU_BASE_URL")
+        _validate_canonical_runtime_text(
+            self.remote_gpu_bearer_token,
+            "SAXO_REMOTE_GPU_BEARER_TOKEN",
+        )
+        _validate_canonical_runtime_text(self.litellm_endpoint, "SAXO_LITELLM_ENDPOINT")
+        _validate_canonical_runtime_text(
+            self.litellm_model_profile,
+            "SAXO_LITELLM_MODEL_PROFILE",
+        )
+        _validate_canonical_runtime_text(
+            self.chroma_collection_name,
+            "SAXO_CHROMA_COLLECTION_NAME",
+        )
         _parse_remote_gpu_base_url(self.remote_gpu_base_url)
         _parse_required_token(self.remote_gpu_bearer_token)
         _validate_optional_runtime_text(self.litellm_endpoint, "SAXO_LITELLM_ENDPOINT")
@@ -336,6 +350,12 @@ def _parse_collection_name(value: str | None) -> str:
 def _validate_optional_runtime_text(value: object, variable: str) -> None:
     if value is not None and not isinstance(value, str):
         raise SettingsValidationError(f"{variable} must be text")
+
+
+def _validate_canonical_runtime_text(value: object, variable: str) -> None:
+    _validate_optional_runtime_text(value, variable)
+    if isinstance(value, str) and value != value.strip():
+        raise SettingsValidationError(f"{variable} must not contain surrounding whitespace")
 
 
 def _parse_non_negative_float(

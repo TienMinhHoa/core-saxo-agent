@@ -473,6 +473,34 @@ def test_direct_settings_construction_rejects_invalid_text_runtime_types(
 
 
 @pytest.mark.parametrize(
+    ("field_name", "value", "error_marker"),
+    [
+        ("remote_gpu_base_url", " https://gpu.example.test ", "SAXO_REMOTE_GPU_BASE_URL"),
+        ("remote_gpu_bearer_token", " secret ", "SAXO_REMOTE_GPU_BEARER_TOKEN"),
+        ("litellm_endpoint", " https://llm.example.test/v1/invoke ", "SAXO_LITELLM_ENDPOINT"),
+        ("litellm_model_profile", " saxophone-default ", "SAXO_LITELLM_MODEL_PROFILE"),
+        ("chroma_collection_name", " saxophone_chunks ", "SAXO_CHROMA_COLLECTION_NAME"),
+    ],
+)
+def test_direct_settings_construction_rejects_non_canonical_text(
+    field_name: str,
+    value: str,
+    error_marker: str,
+) -> None:
+    values = {
+        "data_root": Path("runtime/saxophone"),
+        "remote_gpu_base_url": "https://gpu.example.test",
+        "remote_gpu_bearer_token": "secret",
+    }
+    values[field_name] = value
+
+    with pytest.raises(SettingsValidationError) as error:
+        AppSettings(**values)
+
+    assert error_marker in str(error.value)
+
+
+@pytest.mark.parametrize(
     "environment",
     [
         {**VALID_ENVIRONMENT, "SAXO_DATA_ROOT": Path("runtime/saxophone")},
