@@ -101,6 +101,10 @@ class LocalArtifactRepository:
     def _write_atomically(self, artifact: ArtifactRef, payload: bytes) -> None:
         path = self._path_for(artifact)
         path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists():
+            if path.read_bytes() == payload:
+                return
+            raise FileExistsError("artifact identity is immutable")
         fd, temporary_name = tempfile.mkstemp(
             prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
         )

@@ -81,6 +81,25 @@ def test_get_rejects_tampered_payload_against_immutable_metadata(tmp_path: Path)
         asyncio.run(repository.get(artifact))
 
 
+def test_put_is_idempotent_for_same_bytes_but_rejects_replacement(tmp_path: Path) -> None:
+    repository = LocalArtifactRepository(tmp_path)
+    artifact = _artifact()
+    replacement = ArtifactRef(
+        artifact_id=artifact.artifact_id,
+        version=artifact.version,
+        kind=artifact.kind,
+        media_type=artifact.media_type,
+        sha256=hashlib.sha256(b"7654321").hexdigest(),
+        size_bytes=7,
+    )
+
+    asyncio.run(repository.put(artifact, b"1234567"))
+    asyncio.run(repository.put(artifact, b"1234567"))
+
+    with pytest.raises(FileExistsError, match="immutable"):
+        asyncio.run(repository.put(replacement, b"7654321"))
+
+
 def test_local_repository_bounds_concurrent_blocking_writes(tmp_path: Path) -> None:
     repository = LocalArtifactRepository(
         tmp_path,
