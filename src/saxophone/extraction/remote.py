@@ -34,6 +34,8 @@ class RemotePdfExtractor:
         return self._model
 
     async def extract(self, request: PdfExtractionRequest) -> PdfExtractionResult:
+        if not isinstance(request, PdfExtractionRequest):
+            raise ValueError("request must be a PdfExtractionRequest")
         response = await self._model_client.invoke(
             ModelRequest(
                 model=self._model,

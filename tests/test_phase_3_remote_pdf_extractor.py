@@ -180,3 +180,16 @@ def test_remote_pdf_extractor_rejects_source_version_drift() -> None:
 
     with pytest.raises(ValueError, match="source_version"):
         asyncio.run(RemotePdfExtractor(FakeClient(), model="extractor-v1").extract(_request()))
+
+
+def test_remote_pdf_extractor_rejects_wrong_request_runtime_type() -> None:
+    class FakeClient:
+        async def invoke(self, request: ModelRequest) -> ModelResponse:
+            raise AssertionError("provider must not be called for an invalid request")
+
+    with pytest.raises(ValueError, match="request must be a PdfExtractionRequest"):
+        asyncio.run(
+            RemotePdfExtractor(FakeClient(), model="extractor-v1").extract(
+                object()  # type: ignore[arg-type]
+            )
+        )
