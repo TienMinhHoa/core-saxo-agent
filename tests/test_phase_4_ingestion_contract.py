@@ -626,6 +626,33 @@ async def test_chroma_vector_index_rejects_search_metadata_without_chunk_identit
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
+    "metadata",
+    [
+        {"chunk_id": "chunk-1", "document_ref": " "},
+        {"chunk_id": "chunk-1", "source_version": 42},
+        {"chunk_id": "chunk-1", "access_scope": []},
+    ],
+)
+async def test_chroma_vector_index_rejects_invalid_reserved_search_metadata(
+    metadata,
+) -> None:
+    class _InvalidReservedMetadataCollection:
+        def query(self, **kwargs):
+            return {
+                "ids": [["chunk-1"]],
+                "documents": [["text"]],
+                "metadatas": [[metadata]],
+                "distances": [[0.1]],
+            }
+
+    index = ChromaVectorIndex(_InvalidReservedMetadataCollection())
+
+    with pytest.raises(ValueError, match="reserved metadata"):
+        await index.search((0.3, 0.4), limit=1)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
     "result",
     [
         {"ids": "chunk-1"},

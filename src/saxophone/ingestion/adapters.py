@@ -510,9 +510,26 @@ def _validated_chroma_rows(
             raise ValueError("Chroma result metadata chunk_id must be a non-blank string")
         if metadata_chunk_id != chunk_id:
             raise ValueError("Chroma result metadata chunk_id must match result id")
+        if not _has_valid_reserved_metadata(metadata):
+            raise ValueError("Chroma result reserved metadata must be non-blank strings")
     if any(isinstance(item, bool) or not isinstance(item, (int, float)) or not math.isfinite(item) for item in distances):
         raise ValueError("Chroma result distances must be finite numbers")
     return ids, documents, metadatas, distances
+
+
+def _has_valid_reserved_metadata(value: Mapping[object, object]) -> bool:
+    """Reject malformed reserved identity fields returned by the provider."""
+    reserved_keys = (
+        "document_ref",
+        "source_version",
+        "embedding_profile",
+        "access_scope",
+    )
+    return all(
+        key not in value
+        or isinstance(value[key], str) and bool(value[key].strip())
+        for key in reserved_keys
+    )
 
 
 def _is_valid_chroma_metadata_mapping(value: Mapping[object, object]) -> bool:
