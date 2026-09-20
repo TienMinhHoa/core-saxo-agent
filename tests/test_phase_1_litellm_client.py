@@ -107,6 +107,17 @@ async def test_litellm_client_rejects_non_callable_injected_dependencies(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("http_client", [object(), type("Transport", (), {"post": object()})()])
+async def test_litellm_client_rejects_transport_without_callable_post(http_client: object) -> None:
+    with pytest.raises(ValueError, match="http_client.post"):
+        LiteLLMModelClient(
+            "https://model.example.test/v1/invoke",
+            http_client=http_client,  # type: ignore[arg-type]
+            bearer_token="secret-token",
+        )
+
+
+@pytest.mark.anyio
 async def test_litellm_client_sends_typed_envelope_and_maps_response() -> None:
     requests: list[httpx.Request] = []
 

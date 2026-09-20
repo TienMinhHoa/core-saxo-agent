@@ -180,6 +180,8 @@ class LiteLLMModelClient:
             raise ValueError("endpoint must not be empty")
         if not isinstance(bearer_token, str) or not bearer_token.strip():
             raise ValueError("bearer_token must not be empty")
+        if not callable(getattr(http_client, "post", None)):
+            raise ValueError("http_client.post must be callable")
         if not callable(jitter_source):
             raise ValueError("jitter_source must be callable")
         if not callable(monotonic_clock):
