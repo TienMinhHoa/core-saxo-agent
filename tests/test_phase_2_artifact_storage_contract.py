@@ -48,6 +48,21 @@ def test_put_rejects_payload_that_does_not_match_declared_size_or_digest(
         asyncio.run(repository.put(_artifact(), b"7654321"))
 
 
+@pytest.mark.parametrize("method", ["put", "get"])
+def test_repository_rejects_non_artifact_reference_before_storage_io(
+    tmp_path: Path, method: str
+) -> None:
+    repository = LocalArtifactRepository(tmp_path)
+
+    with pytest.raises(ValueError, match="artifact must be an ArtifactRef"):
+        if method == "put":
+            asyncio.run(repository.put(object(), b"1234567"))  # type: ignore[arg-type]
+        else:
+            asyncio.run(repository.get(object()))  # type: ignore[arg-type]
+
+    assert list(tmp_path.rglob("*")) == []
+
+
 @pytest.mark.parametrize("payload", ["1234567", bytearray(b"1234567"), memoryview(b"1234567")])
 def test_put_rejects_non_bytes_payload_before_storage_io(
     tmp_path: Path, payload: object

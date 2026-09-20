@@ -67,6 +67,7 @@ class LocalArtifactRepository:
         self._io_limiter = io_limiter or create_blocking_io_limiter()
 
     async def put(self, artifact: ArtifactRef, payload: bytes) -> None:
+        _require_artifact_ref(artifact)
         self._validate_payload(artifact, payload)
         await anyio.to_thread.run_sync(
             self._write_atomically,
@@ -76,6 +77,7 @@ class LocalArtifactRepository:
         )
 
     async def get(self, artifact: ArtifactRef) -> bytes:
+        _require_artifact_ref(artifact)
         path = self._path_for(artifact)
         payload = await anyio.to_thread.run_sync(
             path.read_bytes,
@@ -126,3 +128,8 @@ def _validate_payload(artifact: ArtifactRef, payload: bytes) -> None:
     digest = hashlib.sha256(payload).hexdigest()
     if digest != artifact.sha256:
         raise ValueError("payload sha256 does not match artifact metadata")
+
+
+def _require_artifact_ref(artifact: object) -> None:
+    if not isinstance(artifact, ArtifactRef):
+        raise ValueError("artifact must be an ArtifactRef")
