@@ -82,11 +82,18 @@ class LocalArtifactRepository:
         _require_artifact_ref(artifact)
         path = self._path_for(artifact)
         payload = await anyio.to_thread.run_sync(
-            path.read_bytes,
+            self._read_file,
+            path,
             limiter=self._io_limiter,
         )
         self._validate_payload(artifact, payload)
         return payload
+
+    @staticmethod
+    def _read_file(path: Path) -> bytes:
+        if not path.is_file():
+            raise FileExistsError("artifact identity is not a file")
+        return path.read_bytes()
 
     def _path_for(self, artifact: ArtifactRef) -> Path:
         relative = Path(artifact.artifact_id) / artifact.version

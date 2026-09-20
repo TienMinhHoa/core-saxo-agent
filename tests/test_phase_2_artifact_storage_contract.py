@@ -140,6 +140,18 @@ def test_put_rejects_existing_directory_at_immutable_artifact_path(
     assert list(tmp_path.rglob("*.tmp")) == []
 
 
+def test_get_rejects_directory_at_immutable_artifact_path(
+    tmp_path: Path,
+) -> None:
+    repository = LocalArtifactRepository(tmp_path)
+    artifact = _artifact()
+    destination = tmp_path / artifact.artifact_id / artifact.version
+    destination.mkdir(parents=True)
+
+    with pytest.raises(FileExistsError, match="not a file"):
+        asyncio.run(repository.get(artifact))
+
+
 def test_atomic_commit_does_not_replace_file_created_after_existence_check(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
