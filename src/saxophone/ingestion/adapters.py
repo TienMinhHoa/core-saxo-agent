@@ -356,10 +356,14 @@ class ChromaVectorIndex(VectorIndex):
     ) -> list[VectorHit]:
         if limit < 1:
             return []
+        validated_vector = _validated_query_vector(
+            query_vector,
+            expected_dimension=self._embedding_dimension,
+        )
         result = await anyio.to_thread.run_sync(
             partial(
                 self._collection.query,
-            query_embeddings=[list(query_vector)],
+            query_embeddings=[validated_vector],
             where=filters,
             n_results=limit,
             include=["documents", "metadatas", "distances"],
@@ -426,3 +430,21 @@ def _validated_chunk_ids(chunk_ids: Sequence[str]) -> list[str]:
     if any(not isinstance(item, str) or not item.strip() for item in validated):
         raise ValueError("chunk_ids must be a sequence of non-blank strings")
     return validated
+
+
+def _validated_query_vector(
+    query_vector: Sequence[float], *, expected_dimension: int | None
+) -> list[float]:
+    if isinstance(query_vector, (str, bytes)) or not isinstance(query_vector, Sequence):
+        raise ValueError("query_vector must be a non-empty sequence of finite numbers")
+    validated = list(query_vector)
+    if not validated or any(
+        isinstance(item, bool)
+        or not isinstance(item, (int, float))
+        or not math.isfinite(item)
+        for item in validated
+    ):
+        raise ValueError("query_vector must be a non-empty sequence of finite numbers")
+    if expected_dimension is not None and len(validated) != expected_dimension:
+        raise ValueError("query vector dimension does not match the configured Chroma collection")
+    return [float(item) for item in validated]

@@ -302,6 +302,31 @@ async def test_chroma_search_passes_shared_blocking_io_limiter(monkeypatch) -> N
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("query_vector", [(), (True, 0.4), (0.3, float("nan")), "0.3"])
+async def test_chroma_search_rejects_malformed_query_vector_before_provider_io(query_vector) -> None:
+    class _CollectionThatMustNotBeCalled:
+        def query(self, **kwargs):
+            raise AssertionError("malformed query vector reached Chroma")
+
+    index = ChromaVectorIndex(_CollectionThatMustNotBeCalled())
+
+    with pytest.raises(ValueError, match="query_vector"):
+        await index.search(query_vector, limit=1)
+
+
+@pytest.mark.anyio
+async def test_chroma_search_rejects_query_dimension_before_provider_io() -> None:
+    class _CollectionThatMustNotBeCalled:
+        def query(self, **kwargs):
+            raise AssertionError("wrong dimension reached Chroma")
+
+    index = ChromaVectorIndex(_CollectionThatMustNotBeCalled(), embedding_dimension=3)
+
+    with pytest.raises(ValueError, match="query vector dimension"):
+        await index.search((0.3, 0.4), limit=1)
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     "result",
     [
