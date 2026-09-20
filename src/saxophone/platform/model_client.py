@@ -39,6 +39,8 @@ class ModelTask(StrEnum):
 def _immutable_mapping(value: Mapping[str, object], field_name: str) -> Mapping[str, object]:
     if not isinstance(value, Mapping):
         raise ModelValidationError(f"{field_name} must be a mapping")
+    if any(not isinstance(key, str) for key in value):
+        raise ModelValidationError(f"{field_name} keys must be strings")
     return MappingProxyType(dict(value))
 
 

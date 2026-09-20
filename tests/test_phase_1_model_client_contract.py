@@ -76,6 +76,32 @@ def test_model_request_rejects_invalid_boundary_values(kwargs: dict[str, object]
         ModelRequest(**kwargs)  # type: ignore[arg-type]
 
 
+@pytest.mark.parametrize("field", ["input", "metadata"])
+def test_model_request_rejects_non_string_envelope_keys(field: str) -> None:
+    values: dict[str, object] = {
+        "model": "embed-v1",
+        "task": ModelTask.EMBED,
+        "input": {},
+        "metadata": {},
+        "response_schema": "v1",
+    }
+    values[field] = {1: "malformed"}
+
+    with pytest.raises(ModelValidationError, match=field):
+        ModelRequest(**values)  # type: ignore[arg-type]
+
+
+def test_model_response_rejects_non_string_output_keys() -> None:
+    with pytest.raises(ModelValidationError, match="output keys"):
+        ModelResponse(
+            task=ModelTask.EMBED,
+            model="embed-v1",
+            response_schema="v1",
+            output={1: "malformed"},  # type: ignore[dict-item]
+            source_version="source-v1",
+        )
+
+
 def test_model_client_protocol_is_async_and_fake_can_return_validated_response() -> None:
     class FakeModelClient:
         async def invoke(self, request: ModelRequest) -> ModelResponse:
