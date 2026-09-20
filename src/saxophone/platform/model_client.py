@@ -86,20 +86,12 @@ class ModelRequest:
     idempotency_key: str | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.model, str) or not self.model.strip():
-            raise ModelValidationError("model must not be empty")
+        _require_canonical_text("model", self.model)
         if not isinstance(self.task, ModelTask):
             raise ModelValidationError("task must be a ModelTask")
-        if not isinstance(self.response_schema, str) or not self.response_schema.strip():
-            raise ModelValidationError("response_schema must not be empty")
-        if self.idempotency_key is not None and (
-            not isinstance(self.idempotency_key, str) or not self.idempotency_key.strip()
-        ):
-            raise ModelValidationError("idempotency_key must be non-blank when provided")
-        object.__setattr__(self, "model", self.model.strip())
-        object.__setattr__(self, "response_schema", self.response_schema.strip())
+        _require_canonical_text("response_schema", self.response_schema)
         if self.idempotency_key is not None:
-            object.__setattr__(self, "idempotency_key", self.idempotency_key.strip())
+            _require_canonical_text("idempotency_key", self.idempotency_key)
         object.__setattr__(self, "input", _immutable_mapping(self.input, "input"))
         object.__setattr__(self, "metadata", _immutable_mapping(self.metadata, "metadata"))
 

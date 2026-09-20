@@ -19,7 +19,7 @@ def test_model_request_preserves_typed_task_and_immutable_payload() -> None:
         input={"document_ref": "doc-1"},
         metadata={"source_version": "sha256:abc"},
         response_schema="pdf-extraction-v1",
-        idempotency_key=" correlation-1 ",
+        idempotency_key="correlation-1",
     )
 
     assert request.task is ModelTask.PDF_EXTRACT
@@ -74,6 +74,23 @@ def test_model_response_rejects_non_canonical_contract_text(field: str, value: s
 def test_model_request_rejects_invalid_boundary_values(kwargs: dict[str, object]) -> None:
     with pytest.raises(ModelValidationError):
         ModelRequest(**kwargs)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("field", ["model", "response_schema", "idempotency_key"])
+@pytest.mark.parametrize("value", [" value ", "value\n", "e\u0301"])
+def test_model_request_rejects_non_canonical_text(field: str, value: str) -> None:
+    values: dict[str, object] = {
+        "model": "embed-v1",
+        "task": ModelTask.EMBED,
+        "input": {},
+        "metadata": {},
+        "response_schema": "embedding-v1",
+        "idempotency_key": "request-1",
+    }
+    values[field] = value
+
+    with pytest.raises(ModelValidationError, match=field):
+        ModelRequest(**values)  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize("field", ["input", "metadata"])
