@@ -1,0 +1,49 @@
+"""Architecture dependency rules for the modular-monolith boundary."""
+
+from __future__ import annotations
+
+import ast
+from pathlib import Path
+
+
+SOURCE_ROOT = Path(__file__).parents[1] / "src" / "saxophone"
+FORBIDDEN_PROVIDER_ROOTS = frozenset(
+    {"chromadb", "gradio", "httpx", "openai", "paddle", "paddlex", "torch"}
+)
+
+
+def _import_roots(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    roots: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            roots.update(alias.name.split(".", 1)[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            roots.add(node.module.split(".", 1)[0])
+    return roots
+
+
+def test_fastapi_inbound_adapter_does_not_import_provider_sdks() -> None:
+    imports = _import_roots(SOURCE_ROOT / "interfaces" / "api.py")
+
+    assert imports.isdisjoint(FORBIDDEN_PROVIDER_ROOTS)
+
+
+def test_application_use_cases_do_not_import_provider_sdks() -> None:
+    use_case_files = (
+        SOURCE_ROOT / "chat" / "service.py",
+        SOURCE_ROOT / "extraction" / "remote.py",
+        SOURCE_ROOT / "ingestion" / "use_cases.py",
+        SOURCE_ROOT / "retrieval" / "use_cases.py",
+        SOURCE_ROOT / "tagging" / "use_cases.py",
+        SOURCE_ROOT / "workflows" / "process_document.py",
+        SOURCE_ROOT / "workflows" / "ingest_extracted_document.py",
+    )
+
+    violations = {
+        str(path.relative_to(SOURCE_ROOT)): sorted(_import_roots(path) & FORBIDDEN_PROVIDER_ROOTS)
+        for path in use_case_files
+        if _import_roots(path) & FORBIDDEN_PROVIDER_ROOTS
+    }
+
+    assert violations == {}
