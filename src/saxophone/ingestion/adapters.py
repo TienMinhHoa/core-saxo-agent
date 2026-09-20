@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from contextlib import contextmanager
 from functools import partial
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Iterator, Mapping, Sequence
 
 import anyio
 
@@ -50,7 +51,7 @@ class InMemoryEmbeddingReuseStore(EmbeddingReuseStore):
 
 
 class FileEmbeddingReuseStore(EmbeddingReuseStore):
-    """Durable single-process embedding cache with atomic JSON replacement.
+    """Durable embedding cache with atomic replacement and process locking.
 
     The file stores only validated ``ChunkIndexRecord`` projections. A missing
     file means an empty cache; malformed persisted data fails loudly so a
@@ -61,6 +62,7 @@ class FileEmbeddingReuseStore(EmbeddingReuseStore):
         self._path = Path(path)
         if self._path.name in {"", ".", ".."}:
             raise ValueError("embedding reuse store path must name a file")
+        self._lock_path = self._path.with_name(f".{self._path.name}.lock")
 
     @property
     def path(self) -> Path:
@@ -83,6 +85,10 @@ class FileEmbeddingReuseStore(EmbeddingReuseStore):
         await anyio.to_thread.run_sync(partial(self._save, new_records))
 
     def _read(self) -> dict[tuple[str, str, str, str], ChunkIndexRecord]:
+        with self._file_lock():
+            return self._read_unlocked()
+
+    def _read_unlocked(self) -> dict[tuple[str, str, str, str], ChunkIndexRecord]:
         if not self._path.exists():
             return {}
         try:
@@ -95,30 +101,58 @@ class FileEmbeddingReuseStore(EmbeddingReuseStore):
         return {self._key(record): record for record in records}
 
     def _save(self, records: Sequence[ChunkIndexRecord]) -> None:
-        merged = self._read()
-        for record in records:
-            merged[self._key(record)] = record
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        fd, temporary_name = tempfile.mkstemp(
-            prefix=f".{self._path.name}.", suffix=".tmp", dir=self._path.parent
-        )
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as temporary:
-                json.dump(
-                    [self._encode(record) for record in merged.values()],
-                    temporary,
-                    ensure_ascii=False,
-                    sort_keys=True,
-                )
-                temporary.flush()
-                os.fsync(temporary.fileno())
-            os.replace(temporary_name, self._path)
-        except BaseException:
+        with self._file_lock():
+            merged = self._read_unlocked()
+            for record in records:
+                merged[self._key(record)] = record
+            fd, temporary_name = tempfile.mkstemp(
+                prefix=f".{self._path.name}.", suffix=".tmp", dir=self._path.parent
+            )
             try:
-                os.unlink(temporary_name)
-            except FileNotFoundError:
-                pass
-            raise
+                with os.fdopen(fd, "w", encoding="utf-8") as temporary:
+                    json.dump(
+                        [self._encode(record) for record in merged.values()],
+                        temporary,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    )
+                    temporary.flush()
+                    os.fsync(temporary.fileno())
+                os.replace(temporary_name, self._path)
+            except BaseException:
+                try:
+                    os.unlink(temporary_name)
+                except FileNotFoundError:
+                    pass
+                raise
+
+    @contextmanager
+    def _file_lock(self) -> Iterator[None]:
+        """Serialize read-modify-write cycles across processes."""
+        self._lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with self._lock_path.open("a+b") as lock_file:
+            lock_file.seek(0)
+            lock_file.write(b"0")
+            lock_file.flush()
+            if os.name == "nt":
+                import msvcrt
+
+                lock_file.seek(0)
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+                try:
+                    yield
+                finally:
+                    lock_file.seek(0)
+                    msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
     @staticmethod
     def _key(record: IndexInputRecord | ChunkIndexRecord) -> tuple[str, str, str, str]:

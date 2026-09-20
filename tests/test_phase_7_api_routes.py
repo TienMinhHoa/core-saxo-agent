@@ -10,6 +10,7 @@ from saxophone.chat.models import ChatResult, ChatStatus
 from saxophone.documents.models import ArtifactKind, ArtifactRef
 from saxophone.documents.ports import ArtifactRepository
 from saxophone.extraction.models import PdfExtractionResult
+from saxophone.ingestion.adapters import InMemoryEmbeddingReuseStore
 from saxophone.ingestion.models import EmbeddingRecord
 from saxophone.ingestion.use_cases import IngestDocument, IndexDocument
 from saxophone.retrieval.models import EvidenceBundle
@@ -568,6 +569,7 @@ def test_document_ingest_route_indexes_chunks_and_returns_report() -> None:
             model_client=FakeModelClient(),
             embedding_provider=embedding_provider,
             vector_index=vector_index,
+            embedding_reuse=InMemoryEmbeddingReuseStore(),
         ),
     )
 

@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
+import anyio
 import pytest
 
-from saxophone.ingestion.models import EmbeddingRecord, IndexInputRecord, IngestionCommand
+from saxophone.ingestion.models import (
+    ChunkIndexRecord,
+    EmbeddingRecord,
+    IndexInputRecord,
+    IngestionCommand,
+)
 from saxophone.ingestion.adapters import FileEmbeddingReuseStore, InMemoryEmbeddingReuseStore
 from saxophone.ingestion.use_cases import IndexDocument
 
@@ -230,3 +238,36 @@ async def test_file_embedding_reuse_store_rejects_corrupt_payload(tmp_path) -> N
 
     with pytest.raises(ValueError, match="embedding reuse store"):
         await FileEmbeddingReuseStore(path).find([_record()])
+
+
+@pytest.mark.anyio
+async def test_file_embedding_reuse_store_serializes_concurrent_writers(tmp_path) -> None:
+    path = tmp_path / "embedding-reuse.json"
+    first = ChunkIndexRecord(
+        chunk_id="chunk-1",
+        document_ref="doc-1",
+        source_version="source-v1",
+        search_text="A musical phrase",
+        embedding=(0.9, 0.8),
+        embedding_profile="embed-v1",
+        access_scope="tenant-a",
+        metadata={},
+    )
+    second = replace(first, chunk_id="chunk-2", embedding=(0.1, 0.2))
+    first_store = FileEmbeddingReuseStore(path)
+    second_store = FileEmbeddingReuseStore(path)
+
+    async def save(store, record) -> None:
+        await store.save((record,))
+
+    async with anyio.create_task_group() as tasks:
+        tasks.start_soon(save, first_store, first)
+        tasks.start_soon(save, second_store, second)
+
+    records = await first_store.find(
+        [
+            _record(),
+            replace(_record(), chunk_id="chunk-2", search_text="A musical phrase"),
+        ]
+    )
+    assert set(records) == {"chunk-1", "chunk-2"}
