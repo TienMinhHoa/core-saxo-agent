@@ -251,6 +251,7 @@ def test_health_uses_override_and_returns_stable_disabled_capabilities() -> None
     assert response.status_code == 200
     assert response.json() == {
         "app": "ready",
+        "model_service": "degraded",
         "remote_gpu": "degraded",
         "remote_gpu_capabilities": ["embed"],
         "extraction": "ready",

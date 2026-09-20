@@ -229,6 +229,10 @@ def create_app(
         remote_gpu = await container.remote_gpu_gateway.health()
         return {
             "app": "ready",
+            # ``model_service`` is the architecture-level name. Keep the
+            # older ``remote_gpu`` field during the strangler migration so
+            # existing health consumers remain compatible.
+            "model_service": remote_gpu.status,
             "remote_gpu": remote_gpu.status,
             "remote_gpu_capabilities": list(remote_gpu.capabilities),
             "extraction": (

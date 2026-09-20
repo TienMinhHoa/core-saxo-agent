@@ -510,6 +510,31 @@ def test_capability_routes_are_explicitly_unavailable_until_composed() -> None:
     assert response.json() == {"detail": "chat capability is not configured"}
 
 
+def test_health_exposes_architecture_capabilities_without_provider_secrets() -> None:
+    app = create_app(
+        settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=FakeRemoteGpuGateway(),
+            model_client=FakeModelClient(),
+        ),
+    )
+
+    response = TestClient(app).get("/api/v1/health")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "app": "ready",
+        "model_service": "ready",
+        "remote_gpu": "ready",
+        "remote_gpu_capabilities": ["chat"],
+        "extraction": "ready",
+        "ingestion": "disabled",
+        "retrieval": "disabled",
+        "chat": "disabled",
+    }
+    assert "secret-token" not in response.text
+
+
 def test_source_upload_persists_pdf_and_returns_typed_artifact_reference() -> None:
     artifacts = FakeArtifacts(b"", puts=[])
     app = create_app(
