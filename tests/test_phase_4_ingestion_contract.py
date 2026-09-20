@@ -275,3 +275,44 @@ async def test_chroma_search_passes_shared_blocking_io_limiter(monkeypatch) -> N
     await index.search((0.3, 0.4), limit=1)
 
     assert calls[-1]["limiter"] is limiter
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "result",
+    [
+        {"ids": ["chunk-1"]},
+        {
+            "ids": [["chunk-1"]],
+            "documents": [["text"]],
+            "metadatas": [[{}]],
+        },
+        {
+            "ids": [["chunk-1"]],
+            "documents": [[42]],
+            "metadatas": [[{}]],
+            "distances": [[0.1]],
+        },
+        {
+            "ids": [["chunk-1"]],
+            "documents": [["text"]],
+            "metadatas": [["not-metadata"]],
+            "distances": [[0.1]],
+        },
+        {
+            "ids": [["chunk-1"]],
+            "documents": [["text"]],
+            "metadatas": [[{}]],
+            "distances": [[float("nan")]],
+        },
+    ],
+)
+async def test_chroma_vector_index_rejects_malformed_search_results(result) -> None:
+    class _MalformedCollection:
+        def query(self, **kwargs):
+            return result
+
+    index = ChromaVectorIndex(_MalformedCollection())
+
+    with pytest.raises(ValueError, match="Chroma result"):
+        await index.search((0.3, 0.4), limit=1)

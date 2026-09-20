@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import tempfile
 from contextlib import contextmanager
@@ -363,18 +364,39 @@ class ChromaVectorIndex(VectorIndex):
 
     @staticmethod
     def _hits(result: Any) -> list[VectorHit]:
-        ids = (result.get("ids") or [[]])[0]
-        documents = (result.get("documents") or [[]])[0]
-        metadatas = (result.get("metadatas") or [[]])[0]
-        distances = (result.get("distances") or [[]])[0]
+        ids, documents, metadatas, distances = _validated_chroma_rows(result)
         return [
             VectorHit(
                 chunk_id=chunk_id,
-                document=document or "",
-                metadata=metadata or {},
+                document=document,
+                metadata=metadata,
                 distance=distance,
             )
-            for chunk_id, document, metadata, distance in zip(
-                ids, documents, metadatas, distances
-            )
+            for chunk_id, document, metadata, distance in zip(ids, documents, metadatas, distances)
         ]
+
+
+def _validated_chroma_rows(
+    result: Any,
+) -> tuple[list[str], list[str], list[Mapping[str, object]], list[float]]:
+    if not isinstance(result, Mapping):
+        raise ValueError("Chroma result must be a mapping")
+    rows: list[list[object]] = []
+    for field in ("ids", "documents", "metadatas", "distances"):
+        value = result.get(field)
+        if not isinstance(value, list) or len(value) != 1 or not isinstance(value[0], list):
+            raise ValueError(f"Chroma result {field} must be one nested list")
+        rows.append(value[0])
+    if len({len(row) for row in rows}) != 1:
+        raise ValueError("Chroma result rows must have equal lengths")
+
+    ids, documents, metadatas, distances = rows
+    if any(not isinstance(item, str) or not item.strip() for item in ids):
+        raise ValueError("Chroma result ids must be non-blank strings")
+    if any(not isinstance(item, str) for item in documents):
+        raise ValueError("Chroma result documents must contain strings")
+    if any(not isinstance(item, Mapping) for item in metadatas):
+        raise ValueError("Chroma result metadatas must contain mappings")
+    if any(isinstance(item, bool) or not isinstance(item, (int, float)) or not math.isfinite(item) for item in distances):
+        raise ValueError("Chroma result distances must be finite numbers")
+    return ids, documents, metadatas, distances

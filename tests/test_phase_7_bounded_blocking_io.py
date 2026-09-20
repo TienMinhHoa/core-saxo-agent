@@ -26,6 +26,7 @@ def test_chroma_blocking_query_does_not_starve_event_loop() -> None:
         def query(self, **_: object) -> dict[str, list[list[object]]]:
             time.sleep(0.08)
             return {
+                "ids": [["chunk-1"]],
                 "documents": [["slow result"]],
                 "metadatas": [[{"chunk_id": "chunk-1", "document_ref": "doc-1"}]],
                 "distances": [[0.0]],
