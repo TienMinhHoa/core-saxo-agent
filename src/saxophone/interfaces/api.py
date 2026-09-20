@@ -95,6 +95,11 @@ def build_capability_router(
         )
         return _evidence_response(evidence)
 
+    @router.post("/search")
+    async def search(request: QueryRequest) -> dict[str, object]:
+        """Expose the architecture-plan name over the retrieval facade."""
+        return await retrieve(request)
+
     @router.post("/chat")
     async def chat(request: ChatRequest) -> dict[str, object]:
         if answer_question is None:

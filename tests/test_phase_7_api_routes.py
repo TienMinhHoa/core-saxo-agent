@@ -560,6 +560,35 @@ def test_retrieval_route_returns_validated_evidence_projection() -> None:
     assert retriever.calls == [("harmony", 3)]
 
 
+def test_search_route_is_target_contract_alias_for_retrieval_facade() -> None:
+    evidence = EvidenceBundle(
+        query="harmony",
+        retrieval_version="retrieval-v1",
+        hits=(),
+        selected_refs=(),
+        source_texts={},
+        insufficiency_reason="no matching evidence",
+    )
+    retriever = FakeRetrieveEvidence(evidence, [])
+    app = create_app(
+        settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=FakeRemoteGpuGateway(),
+            model_client=FakeModelClient(),
+            retrieve_evidence=retriever,
+        ),
+    )
+
+    response = TestClient(app).post(
+        "/api/v1/search",
+        json={"query": "  harmony  ", "limit": 3},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["query"] == "harmony"
+    assert retriever.calls == [("harmony", 3)]
+
+
 def test_chat_route_returns_safe_chat_result_without_private_reasoning() -> None:
     answerer = FakeAnswerQuestion(
         ChatResult(
