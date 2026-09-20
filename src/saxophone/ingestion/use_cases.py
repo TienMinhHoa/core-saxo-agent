@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 
-from .models import ChunkIndexRecord, EmbeddingRecord, IngestionCommand, IngestionReport
+from saxophone.tagging.models import TaggedParagraph
+
+from .models import (
+    ChunkIndexRecord,
+    EmbeddingRecord,
+    IndexInputRecord,
+    IngestionCommand,
+    IngestionReport,
+    IngestionSourceChunk,
+)
 from .ports import EmbeddingProvider, VectorIndex
 
 
@@ -129,3 +138,60 @@ class IndexDocument:
                 raise ValueError("all records must match the command embedding profile")
             if record.access_scope != command.access_scope:
                 raise ValueError("all records must match the command access scope")
+
+
+def build_index_inputs(
+    command: IngestionCommand,
+    chunks: Sequence[IngestionSourceChunk],
+    tagged_paragraphs: Mapping[str, TaggedParagraph],
+) -> tuple[IndexInputRecord, ...]:
+    """Project tagged source chunks into embedding-ready records.
+
+    Paragraph persistence remains separate from this projection. Tags are
+    copied into chunk metadata in deterministic paragraph order, while source
+    text is kept byte-for-byte as produced by chunking.
+    """
+    inputs: list[IndexInputRecord] = []
+    for chunk in chunks:
+        _validate_chunk_scope(command, chunk)
+        related = sorted(
+            (
+                paragraph
+                for paragraph_id, paragraph in tagged_paragraphs.items()
+                if paragraph_id.startswith(f"{chunk.chunk_id}:p")
+            ),
+            key=lambda paragraph: paragraph.paragraph_id,
+        )
+        unknown = [
+            paragraph_id
+            for paragraph_id in tagged_paragraphs
+            if paragraph_id.startswith(f"{chunk.chunk_id}:")
+            and paragraph_id not in {paragraph.paragraph_id for paragraph in related}
+        ]
+        if unknown:
+            raise ValueError("tagged paragraph map contains an invalid paragraph projection")
+        tags = tuple(dict.fromkeys(tag for paragraph in related for tag in paragraph.tags))
+        metadata = dict(chunk.metadata)
+        metadata["tags"] = tags
+        metadata["tagged_paragraph_ids"] = tuple(paragraph.paragraph_id for paragraph in related)
+        inputs.append(
+            IndexInputRecord(
+                chunk_id=chunk.chunk_id,
+                document_ref=chunk.document_ref,
+                source_version=chunk.source_version,
+                search_text=chunk.search_text,
+                embedding_profile=command.embedding_profile,
+                access_scope=chunk.access_scope,
+                metadata=metadata,
+            )
+        )
+    return tuple(inputs)
+
+
+def _validate_chunk_scope(command: IngestionCommand, chunk: IngestionSourceChunk) -> None:
+    if chunk.document_ref != command.document_ref:
+        raise ValueError("all chunks must belong to the command document")
+    if chunk.source_version != command.source_version:
+        raise ValueError("all chunks must match the command source version")
+    if chunk.access_scope != command.access_scope:
+        raise ValueError("all chunks must match the command access scope")
