@@ -478,6 +478,28 @@ async def test_chroma_search_passes_shared_blocking_io_limiter(monkeypatch) -> N
     assert calls[-1]["limiter"] is limiter
 
 
+@pytest.mark.anyio
+async def test_chroma_reconcile_and_delete_pass_shared_blocking_io_limiter(monkeypatch) -> None:
+    collection = _FakeChromaCollection()
+    limiter = object()
+    index = ChromaVectorIndex(collection, io_limiter=limiter)
+    calls = []
+
+    async def run_sync(function, *args, **kwargs):
+        calls.append(kwargs)
+        return function(*args)
+
+    monkeypatch.setattr(
+        "saxophone.ingestion.adapters.anyio.to_thread.run_sync",
+        run_sync,
+    )
+
+    await index.list_chunk_ids(document_ref="document-1")
+    await index.delete_chunks(("chunk-1",))
+
+    assert [call["limiter"] for call in calls] == [limiter, limiter]
+
+
 @pytest.mark.parametrize("embedding_dimension", [0, -1, True, 1.5, "3"])
 def test_chroma_index_rejects_malformed_embedding_dimension(embedding_dimension) -> None:
     with pytest.raises(ValueError, match="embedding_dimension"):
