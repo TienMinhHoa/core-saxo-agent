@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 import logging
 from collections import Counter, defaultdict
+from threading import Lock
 from typing import Protocol
 
 
@@ -68,16 +69,43 @@ class EventMetrics:
     def __init__(self) -> None:
         self._counts: Counter[tuple[str, str, str]] = Counter()
         self._durations_ms: defaultdict[str, list[float]] = defaultdict(list)
+        self._in_flight: Counter[str] = Counter()
+        self._max_concurrency: Counter[str] = Counter()
+        self._lock = Lock()
 
     def observe(self, event: StructuredEvent) -> None:
-        self._counts[(event.name, event.task, event.result)] += 1
-        self._durations_ms[event.task].append(event.duration_ms)
+        with self._lock:
+            self._counts[(event.name, event.task, event.result)] += 1
+            self._durations_ms[event.task].append(event.duration_ms)
+
+    def request_started(self, *, task: str) -> None:
+        with self._lock:
+            self._in_flight[task] += 1
+            self._max_concurrency[task] = max(
+                self._max_concurrency[task], self._in_flight[task]
+            )
+
+    def request_finished(self, *, task: str) -> None:
+        with self._lock:
+            if self._in_flight[task] <= 0:
+                raise ValueError("request_finished called without a matching start")
+            self._in_flight[task] -= 1
 
     def count(self, *, name: str, task: str, result: str) -> int:
-        return self._counts[(name, task, result)]
+        with self._lock:
+            return self._counts[(name, task, result)]
 
     def durations_ms(self, *, task: str) -> tuple[float, ...]:
-        return tuple(self._durations_ms[task])
+        with self._lock:
+            return tuple(self._durations_ms[task])
+
+    def in_flight(self, *, task: str) -> int:
+        with self._lock:
+            return self._in_flight[task]
+
+    def max_concurrency(self, *, task: str) -> int:
+        with self._lock:
+            return self._max_concurrency[task]
 
 
 class LoggingEventSink:

@@ -34,6 +34,18 @@ def test_event_metrics_counts_results_and_preserves_task_durations() -> None:
     assert metrics.durations_ms(task="embed") == (4.5,)
 
 
+def test_event_metrics_tracks_in_flight_and_peak_concurrency_per_task() -> None:
+    metrics = EventMetrics()
+
+    metrics.request_started(task="embed")
+    metrics.request_started(task="embed")
+    metrics.request_finished(task="embed")
+    metrics.request_finished(task="embed")
+
+    assert metrics.in_flight(task="embed") == 0
+    assert metrics.max_concurrency(task="embed") == 2
+
+
 def test_structured_event_keeps_only_safe_typed_fields() -> None:
     event = StructuredEvent(
         name="model.request.completed",

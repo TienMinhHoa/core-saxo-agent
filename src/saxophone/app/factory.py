@@ -158,6 +158,7 @@ def create_app(
             circuit_breaker_failure_threshold=settings.litellm_circuit_breaker_failure_threshold,
             circuit_breaker_cooldown_seconds=settings.litellm_circuit_breaker_cooldown_seconds,
             event_sink=event_sink,
+            metrics=metrics,
         )
 
     pdf_extractor = resolved_overrides.pdf_extractor
