@@ -1137,6 +1137,39 @@ def test_document_ingest_route_indexes_chunks_and_returns_report() -> None:
     assert vector_index.records[0].embedding == (0.9, 0.8)
 
 
+def test_document_ingest_route_rejects_unsafe_document_ref_before_indexing() -> None:
+    vector_index = FakeVectorIndex()
+    embedding_provider = FakeEmbeddingProvider()
+    app = create_app(
+        settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=FakeRemoteGpuGateway(),
+            model_client=FakeModelClient(),
+            embedding_provider=embedding_provider,
+            vector_index=vector_index,
+            embedding_reuse=InMemoryEmbeddingReuseStore(),
+        ),
+    )
+
+    response = TestClient(app).post(
+        "/api/v1/documents/..%5Coutside/ingest",
+        json={
+            "source_version": "source-v1",
+            "chunking_profile": "header-v1",
+            "tagging_profile": "tags-v1",
+            "embedding_profile": "embed-v1",
+            "index_profile": "index-v1",
+            "access_scope": "tenant-a",
+            "records": [],
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "unsafe document_ref"}
+    assert embedding_provider.calls == []
+    assert vector_index.records == ()
+
+
 def test_document_ingest_route_is_explicitly_unavailable_without_vector_index() -> None:
     app = create_app(
         settings(),

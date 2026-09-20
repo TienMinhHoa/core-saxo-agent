@@ -249,6 +249,7 @@ def build_capability_router(
         if index_document is None:
             raise HTTPException(status_code=503, detail="ingestion capability is not configured")
         normalized_ref = _normalized_text(document_ref, "document_ref")
+        _require_safe_document_reference(normalized_ref)
         command = IngestionCommand(
             document_ref=normalized_ref,
             source_version=request.source_version,
