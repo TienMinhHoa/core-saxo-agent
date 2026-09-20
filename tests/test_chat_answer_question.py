@@ -187,8 +187,28 @@ async def test_answer_question_requires_a_safe_gate_for_image_evidence() -> None
             }, semantic_score=0.9)]
 
     generator = _AnswerGenerator()
-    with pytest.raises(ValueError, match="image artifact gate"):
-        await AnswerQuestion(RetrieveEvidence(ImageRetriever([])), generator).execute("How?")
+    with pytest.raises(ValueError, match="unsafe image reference"):
+        await AnswerQuestion(
+            RetrieveEvidence(
+                ImageRetriever(
+                    [
+                        ChunkHit(
+                            "book-1",
+                            "chunk-1",
+                            1,
+                            "retrieval-v1",
+                            {
+                                "document": "See the fingering chart.",
+                                "image_refs": ["../secret.png"],
+                            },
+                            semantic_score=0.9,
+                        )
+                    ]
+                )
+            ),
+            generator,
+            image_artifact_gate=SafeImageArtifactGate(),
+        ).execute("How?")
     assert generator.calls == []
 
 
@@ -202,7 +222,24 @@ async def test_answer_question_passes_only_gated_image_refs_to_generator() -> No
 
     generator = _AnswerGenerator()
     await AnswerQuestion(
-        RetrieveEvidence(ImageRetriever([])), generator,
+        RetrieveEvidence(
+            ImageRetriever(
+                [
+                    ChunkHit(
+                        "book-1",
+                        "chunk-1",
+                        1,
+                        "retrieval-v1",
+                        {
+                            "document": "See the fingering chart.",
+                            "image_refs": ["images/page-1.png"],
+                        },
+                        semantic_score=0.9,
+                    )
+                ]
+            )
+        ),
+        generator,
         image_artifact_gate=SafeImageArtifactGate(),
     ).execute("How?")
     assert generator.calls[0][1].image_refs == ("images/page-1.png",)
