@@ -326,3 +326,25 @@ async def test_file_embedding_reuse_store_serializes_concurrent_writers(tmp_path
         ]
     )
     assert set(records) == {"chunk-1", "chunk-2"}
+
+
+@pytest.mark.anyio
+async def test_file_embedding_reuse_store_passes_shared_limiter_to_blocking_io(
+    tmp_path, monkeypatch
+) -> None:
+    calls = []
+    limiter = object()
+
+    async def fake_run_sync(callable_, *args, limiter=None, **kwargs):
+        calls.append(limiter)
+        if getattr(callable_, "__name__", "") == "_read":
+            return {}
+        return None
+
+    monkeypatch.setattr("saxophone.ingestion.adapters.anyio.to_thread.run_sync", fake_run_sync)
+    store = FileEmbeddingReuseStore(tmp_path / "embedding-reuse.json", io_limiter=limiter)
+
+    await store.find([_record()])
+    await store.save((_record(),))
+
+    assert calls == [limiter, limiter]

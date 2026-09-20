@@ -211,7 +211,10 @@ def create_app(
         )
     embedding_reuse = resolved_overrides.embedding_reuse
     if embedding_reuse is None:
-        embedding_reuse = FileEmbeddingReuseStore(settings.data_root / "embedding-reuse.json")
+        embedding_reuse = FileEmbeddingReuseStore(
+            settings.data_root / "embedding-reuse.json",
+            io_limiter=io_limiter,
+        )
     vector_index = resolved_overrides.vector_index
     if vector_index is None and not resolved_overrides.disable_vector_index:
         vector_index = create_chroma_vector_index(settings, io_limiter=io_limiter)

@@ -61,11 +61,17 @@ class FileEmbeddingReuseStore(EmbeddingReuseStore):
     corrupted cache cannot silently change indexing behavior.
     """
 
-    def __init__(self, path: str | Path) -> None:
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        io_limiter: anyio.CapacityLimiter | None = None,
+    ) -> None:
         self._path = Path(path)
         if self._path.name in {"", ".", ".."}:
             raise ValueError("embedding reuse store path must name a file")
         self._lock_path = self._path.with_name(f".{self._path.name}.lock")
+        self._io_limiter = io_limiter or create_blocking_io_limiter()
 
     @property
     def path(self) -> Path:
@@ -74,7 +80,7 @@ class FileEmbeddingReuseStore(EmbeddingReuseStore):
 
     async def find(self, records: Sequence[IndexInputRecord]) -> Mapping[str, ChunkIndexRecord]:
         requested = tuple(records)
-        stored = await anyio.to_thread.run_sync(self._read)
+        stored = await anyio.to_thread.run_sync(self._read, limiter=self._io_limiter)
         return {
             record.chunk_id: stored[key]
             for record in requested
@@ -85,7 +91,10 @@ class FileEmbeddingReuseStore(EmbeddingReuseStore):
         new_records = tuple(records)
         if not new_records:
             return
-        await anyio.to_thread.run_sync(partial(self._save, new_records))
+        await anyio.to_thread.run_sync(
+            partial(self._save, new_records),
+            limiter=self._io_limiter,
+        )
 
     def _read(self) -> dict[tuple[str, str, str, str], ChunkIndexRecord]:
         with self._file_lock():
