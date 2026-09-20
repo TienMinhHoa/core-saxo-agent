@@ -182,3 +182,13 @@ deployment production.
 - Xác minh iteration 15: **294 passed, 2 skipped, 1 warning**; `compileall` và
   `git diff --check` đều thành công. Live smoke vẫn bị chặn bởi endpoint và
   credential thật chưa được cung cấp.
+
+### Iteration 54 — canonical identity của ChunkHit
+
+- Siết `ChunkHit.source_ref`, `chunk_ref` và `retrieval_version` phải là chuỗi
+  non-blank, không có whitespace ở đầu/cuối và Unicode NFC.
+- Bổ sung 9 regression cases TDD cho whitespace và decomposed Unicode; targeted
+  test **18 passed**.
+- Chi tiết: `docs/ITERATION_54_CANONICAL_CHUNK_HIT_IDENTITY.md`.
+- Live model-service smoke và production golden parity vẫn chưa xác minh do
+  thiếu endpoint, credential và catalog production thật.

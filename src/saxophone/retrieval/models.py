@@ -25,6 +25,7 @@ class ChunkHit:
     def __post_init__(self) -> None:
         for name in ("source_ref", "chunk_ref", "retrieval_version"):
             _require_non_blank(name, getattr(self, name))
+            _require_canonical(name, getattr(self, name))
         if self.rank < 1:
             raise ValueError("rank must be at least 1")
         if not isinstance(self.metadata, Mapping):
@@ -88,3 +89,8 @@ class EvidenceBundle:
 def _require_non_blank(name: str, value: str) -> None:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{name} must not be blank")
+
+
+def _require_canonical(name: str, value: str) -> None:
+    if value != value.strip() or unicodedata.normalize("NFC", value) != value:
+        raise ValueError(f"{name} must contain a canonical value")

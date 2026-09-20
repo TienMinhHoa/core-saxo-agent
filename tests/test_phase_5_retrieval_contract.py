@@ -111,3 +111,23 @@ def test_evidence_bundle_rejects_string_refs_instead_of_tuples(field_name: str) 
             {"chunk-1": "text"},
             values["image_refs"],  # type: ignore[arg-type]
         )
+
+
+@pytest.mark.parametrize("field_name", ["source_ref", "chunk_ref", "retrieval_version"])
+@pytest.mark.parametrize("value", [" value", "value ", "cafe\u0301"])
+def test_chunk_hit_rejects_non_canonical_identity_fields(field_name: str, value: str) -> None:
+    values: dict[str, object] = {
+        "source_ref": "document-1",
+        "chunk_ref": "chunk-1",
+        "retrieval_version": "retrieval-v1",
+    }
+    values[field_name] = value
+
+    with pytest.raises(ValueError, match="canonical"):
+        ChunkHit(
+            values["source_ref"],  # type: ignore[arg-type]
+            values["chunk_ref"],  # type: ignore[arg-type]
+            1,
+            values["retrieval_version"],  # type: ignore[arg-type]
+            {"document": "text"},
+        )
