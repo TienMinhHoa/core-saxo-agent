@@ -29,6 +29,8 @@ class RemotePdfExtractor:
             raise ValueError("model must not be blank")
         if not isinstance(response_schema, str) or not response_schema.strip():
             raise ValueError("response_schema must not be blank")
+        if not callable(getattr(model_client, "invoke", None)):
+            raise ValueError("model_client must provide a callable invoke")
         self._model_client = model_client
         self._model = model.strip()
         self._response_schema = response_schema.strip()

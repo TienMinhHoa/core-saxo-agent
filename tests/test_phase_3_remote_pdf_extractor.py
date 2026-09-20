@@ -94,6 +94,14 @@ def test_remote_pdf_extractor_canonicalizes_model_and_schema_configuration() -> 
     assert result.model_profile == "extractor-v1"
 
 
+def test_remote_pdf_extractor_rejects_model_client_without_callable_invoke() -> None:
+    with pytest.raises(ValueError, match="model_client must provide a callable invoke"):
+        RemotePdfExtractor(
+            object(),
+            model="extractor-v1",
+        )  # type: ignore[arg-type]
+
+
 @pytest.mark.parametrize("field", ["model", "response_schema"])
 @pytest.mark.parametrize("value", [None, 123, object()])
 def test_remote_pdf_extractor_rejects_non_string_configuration(
