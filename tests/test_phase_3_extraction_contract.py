@@ -77,6 +77,38 @@ def test_extraction_result_requires_expected_artifact_kinds() -> None:
 
 
 @pytest.mark.parametrize(
+    "document_ref",
+    ["../document-123", "document/123", "document-123\n", "document-cafe\u0301"],
+)
+def test_extraction_request_rejects_unsafe_document_reference(document_ref: str) -> None:
+    with pytest.raises(ValueError, match="document_ref"):
+        PdfExtractionRequest(
+            document_ref=document_ref,
+            source=artifact(ArtifactKind.SOURCE_PDF),
+            source_version="source-v1",
+            correlation_id="request-123",
+            model_profile="pdf-layout-v1",
+        )
+
+
+@pytest.mark.parametrize(
+    "document_ref",
+    ["../document-123", "document/123", "document-123\t", "document-cafe\u0301"],
+)
+def test_extraction_result_rejects_unsafe_document_reference(document_ref: str) -> None:
+    with pytest.raises(ValueError, match="document_ref"):
+        PdfExtractionResult(
+            document_ref=document_ref,
+            source_version="source-v1",
+            markdown=artifact(ArtifactKind.MARKDOWN),
+            layout=artifact(ArtifactKind.LAYOUT),
+            manifest=artifact(ArtifactKind.EXTRACTION_MANIFEST),
+            coordinates=(),
+            model_profile="pdf-layout-v1",
+        )
+
+
+@pytest.mark.parametrize(
     ("field", "value"),
     [("page_index", -1), ("markdown_line_start", 0), ("markdown_line_end", 0)],
 )

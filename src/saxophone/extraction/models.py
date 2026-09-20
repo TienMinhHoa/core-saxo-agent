@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from saxophone.documents.models import ArtifactKind, ArtifactRef
+from saxophone.documents.policies import is_safe_document_reference
 
 
 class CoordinateSpace(StrEnum):
@@ -49,7 +50,7 @@ class PdfExtractionRequest:
     model_profile: str
 
     def __post_init__(self) -> None:
-        _require_non_blank("document_ref", self.document_ref)
+        _require_safe_document_reference(self.document_ref)
         _require_non_blank("source_version", self.source_version)
         _require_non_blank("correlation_id", self.correlation_id)
         _require_non_blank("model_profile", self.model_profile)
@@ -70,7 +71,7 @@ class PdfExtractionResult:
     model_profile: str
 
     def __post_init__(self) -> None:
-        _require_non_blank("document_ref", self.document_ref)
+        _require_safe_document_reference(self.document_ref)
         _require_non_blank("source_version", self.source_version)
         _require_non_blank("model_profile", self.model_profile)
         _require_kind("markdown", self.markdown, ArtifactKind.MARKDOWN)
@@ -86,3 +87,8 @@ def _require_kind(name: str, artifact: ArtifactRef, expected: ArtifactKind) -> N
 def _require_non_blank(name: str, value: str) -> None:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{name} must not be blank")
+
+
+def _require_safe_document_reference(value: str) -> None:
+    if not is_safe_document_reference(value):
+        raise ValueError("document_ref must be a safe document reference")
