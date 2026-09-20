@@ -438,3 +438,15 @@ async def test_chroma_delete_rejects_malformed_ids_before_provider_io(chunk_ids)
 
     with pytest.raises(ValueError, match="chunk_ids"):
         await index.delete_chunks(chunk_ids)
+
+
+@pytest.mark.anyio
+async def test_chroma_delete_rejects_duplicate_ids_before_provider_io() -> None:
+    class _CollectionThatMustNotBeCalled:
+        def delete(self, **kwargs):
+            raise AssertionError("duplicate IDs reached Chroma")
+
+    index = ChromaVectorIndex(_CollectionThatMustNotBeCalled())
+
+    with pytest.raises(ValueError, match="unique"):
+        await index.delete_chunks(("chunk-1", "chunk-1"))

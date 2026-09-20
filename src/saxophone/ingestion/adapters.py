@@ -447,6 +447,8 @@ def _validated_chunk_ids(chunk_ids: Sequence[str]) -> list[str]:
     validated = list(chunk_ids)
     if any(not isinstance(item, str) or not item.strip() for item in validated):
         raise ValueError("chunk_ids must be a sequence of non-blank strings")
+    if len(validated) != len(set(validated)):
+        raise ValueError("Chroma delete chunk IDs must be unique")
     return validated
 
 
