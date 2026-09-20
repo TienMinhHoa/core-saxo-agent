@@ -49,6 +49,10 @@ class CachedRemoteGpuGateway:
     ) -> None:
         if not math.isfinite(ttl_seconds) or ttl_seconds <= 0:
             raise ValueError("ttl_seconds must be finite and positive")
+        if not callable(getattr(gateway, "health", None)):
+            raise TypeError("gateway.health must be callable")
+        if not callable(clock):
+            raise TypeError("clock must be callable")
         self._gateway = gateway
         self._ttl_seconds = ttl_seconds
         self._clock = clock

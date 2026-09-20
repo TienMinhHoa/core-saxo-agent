@@ -229,6 +229,31 @@ def test_cached_health_rejects_non_finite_ttl() -> None:
             raise AssertionError("non-finite TTL must be rejected")
 
 
+def test_cached_health_rejects_gateway_without_callable_health() -> None:
+    class InvalidGateway:
+        health = None
+
+    try:
+        CachedRemoteGpuGateway(InvalidGateway(), ttl_seconds=1.0)
+    except TypeError as error:
+        assert str(error) == "gateway.health must be callable"
+    else:
+        raise AssertionError("a non-callable health dependency must be rejected")
+
+
+def test_cached_health_rejects_non_callable_clock() -> None:
+    class FakeGateway:
+        async def health(self) -> RemoteGpuHealth:
+            return RemoteGpuHealth(status="ready")
+
+    try:
+        CachedRemoteGpuGateway(FakeGateway(), ttl_seconds=1.0, clock=None)  # type: ignore[arg-type]
+    except TypeError as error:
+        assert str(error) == "clock must be callable"
+    else:
+        raise AssertionError("a non-callable clock dependency must be rejected")
+
+
 def test_cached_health_coalesces_concurrent_refreshes() -> None:
     async def verify() -> None:
         refresh_started = asyncio.Event()
