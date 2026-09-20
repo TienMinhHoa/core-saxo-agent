@@ -376,6 +376,8 @@ def _validate_runtime_float(
 def _validate_runtime_path(value: object, field_name: str) -> None:
     if not isinstance(value, Path):
         raise SettingsValidationError(f"{field_name} must be a filesystem path")
+    if value == Path("."):
+        raise SettingsValidationError(f"{field_name} must not be empty")
     if ".." in value.parts:
         raise SettingsValidationError(f"{field_name} must not traverse parent directories")
     if any(ord(character) < 32 or ord(character) == 127 for character in str(value)):

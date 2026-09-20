@@ -309,6 +309,26 @@ def test_direct_settings_construction_rejects_invalid_runtime_types(
     "field_name",
     ["data_root", "chroma_persist_directory"],
 )
+def test_direct_settings_construction_rejects_empty_paths(
+    field_name: str,
+) -> None:
+    values = {
+        "data_root": Path("runtime/saxophone"),
+        "remote_gpu_base_url": "https://gpu.example.test",
+        "remote_gpu_bearer_token": "secret",
+    }
+    values[field_name] = Path()
+
+    with pytest.raises(SettingsValidationError) as error:
+        AppSettings(**values)
+
+    assert field_name in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    ["data_root", "chroma_persist_directory"],
+)
 def test_direct_settings_construction_rejects_relative_parent_traversal(
     field_name: str,
 ) -> None:
