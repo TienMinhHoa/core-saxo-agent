@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from saxophone.ingestion.models import ChunkIndexRecord, IngestionCommand
+from saxophone.ingestion.models import ChunkIndexRecord, EmbeddingRecord, IngestionCommand
 from saxophone.ingestion.use_cases import IndexDocument
 
 
@@ -47,13 +47,38 @@ class FakeIndex:
         self.records = tuple(records)
 
 
+class FakeEmbeddingProvider:
+    def __init__(self, records: tuple[EmbeddingRecord, ...] | None = None, error: Exception | None = None) -> None:
+        self.records = records
+        self.error = error
+        self.calls = []
+
+    async def embed(self, chunks, *, source_version):
+        self.calls.append((tuple(chunks), source_version))
+        if self.error:
+            raise self.error
+        assert self.records is not None
+        return self.records
+
+
+def _embedding(*, chunk_id: str = "chunk-1", source_version: str = "source-v1", model_profile: str = "embed-v1", vector: tuple[float, ...] = (0.9, 0.8)) -> EmbeddingRecord:
+    return EmbeddingRecord(
+        chunk_id=chunk_id,
+        source_version=source_version,
+        model_profile=model_profile,
+        vector=vector,
+    )
+
+
 @pytest.mark.anyio
 async def test_index_document_publishes_records_and_report() -> None:
     index = FakeIndex()
+    provider = FakeEmbeddingProvider((_embedding(),))
 
-    report = await IndexDocument(index).execute(_command(), [_record()])
+    report = await IndexDocument(index, provider).execute(_command(), [_record()])
 
-    assert index.records == (_record(),)
+    assert provider.calls == [((("chunk-1", "A musical phrase"),), "source-v1")]
+    assert index.records[0].embedding == (0.9, 0.8)
     assert report.indexed is True
     assert report.chunk_count == 1
     assert report.tagged_paragraph_count == 1
@@ -63,8 +88,9 @@ async def test_index_document_publishes_records_and_report() -> None:
 @pytest.mark.anyio
 async def test_index_document_reports_partial_failure_without_claiming_indexed() -> None:
     index = FakeIndex(RuntimeError("vector store unavailable"))
+    provider = FakeEmbeddingProvider((_embedding(),))
 
-    report = await IndexDocument(index).execute(_command(), [_record()])
+    report = await IndexDocument(index, provider).execute(_command(), [_record()])
 
     assert report.indexed is False
     assert report.failed_paragraph_count == 1
@@ -74,9 +100,10 @@ async def test_index_document_reports_partial_failure_without_claiming_indexed()
 @pytest.mark.anyio
 async def test_index_document_rejects_cross_document_records_before_index_call() -> None:
     index = FakeIndex()
+    provider = FakeEmbeddingProvider((_embedding(),))
 
     with pytest.raises(ValueError, match="document"):
-        await IndexDocument(index).execute(_command(), [_record(document_ref="other")])
+        await IndexDocument(index, provider).execute(_command(), [_record(document_ref="other")])
 
     assert index.records is None
 
@@ -93,8 +120,38 @@ async def test_index_document_rejects_records_with_incompatible_index_context(
     field: str, value: str, message: str
 ) -> None:
     index = FakeIndex()
+    provider = FakeEmbeddingProvider((_embedding(),))
 
     with pytest.raises(ValueError, match=message):
-        await IndexDocument(index).execute(_command(), [_record(**{field: value})])
+        await IndexDocument(index, provider).execute(_command(), [_record(**{field: value})])
 
+    assert index.records is None
+
+
+@pytest.mark.anyio
+async def test_index_document_reports_embedding_failure_without_index_call() -> None:
+    index = FakeIndex()
+    provider = FakeEmbeddingProvider(error=RuntimeError("embedding service unavailable"))
+
+    report = await IndexDocument(index, provider).execute(_command(), [_record()])
+
+    assert report.indexed is False
+    assert report.embedded_count == 0
+    assert report.errors == ("embedding service unavailable",)
+    assert index.records is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "embedding",
+    [_embedding(source_version="other"), _embedding(model_profile="embed-v2"), _embedding(chunk_id="other")],
+)
+async def test_index_document_rejects_embedding_scope_before_index_call(embedding: EmbeddingRecord) -> None:
+    index = FakeIndex()
+    provider = FakeEmbeddingProvider((embedding,))
+
+    report = await IndexDocument(index, provider).execute(_command(), [_record()])
+
+    assert report.indexed is False
+    assert report.embedded_count == 0
     assert index.records is None
