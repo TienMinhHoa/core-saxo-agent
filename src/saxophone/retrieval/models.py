@@ -59,6 +59,13 @@ class EvidenceBundle:
         for name, refs in (("selected_refs", self.selected_refs), ("image_refs", self.image_refs)):
             if any(not isinstance(ref, str) or not ref.strip() for ref in refs):
                 raise ValueError(f"{name} must contain non-blank refs")
+        hit_refs = tuple(hit.chunk_ref for hit in self.hits)
+        if len(set(self.selected_refs)) != len(self.selected_refs):
+            raise ValueError("selected_refs must be unique")
+        if any(ref not in hit_refs for ref in self.selected_refs):
+            raise ValueError("selected_refs must refer to evidence hits")
+        if any(ref not in self.source_texts for ref in self.selected_refs):
+            raise ValueError("source_texts must contain every selected ref")
         if not self.hits and not self.insufficiency_reason:
             raise ValueError("insufficiency_reason is required when evidence is empty")
         if self.hits and self.insufficiency_reason is not None:

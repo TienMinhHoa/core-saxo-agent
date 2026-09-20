@@ -70,5 +70,25 @@ def test_evidence_bundle_rejects_insufficiency_with_hits() -> None:
         )
 
 
+def test_evidence_bundle_requires_selected_refs_to_match_hits_and_source_texts() -> None:
+    with pytest.raises(ValueError, match="selected_refs"):
+        EvidenceBundle(
+            "query",
+            "retrieval-v1",
+            (_hit(),),
+            ("unknown-chunk",),
+            {"unknown-chunk": "text"},
+        )
+
+    with pytest.raises(ValueError, match="source_texts"):
+        EvidenceBundle(
+            "query",
+            "retrieval-v1",
+            (_hit(),),
+            ("chunk-1",),
+            {},
+        )
+
+
 def test_chunk_retriever_is_async_application_port() -> None:
     assert hasattr(ChunkRetriever, "search")
