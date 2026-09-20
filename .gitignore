@@ -54,6 +54,7 @@ docs/*
 !docs/PHASE_1_LITELLM_SETTINGS.md
 !docs/PHASE_1_REMOTE_GPU_HEALTH_CAPABILITIES.md
 !docs/PHASE_7_API_ROUTES.md
+!docs/PHASE_3_REMOTE_PDF_EXTRACTOR.md
 
 # Logs and temporary files
 *.log
