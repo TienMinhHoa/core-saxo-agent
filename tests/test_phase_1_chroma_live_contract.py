@@ -41,6 +41,7 @@ def test_real_persistent_chroma_round_trip(tmp_path: Path) -> None:
         assert hits[0].document == record.search_text
         assert hits[0].metadata == {
             "page": 1,
+            "chunk_id": record.chunk_id,
             "document_ref": record.document_ref,
             "source_version": record.source_version,
             "embedding_profile": record.embedding_profile,

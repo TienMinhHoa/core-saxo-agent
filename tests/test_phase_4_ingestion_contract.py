@@ -274,6 +274,7 @@ async def test_chroma_adapter_runs_upsert_delete_and_search_through_async_port()
     assert ids == ("chunk-1", "stale-chunk")
     assert collection.get_call == {"where": {"document_ref": "document-1"}}
     assert collection.upsert_call["ids"] == ["chunk-1"]
+    assert collection.upsert_call["metadatas"][0]["chunk_id"] == "chunk-1"
     assert collection.upsert_call["metadatas"][0]["source_version"] == "extract-v1"
     assert collection.delete_call == {"ids": ["chunk-1"]}
     assert collection.query_call["include"] == ["documents", "metadatas", "distances"]
@@ -332,7 +333,7 @@ async def test_chroma_upsert_rejects_unsupported_metadata_before_provider_io(
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     "reserved_key",
-    ["document_ref", "source_version", "embedding_profile", "access_scope"],
+    ["chunk_id", "document_ref", "source_version", "embedding_profile", "access_scope"],
 )
 async def test_chroma_upsert_rejects_metadata_reserved_key_before_provider_io(
     reserved_key: str,

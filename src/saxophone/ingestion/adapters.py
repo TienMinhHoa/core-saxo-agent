@@ -387,6 +387,7 @@ class ChromaVectorIndex(VectorIndex):
     @staticmethod
     def _metadata(record: ChunkIndexRecord) -> dict[str, object]:
         reserved_keys = {
+            "chunk_id",
             "document_ref",
             "source_version",
             "embedding_profile",
@@ -406,6 +407,7 @@ class ChromaVectorIndex(VectorIndex):
         if any(not _is_valid_chroma_metadata_value(value) for value in projected.values()):
             raise ValueError("Chroma metadata values must be finite scalar values or lists")
         return {
+            "chunk_id": record.chunk_id,
             **projected,
             "document_ref": record.document_ref,
             "source_version": record.source_version,
