@@ -329,6 +329,9 @@ class ChromaVectorIndex(VectorIndex):
         chunk_ids = [record.chunk_id for record in records]
         if len(chunk_ids) != len(set(chunk_ids)):
             raise ValueError("Chroma upsert chunk IDs must be unique")
+        expected_dimension = records[0].dimension
+        if any(record.dimension != expected_dimension for record in records[1:]):
+            raise ValueError("Chroma upsert embeddings must have one shared dimension")
         if self._embedding_dimension is not None:
             invalid = next(
                 (record for record in records if record.dimension != self._embedding_dimension),

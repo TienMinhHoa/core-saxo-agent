@@ -295,6 +295,30 @@ async def test_chroma_upsert_rejects_duplicate_chunk_ids_before_provider_io() ->
 
 
 @pytest.mark.anyio
+async def test_chroma_upsert_rejects_mixed_embedding_dimensions_before_provider_io() -> None:
+    class _CollectionThatMustNotBeCalled:
+        def upsert(self, **kwargs):
+            raise AssertionError("mixed dimensions reached Chroma")
+
+    first = _index_record()
+    second = ChunkIndexRecord(
+        chunk_id="chunk-2",
+        document_ref=first.document_ref,
+        source_version=first.source_version,
+        search_text=first.search_text,
+        embedding=(0.1, 0.2, 0.3),
+        embedding_profile=first.embedding_profile,
+        access_scope=first.access_scope,
+        metadata={},
+    )
+
+    with pytest.raises(ValueError, match="shared dimension"):
+        await ChromaVectorIndex(_CollectionThatMustNotBeCalled()).upsert_chunks(
+            [first, second]
+        )
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     "metadata",
     [
