@@ -26,6 +26,7 @@ from saxophone.ingestion.use_cases import IngestDocument, IndexDocument
 from saxophone.platform.artifacts import LocalArtifactRepository
 from saxophone.platform.chroma import create_chroma_vector_index
 from saxophone.platform.model_client import LiteLLMModelClient, ModelClient
+from saxophone.platform.observability import EventSink, LoggingEventSink
 from saxophone.platform.remote_gpu import (
     CachedRemoteGpuGateway,
     HttpRemoteGpuGateway,
@@ -69,6 +70,7 @@ class AppContainer:
     settings: AppSettings
     remote_gpu_gateway: RemoteGpuGateway
     model_client: ModelClient
+    event_sink: EventSink
     http_client: httpx.AsyncClient | None = None
     retrieve_evidence: RetrieveEvidence | None = None
     answer_question: AnswerQuestion | None = None
@@ -93,6 +95,7 @@ class AppOverrides:
 
     remote_gpu_gateway: RemoteGpuGateway | None = None
     model_client: ModelClient | None = None
+    event_sink: EventSink | None = None
     retrieve_evidence: RetrieveEvidence | None = None
     answer_question: AnswerQuestion | None = None
     retriever: ChunkRetriever | None = None
@@ -125,6 +128,7 @@ def create_app(
     http_client: httpx.AsyncClient | None = None
     remote_gpu_gateway = resolved_overrides.remote_gpu_gateway
     model_client = resolved_overrides.model_client
+    event_sink = resolved_overrides.event_sink or LoggingEventSink()
     if remote_gpu_gateway is None or model_client is None:
         http_client = httpx.AsyncClient(verify=settings.remote_gpu_tls_verify)
     if remote_gpu_gateway is None:
@@ -148,6 +152,7 @@ def create_app(
             retry_jitter_ratio=settings.litellm_retry_jitter_ratio,
             circuit_breaker_failure_threshold=settings.litellm_circuit_breaker_failure_threshold,
             circuit_breaker_cooldown_seconds=settings.litellm_circuit_breaker_cooldown_seconds,
+            event_sink=event_sink,
         )
 
     pdf_extractor = resolved_overrides.pdf_extractor
@@ -235,6 +240,7 @@ def create_app(
         settings=settings,
         remote_gpu_gateway=remote_gpu_gateway,
         model_client=model_client,
+        event_sink=event_sink,
         http_client=http_client,
         retrieve_evidence=retrieve_evidence,
         answer_question=answer_question,

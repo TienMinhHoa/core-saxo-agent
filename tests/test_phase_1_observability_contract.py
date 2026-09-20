@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 import pytest
+import logging
 
-from saxophone.platform.observability import InMemoryEventSink, StructuredEvent
+from saxophone.platform.observability import (
+    InMemoryEventSink,
+    LoggingEventSink,
+    StructuredEvent,
+)
 
 
 def test_structured_event_keeps_only_safe_typed_fields() -> None:
@@ -72,3 +77,29 @@ def test_in_memory_sink_preserves_event_order_without_payload_or_secret_fields()
     assert "input" not in sink.events[0].as_dict()
     assert "response" not in sink.events[0].as_dict()
     assert "api_key" not in sink.events[0].as_dict()
+
+
+def test_logging_sink_emits_allowlisted_event_fields_without_payload(caplog) -> None:
+    sink = LoggingEventSink(logging.getLogger("saxophone.test.observability"))
+    event = StructuredEvent(
+        name="model.request.failed",
+        correlation_id="corr-3",
+        task="answer_generate",
+        model="profile-v1",
+        attempt=2,
+        duration_ms=8.0,
+        input_count=2,
+        output_count=0,
+        result="failure",
+        reason_code="timeout",
+    )
+
+    with caplog.at_level(logging.INFO, logger="saxophone.test.observability"):
+        sink.emit(event)
+
+    record = caplog.records[0]
+    assert record.message == "model.request.failed"
+    assert record.structured_event == event.as_dict()
+    assert "input" not in record.structured_event
+    assert "response" not in record.structured_event
+    assert "api_key" not in record.structured_event

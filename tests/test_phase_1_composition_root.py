@@ -16,6 +16,7 @@ from saxophone.retrieval.models import ChunkHit
 from saxophone.retrieval.use_cases import RetrieveEvidence
 from saxophone.platform.remote_gpu import HttpRemoteGpuGateway, RemoteGpuHealth
 from saxophone.platform.model_client import LiteLLMModelClient
+from saxophone.platform.observability import LoggingEventSink
 from saxophone.extraction.remote import RemotePdfExtractor
 from saxophone.extraction.persistence import RepositoryExtractionArtifactPayloadProvider
 from saxophone.ingestion.adapters import FileEmbeddingReuseStore, RemoteEmbeddingProvider
@@ -167,6 +168,15 @@ def test_default_composition_uses_litellm_settings_for_model_client() -> None:
     assert client.retry_jitter_ratio == 0.2
     assert client.circuit_breaker_failure_threshold == 5
     assert client.circuit_breaker_cooldown_seconds == 45.5
+
+
+def test_default_composition_wires_structured_logging_sink_to_model_client() -> None:
+    app = create_app(build_settings())
+
+    container = app.state.container
+
+    assert isinstance(container.event_sink, LoggingEventSink)
+    assert container.model_client._event_sink is container.event_sink
 
 
 def test_default_composition_wires_remote_pdf_extractor_to_shared_model_client() -> None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import logging
 from typing import Protocol
 
 
@@ -58,3 +59,13 @@ class InMemoryEventSink:
 
     def emit(self, event: StructuredEvent) -> None:
         self.events.append(event)
+
+
+class LoggingEventSink:
+    """Publish safe structured events through the standard logging boundary."""
+
+    def __init__(self, logger: logging.Logger | None = None) -> None:
+        self._logger = logger or logging.getLogger("saxophone.events")
+
+    def emit(self, event: StructuredEvent) -> None:
+        self._logger.info(event.name, extra={"structured_event": event.as_dict()})
