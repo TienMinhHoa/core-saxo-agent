@@ -106,6 +106,10 @@ class PdfLayoutJobStore:
             raise
         return state
 
+    def discard_job(self, job_id: str) -> None:
+        """Remove a job and its partial artifacts after a failed upload."""
+        shutil.rmtree(self.job_dir(job_id), ignore_errors=True)
+
     def write_state(self, job_id: str, state: dict[str, Any]) -> None:
         target = self.job_dir(job_id) / "job.json"
         temporary = target.with_suffix(".tmp")

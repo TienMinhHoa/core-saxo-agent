@@ -433,3 +433,13 @@ deployment production.
   warning**; `compileall` va `git diff --check` dat.
 - Live model-service smoke va production parity van chua xac minh do thieu
   endpoint, credential va production catalog.
+
+### Iteration 319 — ownership cleanup upload PDF lỗi
+
+- Thêm `PdfLayoutJobStore.discard_job()` để persistence boundary sở hữu cleanup
+  job directory và partial artifact khi upload lỗi; route chỉ điều phối qua
+  store, không còn gọi trực tiếp `shutil.rmtree`.
+- Contract targeted: **29 passed**; chi tiết tại
+  `docs/ITERATION_319_PHASE7_PDF_UPLOAD_CLEANUP_OWNERSHIP.md`.
+- Live model-service smoke và production parity vẫn chưa xác minh do checkout
+  thiếu endpoint, credential và production catalog thật.

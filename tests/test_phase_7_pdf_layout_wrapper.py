@@ -87,6 +87,16 @@ def test_pdf_upload_route_delegates_initial_state_creation_to_job_store() -> Non
     assert '"original_filename": supplied_name' not in create_job_source
 
 
+def test_pdf_upload_cleanup_is_owned_by_job_store() -> None:
+    source = (
+        SOURCE_ROOT / "src" / "saxophone" / "interfaces" / "pdf_layout_web.py"
+    ).read_text(encoding="utf-8")
+    create_job_source = source.split("@app.post(\"/api/jobs/{job_id}/extract\")", 1)[0]
+
+    assert "JOB_STORE.discard_job(job_id)" in create_job_source
+    assert "shutil.rmtree(job_dir" not in create_job_source
+
+
 def test_pdf_extract_route_delegates_queue_transition_to_job_store() -> None:
     source = (
         SOURCE_ROOT / "src" / "saxophone" / "interfaces" / "pdf_layout_web.py"

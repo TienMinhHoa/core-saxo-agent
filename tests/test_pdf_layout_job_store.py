@@ -86,6 +86,17 @@ def test_create_uploaded_job_rejects_existing_job_directory(tmp_path) -> None:
         store.create_uploaded_job(job_id, "source.pdf", "2026-09-21T00:00:00Z")
 
 
+def test_job_store_owns_discarding_a_failed_upload(tmp_path) -> None:
+    store = PdfLayoutJobStore(tmp_path)
+    job_id = "12345678-1234-5678-1234-567812345678"
+    store.create_uploaded_job(job_id, "source.pdf", "2026-09-21T00:00:00Z")
+    store.source_pdf_path(job_id).write_bytes(b"partial upload")
+
+    store.discard_job(job_id)
+
+    assert not store.job_dir(job_id).exists()
+
+
 def test_queue_extraction_owns_transition_and_persists_requested_options(tmp_path) -> None:
     store = PdfLayoutJobStore(tmp_path)
     job_id = "12345678-1234-5678-1234-567812345678"
