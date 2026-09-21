@@ -73,3 +73,34 @@ def test_select_chroma_records_preserves_duplicate_records_for_rendering() -> No
     record = {"chunk_id": "same"}
 
     assert select_chroma_records({"items": [{"record": record}, {"record": record}]}) == [record, record]
+
+
+def test_handle_chroma_request_rejects_blank_input_before_service_access() -> None:
+    from music_rag.ui_workflows import handle_chroma_request
+
+    class ExplodingService:
+        def understand_request(self, request: str) -> object:
+            raise AssertionError("blank requests must not reach the service")
+
+    assert handle_chroma_request(
+        "  ",
+        chroma_service=ExplodingService(),
+        access_scope="public",
+        render_results=lambda records: ("unused", []),
+    ) == ("Nh蘯ｭp cﾃ｢u h盻淑 ﾄ黛ｻ・tﾃｬm trong header chunks.", "", [])
+
+
+def test_handle_answer_request_rejects_blank_input_before_service_access() -> None:
+    from music_rag.ui_workflows import handle_answer_request
+
+    class ExplodingService:
+        def understand_request(self, request: str) -> object:
+            raise AssertionError("blank requests must not reach the service")
+
+    assert handle_answer_request(
+        "  ",
+        chroma_service=ExplodingService(),
+        access_scope="public",
+        render_results=lambda records: ("unused", []),
+        format_cost=lambda result: "unused",
+    ) == ("Nh蘯ｭp cﾃ｢u h盻淑 ﾄ黛ｻ・t盻貧g h盻｣p cﾃ｢u tr蘯｣ l盻拱.", "", "", [], "")

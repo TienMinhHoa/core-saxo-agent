@@ -29,7 +29,12 @@ from music_rag.ui_rendering import (
     format_answer_cost as _format_answer_cost,
     render_chroma_results as _render_chroma_results,
 )
-from music_rag.ui_workflows import select_answer_records, select_chroma_records
+from music_rag.ui_workflows import (
+    handle_answer_request,
+    handle_chroma_request,
+    select_answer_records,
+    select_chroma_records,
+)
 
 def create_app(
     catalog_path: str | Path,
@@ -44,6 +49,12 @@ def create_app(
     chroma_service = ChromaChunkService(chroma_path, chroma_name, source_scope=access_scope, limit=chroma_limit)
 
     def ask_chroma(request: str) -> tuple[str, str, list[tuple[str, str]]]:
+        return handle_chroma_request(
+            request,
+            chroma_service=chroma_service,
+            access_scope=access_scope,
+            render_results=_render_chroma_results,
+        )
         request = request.strip()
         if not request:
             return "Nhập câu hỏi để tìm trong header chunks.", "", []
@@ -69,6 +80,13 @@ def create_app(
         return status, body, images
 
     def ask_answer(request: str) -> tuple[str, str, str, list[tuple[str, str]], str]:
+        return handle_answer_request(
+            request,
+            chroma_service=chroma_service,
+            access_scope=access_scope,
+            render_results=_render_chroma_results,
+            format_cost=_format_answer_cost,
+        )
         request = request.strip()
         if not request:
             return "Nhập câu hỏi để tổng hợp câu trả lời.", "", "", [], ""
