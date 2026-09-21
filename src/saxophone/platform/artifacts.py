@@ -68,6 +68,8 @@ class LocalArtifactRepository:
             raise ValueError("root must be a Path")
         if io_limiter is not None and not isinstance(io_limiter, anyio.CapacityLimiter):
             raise ValueError("io_limiter must be a CapacityLimiter")
+        if root.is_symlink():
+            raise ValueError("root must not be a symbolic link")
         resolved_root = root.resolve()
         if resolved_root.exists() and not resolved_root.is_dir():
             raise ValueError("root must be a directory")

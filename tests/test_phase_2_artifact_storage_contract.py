@@ -54,6 +54,22 @@ def test_local_repository_rejects_existing_file_as_root(tmp_path: Path) -> None:
         LocalArtifactRepository(root_file)
 
 
+def test_local_repository_rejects_symbolic_link_as_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "artifact-root"
+    root.mkdir()
+    real_is_symlink = Path.is_symlink
+
+    def pretend_symlink(path: Path) -> bool:
+        return path == root or real_is_symlink(path)
+
+    monkeypatch.setattr(Path, "is_symlink", pretend_symlink)
+
+    with pytest.raises(ValueError, match="root must not be a symbolic link"):
+        LocalArtifactRepository(root)
+
+
 @pytest.mark.parametrize("io_limiter", [object(), False, 1])
 def test_local_repository_rejects_invalid_io_limiter_before_storage_setup(
     tmp_path: Path, io_limiter: object
