@@ -9,8 +9,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from saxophone.chat.models import ChatResult
-from saxophone.chat.ports import ImageArtifactGate
+from saxophone.chat import ChatResult, ImageArtifactGate
 from saxophone.documents import (
     ArtifactKind,
     ArtifactRef,
@@ -21,11 +20,9 @@ from saxophone.documents import (
     is_safe_relative_image_reference,
 )
 from saxophone.extraction import PdfExtractionRequest, PdfExtractionResult
-from saxophone.ingestion.models import IndexInputRecord, IngestionCommand, IngestionReport
-from saxophone.ingestion.use_cases import IndexDocument
-from saxophone.retrieval.models import EvidenceBundle
-from saxophone.workflows.ingest_extracted_document import IngestExtractedDocument
-from saxophone.workflows.process_document import ProcessAndPersistDocument, ProcessDocument
+from saxophone.ingestion import IndexDocument, IndexInputRecord, IngestionCommand, IngestionReport
+from saxophone.retrieval import EvidenceBundle
+from saxophone.workflows import IngestExtractedDocument, ProcessAndPersistDocument, ProcessDocument
 
 
 class QueryRequest(BaseModel):

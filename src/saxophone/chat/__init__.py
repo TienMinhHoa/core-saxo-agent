@@ -1,7 +1,7 @@
 """Provider-independent chat contracts and application service."""
 
 from .models import ChatResult, ChatStatus, GeneratedAnswer
-from .ports import AnswerGenerator
+from .ports import AnswerGenerator, ImageArtifactGate
 from .service import AnswerQuestion
 
 __all__ = [
@@ -10,4 +10,5 @@ __all__ = [
     "ChatResult",
     "ChatStatus",
     "GeneratedAnswer",
+    "ImageArtifactGate",
 ]

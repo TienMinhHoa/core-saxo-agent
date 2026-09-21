@@ -390,6 +390,29 @@ def test_extraction_consumers_use_the_public_facade() -> None:
     assert violations == {}
 
 
+def test_api_consumes_application_public_facades() -> None:
+    """The inbound adapter should depend on stable module facades only."""
+
+    api_file = SOURCE_ROOT / "interfaces" / "api.py"
+    implementation_prefixes = (
+        "saxophone.chat.models",
+        "saxophone.chat.ports",
+        "saxophone.ingestion.models",
+        "saxophone.ingestion.use_cases",
+        "saxophone.retrieval.models",
+        "saxophone.workflows.ingest_extracted_document",
+        "saxophone.workflows.process_document",
+    )
+
+    violations = sorted(
+        imported
+        for imported in _saxophone_imports(api_file)
+        if imported.startswith(implementation_prefixes)
+    )
+
+    assert violations == []
+
+
 def test_extraction_exposes_a_public_application_facade() -> None:
     """Consumers should receive extraction contracts from one stable module."""
 
