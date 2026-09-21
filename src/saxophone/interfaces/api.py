@@ -206,13 +206,12 @@ def build_capability_router(
             if not is_image_media_type(artifact.media_type):
                 raise ValueError("resolved image artifact must have an image media type")
             payload = await artifact_repository.get(artifact)
-        except FileNotFoundError as error:
-            raise HTTPException(status_code=404, detail="asset not found") from error
-        except FileExistsError as error:
-            raise HTTPException(status_code=404, detail="asset not found") from error
-        except IsADirectoryError as error:
-            raise HTTPException(status_code=404, detail="asset not found") from error
-        except NotADirectoryError as error:
+        except (
+            FileNotFoundError,
+            FileExistsError,
+            IsADirectoryError,
+            NotADirectoryError,
+        ) as error:
             raise HTTPException(status_code=404, detail="asset not found") from error
         except PermissionError as error:
             raise HTTPException(status_code=403, detail="asset access denied") from error
