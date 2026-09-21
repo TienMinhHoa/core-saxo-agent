@@ -446,6 +446,39 @@ def test_api_consumes_application_public_facades() -> None:
     assert violations == []
 
 
+def test_composition_root_consumes_workflow_public_facade() -> None:
+    """The composition root should resolve workflows through their stable facade."""
+
+    factory_file = SOURCE_ROOT / "app" / "factory.py"
+    implementation_prefixes = (
+        "saxophone.workflows.ingest_extracted_document",
+        "saxophone.workflows.process_document",
+    )
+
+    violations = sorted(
+        imported
+        for imported in _saxophone_imports(factory_file)
+        if imported.startswith(implementation_prefixes)
+    )
+
+    assert violations == []
+
+
+def test_workflows_exposes_a_public_application_facade() -> None:
+    """Workflow consumers should receive orchestration contracts from one module."""
+
+    from saxophone import workflows
+
+    expected = {
+        "IngestExtractedDocument",
+        "ProcessAndPersistDocument",
+        "ProcessDocument",
+    }
+
+    assert set(workflows.__all__) == expected
+    assert all(hasattr(workflows, name) for name in expected)
+
+
 def test_extraction_exposes_a_public_application_facade() -> None:
     """Consumers should receive extraction contracts from one stable module."""
 

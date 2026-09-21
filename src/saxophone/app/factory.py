@@ -45,8 +45,11 @@ from saxophone.tagging.adapters import RemoteParagraphTagger, RemoteTagConflictR
 from saxophone.tagging.ports import TagCatalogRepository, TagConflictResolver, TagGenerator, TaggedParagraphRepository
 from saxophone.tagging.use_cases import TagAndPersistParagraph, TagParagraph
 from saxophone.interfaces.api import build_capability_router
-from saxophone.workflows.process_document import ProcessAndPersistDocument, ProcessDocument
-from saxophone.workflows.ingest_extracted_document import IngestExtractedDocument
+from saxophone.workflows import (
+    IngestExtractedDocument,
+    ProcessAndPersistDocument,
+    ProcessDocument,
+)
 
 
 def _capability_status(*, configured: bool, model_service_status: str) -> str:
