@@ -48,26 +48,11 @@ def _load_state(job_id: str) -> dict[str, Any]:
 
 def _timestamp() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+"""
 
 
-async def _save_upload(upload: UploadFile, destination: Path) -> int:
-    """Write an upload with a bounded size; never trust its client filename."""
-    bytes_written = 0
-    try:
-        with destination.open("wb") as handle:
-            while chunk := await upload.read(1024 * 1024):
-                bytes_written += len(chunk)
-                if bytes_written > MAX_UPLOAD_BYTES:
-                    raise HTTPException(
-                        status_code=413,
                         detail=f"PDF vượt giới hạn {MAX_UPLOAD_BYTES // (1024 * 1024)} MB",
-                    )
-                handle.write(chunk)
-    finally:
-        await upload.close()
-    return bytes_written
-
-
+"""
 @app.get("/", response_class=HTMLResponse)
 def home() -> HTMLResponse:
     # The viewer is a single inline HTML/JS asset; never leave an old client

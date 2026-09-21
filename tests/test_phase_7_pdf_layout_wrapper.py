@@ -118,6 +118,17 @@ def test_pdf_upload_cleanup_is_owned_by_job_store() -> None:
     assert "shutil.rmtree(job_dir" not in create_job_source
 
 
+def test_pdf_upload_interface_does_not_keep_dead_upload_writer() -> None:
+    source = (
+        SOURCE_ROOT / "src" / "saxophone" / "interfaces" / "pdf_layout_web.py"
+    ).read_text(encoding="utf-8")
+    create_job_source = source.split('@app.post("/api/jobs/{job_id}/extract")', 1)[0]
+
+    assert "async def _save_upload" not in source
+    assert "await upload.read(" not in create_job_source
+    assert "JOB_STORE.save_uploaded_pdf" in create_job_source
+
+
 def test_pdf_extract_route_delegates_queue_transition_to_job_store() -> None:
     source = (
         SOURCE_ROOT / "src" / "saxophone" / "interfaces" / "pdf_layout_web.py"
