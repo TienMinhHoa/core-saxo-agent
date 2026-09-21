@@ -307,16 +307,18 @@ def create_app(
         try:
             yield
         finally:
-            if vector_index is not None:
-                aclose = getattr(vector_index, "aclose", None)
-                if callable(aclose):
-                    await aclose()
-                else:
-                    close = getattr(vector_index, "close", None)
-                    if callable(close):
-                        close()
-            if http_client is not None:
-                await http_client.aclose()
+            try:
+                if vector_index is not None:
+                    aclose = getattr(vector_index, "aclose", None)
+                    if callable(aclose):
+                        await aclose()
+                    else:
+                        close = getattr(vector_index, "close", None)
+                        if callable(close):
+                            close()
+            finally:
+                if http_client is not None:
+                    await http_client.aclose()
 
     app = FastAPI(title="Saxophone RAG backend", lifespan=lifespan)
 

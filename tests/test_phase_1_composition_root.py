@@ -421,6 +421,41 @@ def test_default_composition_closes_persistent_chroma_client_on_shutdown(monkeyp
     assert client is app.state.container.vector_index._client
 
 
+def test_lifespan_closes_shared_http_client_when_vector_cleanup_fails(monkeypatch) -> None:
+    class SpyAsyncClient:
+        def __init__(self, **kwargs) -> None:
+            self.is_closed = False
+
+        async def post(self, *args, **kwargs):
+            raise AssertionError("shutdown test must not perform model I/O")
+
+        async def get(self, *args, **kwargs):
+            raise AssertionError("shutdown test must not perform health I/O")
+
+        async def aclose(self) -> None:
+            self.is_closed = True
+
+    class FailingVectorIndex:
+        async def aclose(self) -> None:
+            raise RuntimeError("vector cleanup failed")
+
+    monkeypatch.setattr("saxophone.app.factory.httpx.AsyncClient", SpyAsyncClient)
+    app = create_app(
+        build_settings(),
+        overrides=AppOverrides(
+            vector_index=FailingVectorIndex(),
+        ),
+    )
+    client = app.state.container.http_client
+    assert client is not None
+
+    with pytest.raises(RuntimeError, match="vector cleanup failed"):
+        with TestClient(app):
+            pass
+
+    assert client.is_closed is True
+
+
 def test_indexing_composition_uses_durable_reuse_store_by_default() -> None:
     vector_index = object()
     app = create_app(
