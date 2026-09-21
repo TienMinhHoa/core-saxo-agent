@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+import tomllib
 
 
 SOURCE_ROOT = Path(__file__).parents[1] / "src" / "saxophone"
@@ -168,6 +169,22 @@ def test_backend_dependency_manifests_do_not_lock_local_gpu_runtime() -> None:
             violations[str(path.relative_to(manifest_paths[0].parent))] = found
 
     assert violations == {}
+
+
+def test_dependency_manifests_keep_runtime_and_dev_tooling_separate() -> None:
+    """Keep pytest out of runtime installs while retaining an explicit dev group."""
+
+    project_root = SOURCE_ROOT.parents[1]
+    pyproject = tomllib.loads(
+        (project_root / "pyproject.toml").read_text(encoding="utf-8")
+    )
+    runtime_dependencies = set(pyproject["project"]["dependencies"])
+    dev_dependencies = set(pyproject["dependency-groups"]["dev"])
+    requirements = (project_root / "requirements.txt").read_text(encoding="utf-8").lower()
+
+    assert not any(dependency.lower().startswith("pytest") for dependency in runtime_dependencies)
+    assert any(dependency.lower().startswith("pytest") for dependency in dev_dependencies)
+    assert "pytest" not in requirements
 
 
 def test_backend_package_does_not_import_legacy_runtime_modules() -> None:
