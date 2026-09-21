@@ -66,6 +66,15 @@ def test_pdf_layout_interface_delegates_layout_reading_to_extraction_policy() ->
     assert "def _normalise_blocks" not in source
 
 
+def test_pdf_layout_interface_delegates_public_state_projection_to_job_store() -> None:
+    source = (
+        SOURCE_ROOT / "src" / "saxophone" / "interfaces" / "pdf_layout_web.py"
+    ).read_text(encoding="utf-8")
+
+    assert "def _public_state" not in source
+    assert "JOB_STORE.public_state(state)" in source
+
+
 def test_pdf_layout_missing_job_maps_store_error_to_http_404(monkeypatch) -> None:
     from fastapi import HTTPException
 

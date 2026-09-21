@@ -61,29 +61,6 @@ def _write_state(job_id: str, state: dict[str, Any]) -> None:
     JOB_STORE.write_state(job_id, state)
 
 
-def _public_state(state: dict[str, Any]) -> dict[str, Any]:
-    """Return state fields safe and useful for the browser."""
-    return {
-        key: state.get(key)
-        for key in (
-            "id",
-            "original_filename",
-            "status",
-            "created_at",
-            "started_at",
-            "finished_at",
-            "device",
-            "language",
-            "page_count",
-            "phase",
-            "progress_pages",
-            "progress_total",
-            "progress_images",
-            "error",
-        )
-    }
-
-
 def _timestamp() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
@@ -162,7 +139,7 @@ async def create_job(file: UploadFile = File(...)) -> dict[str, Any]:
             "error": None,
         }
         _write_state(job_id, state)
-        return _public_state(state)
+        return JOB_STORE.public_state(state)
     except Exception:
         shutil.rmtree(job_dir, ignore_errors=True)
         raise
@@ -204,12 +181,12 @@ def start_extraction(job_id: str, device: str = "cpu", language: str = "vi") -> 
         },
         daemon=True,
     ).start()
-    return _public_state(state)
+    return JOB_STORE.public_state(state)
 
 
 @app.get("/api/jobs/{job_id}")
 def job_status(job_id: str) -> dict[str, Any]:
-    return _public_state(_load_state(job_id))
+    return JOB_STORE.public_state(_load_state(job_id))
 
 
 @app.get("/api/jobs/{job_id}/layout")
