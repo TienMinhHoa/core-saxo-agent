@@ -23,7 +23,13 @@ class JsonTaggedParagraphRepository:
         *,
         io_limiter: anyio.CapacityLimiter | None = None,
     ) -> None:
-        self._root = root.resolve()
+        if not isinstance(root, Path):
+            raise ValueError("root must be a Path")
+        _reject_symbolic_link_in_path(root)
+        absolute_root = root.absolute()
+        if absolute_root.exists() and not absolute_root.is_dir():
+            raise ValueError("root must be a directory")
+        self._root = absolute_root
         self._io_limiter = io_limiter or create_blocking_io_limiter()
 
     @property
@@ -54,7 +60,9 @@ class JsonTaggedParagraphRepository:
         await anyio.to_thread.run_sync(path.unlink, limiter=self._io_limiter)
 
     def _write(self, paragraph: TaggedParagraph) -> None:
+        _reject_symbolic_link_in_path(self._root)
         self._root.mkdir(parents=True, exist_ok=True)
+        _reject_symbolic_link_in_path(self._root)
         payload = {
             "paragraph_id": paragraph.paragraph_id,
             "text": paragraph.text,
@@ -72,6 +80,7 @@ class JsonTaggedParagraphRepository:
         return payload
 
     def _path_for(self, paragraph_id: str) -> Path:
+        _reject_symbolic_link_in_path(self._root)
         if not isinstance(paragraph_id, str) or not paragraph_id.strip():
             raise ValueError("paragraph_id must not be blank")
         digest = hashlib.sha256(paragraph_id.encode("utf-8")).hexdigest()
@@ -87,7 +96,13 @@ class JsonTagCatalogRepository:
         *,
         io_limiter: anyio.CapacityLimiter | None = None,
     ) -> None:
-        self._path = path.resolve()
+        if not isinstance(path, Path):
+            raise ValueError("path must be a Path")
+        _reject_symbolic_link_in_path(path)
+        absolute_path = path.absolute()
+        if absolute_path.exists() and absolute_path.is_dir():
+            raise ValueError("path must be a file")
+        self._path = absolute_path
         self._io_limiter = io_limiter or create_blocking_io_limiter()
 
     @property
@@ -102,11 +117,13 @@ class JsonTagCatalogRepository:
         return await anyio.to_thread.run_sync(self._list, limiter=self._io_limiter)
 
     def _add(self, tags: tuple[str, ...]) -> None:
+        _reject_symbolic_link_in_path(self._path)
         current = set(self._list())
         current.update(tags)
         _write_json_atomically(self._path, sorted(current))
 
     def _list(self) -> tuple[str, ...]:
+        _reject_symbolic_link_in_path(self._path)
         if not self._path.exists():
             return ()
         with self._path.open(encoding="utf-8") as stored:
@@ -128,3 +145,16 @@ def _write_json_atomically(path: Path, payload: object) -> None:
     except BaseException:
         Path(temporary_name).unlink(missing_ok=True)
         raise
+
+
+def _reject_symbolic_link_in_path(path: Path) -> None:
+    """Reject path components that could redirect JSON persistence elsewhere."""
+
+    absolute_path = path.absolute()
+    current = Path(absolute_path.anchor)
+    for component in absolute_path.parts[1:]:
+        current /= component
+        if current.is_symlink():
+            if current == absolute_path:
+                raise ValueError("path must not be a symbolic link")
+            raise ValueError("path must not contain a symbolic link")

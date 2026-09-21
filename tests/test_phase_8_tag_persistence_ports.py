@@ -129,3 +129,43 @@ def test_json_tag_repositories_accept_a_shared_bounded_io_limiter(tmp_path) -> N
 
     assert paragraph_repository._io_limiter is limiter
     assert catalog_repository._io_limiter is limiter
+
+
+def test_json_tagged_paragraph_repository_rejects_file_root(tmp_path) -> None:
+    root = tmp_path / "paragraphs.json"
+    root.write_text("not a directory", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="root must be a directory"):
+        JsonTaggedParagraphRepository(root)
+
+
+def test_json_tagged_paragraph_repository_rechecks_root_before_read(tmp_path) -> None:
+    root = tmp_path / "paragraphs"
+    repository = JsonTaggedParagraphRepository(root)
+    paragraph = _paragraph()
+    asyncio.run(repository.upsert(paragraph))
+
+    redirected = tmp_path / "redirected"
+    redirected.mkdir()
+    try:
+        next(root.glob("*.json")).unlink()
+        root.rmdir()
+        root.symlink_to(redirected, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("symbolic links are unavailable in this environment")
+
+    with pytest.raises(ValueError, match="symbolic link"):
+        asyncio.run(repository.get(paragraph.paragraph_id))
+
+
+def test_json_tag_catalog_rejects_symbolic_link_parent(tmp_path) -> None:
+    parent = tmp_path / "catalog-parent"
+    redirected = tmp_path / "redirected"
+    redirected.mkdir()
+    try:
+        parent.symlink_to(redirected, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("symbolic links are unavailable in this environment")
+
+    with pytest.raises(ValueError, match="symbolic link"):
+        JsonTagCatalogRepository(parent / "tags.json")
