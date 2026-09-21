@@ -392,6 +392,15 @@ deployment production.
 - Live model-service smoke va production parity van chua xac minh do thieu
   endpoint, credential va production catalog.
 
+### Iteration 313 - ranh gioi tao PDF job
+
+- `PdfLayoutJobStore.create_uploaded_job()` nay so huu directory va state ban dau;
+  route upload chi dieu phoi qua store va public projection.
+- Targeted: **19 passed**; chi tiet tai
+  `docs/ITERATION_313_PHASE7_PDF_JOB_CREATION_BOUNDARY.md`.
+- Live model-service smoke va production parity van chua xac minh do thieu
+  endpoint, credential va production catalog.
+
 ### Iteration 312 - sua loi runtime projection route layout PDF
 
 - `job_layout()` da dung `JOB_STORE.public_state(state)`, khong con goi

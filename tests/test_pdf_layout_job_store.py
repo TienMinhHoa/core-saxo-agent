@@ -41,3 +41,42 @@ def test_load_state_rejects_json_payloads_that_are_not_state_objects(tmp_path) -
 
     with pytest.raises(PdfLayoutJobNotFound):
         store.load_state(job_id)
+
+
+def test_create_uploaded_job_owns_initial_state_and_directory(tmp_path) -> None:
+    store = PdfLayoutJobStore(tmp_path)
+    job_id = "12345678-1234-5678-1234-567812345678"
+
+    state = store.create_uploaded_job(
+        job_id,
+        original_filename="source.pdf",
+        created_at="2026-09-21T00:00:00Z",
+    )
+
+    assert state == {
+        "id": job_id,
+        "original_filename": "source.pdf",
+        "status": "uploaded",
+        "created_at": "2026-09-21T00:00:00Z",
+        "started_at": None,
+        "finished_at": None,
+        "device": None,
+        "language": None,
+        "page_count": None,
+        "phase": "uploaded",
+        "progress_pages": 0,
+        "progress_total": None,
+        "progress_images": 0,
+        "error": None,
+    }
+    assert store.load_state(job_id) == state
+    assert store.job_dir(job_id).is_dir()
+
+
+def test_create_uploaded_job_rejects_existing_job_directory(tmp_path) -> None:
+    store = PdfLayoutJobStore(tmp_path)
+    job_id = "12345678-1234-5678-1234-567812345678"
+    store.job_dir(job_id).mkdir()
+
+    with pytest.raises(FileExistsError):
+        store.create_uploaded_job(job_id, "source.pdf", "2026-09-21T00:00:00Z")

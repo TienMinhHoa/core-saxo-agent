@@ -75,6 +75,17 @@ def test_pdf_layout_interface_delegates_public_state_projection_to_job_store() -
     assert "JOB_STORE.public_state(state)" in source
 
 
+def test_pdf_upload_route_delegates_initial_state_creation_to_job_store() -> None:
+    source = (
+        SOURCE_ROOT / "src" / "saxophone" / "interfaces" / "pdf_layout_web.py"
+    ).read_text(encoding="utf-8")
+    create_job_source = source.split("@app.post(\"/api/jobs/{job_id}/extract\")", 1)[0]
+
+    assert "JOB_STORE.create_uploaded_job(" in create_job_source
+    assert '"progress_pages": 0' not in create_job_source
+    assert '"original_filename": supplied_name' not in create_job_source
+
+
 def test_layout_route_uses_job_store_projection_at_runtime(monkeypatch, tmp_path) -> None:
     from saxophone.interfaces import pdf_layout_web
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import uuid
 from pathlib import Path
 from typing import Any
@@ -41,6 +42,35 @@ class PdfLayoutJobStore:
             return state
         except (OSError, ValueError, TypeError) as exc:
             raise PdfLayoutJobNotFound(job_id) from exc
+
+    def create_uploaded_job(
+        self, job_id: str, original_filename: str, created_at: str
+    ) -> dict[str, Any]:
+        """Create the persisted state for a newly uploaded PDF job."""
+        job_dir = self.job_dir(job_id)
+        job_dir.mkdir(parents=True, exist_ok=False)
+        state = {
+            "id": job_id,
+            "original_filename": original_filename,
+            "status": "uploaded",
+            "created_at": created_at,
+            "started_at": None,
+            "finished_at": None,
+            "device": None,
+            "language": None,
+            "page_count": None,
+            "phase": "uploaded",
+            "progress_pages": 0,
+            "progress_total": None,
+            "progress_images": 0,
+            "error": None,
+        }
+        try:
+            self.write_state(job_id, state)
+        except Exception:
+            shutil.rmtree(job_dir, ignore_errors=True)
+            raise
+        return state
 
     def write_state(self, job_id: str, state: dict[str, Any]) -> None:
         target = self.job_dir(job_id) / "job.json"

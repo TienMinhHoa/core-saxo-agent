@@ -122,23 +122,9 @@ async def create_job(file: UploadFile = File(...)) -> dict[str, Any]:
         size = await _save_upload(file, job_dir / "source.pdf")
         if size == 0:
             raise HTTPException(status_code=400, detail="PDF rỗng")
-        state = {
-            "id": job_id,
-            "original_filename": supplied_name,
-            "status": "uploaded",
-            "created_at": _timestamp(),
-            "started_at": None,
-            "finished_at": None,
-            "device": None,
-            "language": None,
-            "page_count": None,
-            "phase": "uploaded",
-            "progress_pages": 0,
-            "progress_total": None,
-            "progress_images": 0,
-            "error": None,
-        }
-        _write_state(job_id, state)
+        state = JOB_STORE.create_uploaded_job(
+            job_id, original_filename=supplied_name, created_at=_timestamp()
+        )
         return JOB_STORE.public_state(state)
     except Exception:
         shutil.rmtree(job_dir, ignore_errors=True)
