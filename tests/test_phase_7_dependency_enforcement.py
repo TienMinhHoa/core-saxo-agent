@@ -55,7 +55,7 @@ REMOVED_WORKFLOW_LIFECYCLE_SYMBOLS = frozenset(
     }
 )
 LEGACY_MODULE_ROOTS = frozenset({"pdf_layout_web", "music_rag", "extracted"})
-LEGACY_COMPATIBILITY_FILES = frozenset({"retrieval/adapters.py"})
+LEGACY_COMPATIBILITY_FILES = frozenset({"retrieval/legacy.py"})
 
 
 def _import_roots(path: Path) -> set[str]:
@@ -220,8 +220,11 @@ def test_backend_package_does_not_import_legacy_runtime_modules() -> None:
 
     assert violations == {}
 
-    compatibility_path = SOURCE_ROOT / "retrieval" / "adapters.py"
+    compatibility_path = SOURCE_ROOT / "retrieval" / "legacy.py"
     assert _import_roots(compatibility_path) & LEGACY_MODULE_ROOTS == {"music_rag"}
+
+    adapters_path = SOURCE_ROOT / "retrieval" / "adapters.py"
+    assert _import_roots(adapters_path) & LEGACY_MODULE_ROOTS == set()
 
 
 def test_backend_source_does_not_reintroduce_removed_job_lifecycle_contract() -> None:

@@ -12,9 +12,8 @@ from typing import Any, Mapping
 
 import anyio
 
-from music_rag.semantic import semantic_search
-from music_rag.store import CatalogStore
 from saxophone.platform.concurrency import create_blocking_io_limiter
+from .legacy import LegacyCatalogStore, legacy_semantic_search
 from .models import ChunkHit
 from .ports import ChunkRetriever
 
@@ -108,7 +107,7 @@ class LegacySemanticRetriever(ChunkRetriever):
 
     def __init__(
         self,
-        store: CatalogStore,
+        store: LegacyCatalogStore,
         embedding_provider: Any,
         *,
         retrieval_version: str = "legacy-semantic-v1",
@@ -140,7 +139,7 @@ class LegacySemanticRetriever(ChunkRetriever):
             raise ValueError(f"unsupported legacy filters: {sorted(unsupported)}")
         records = await anyio.to_thread.run_sync(
             partial(
-                semantic_search,
+                legacy_semantic_search,
                 self._store,
                 self._embedding_provider,
                 query.strip(),
