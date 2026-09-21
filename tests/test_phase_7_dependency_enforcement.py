@@ -244,6 +244,38 @@ def test_business_layers_do_not_depend_on_inbound_or_composition_layers() -> Non
     assert violations == {}
 
 
+def test_composition_root_owns_concrete_adapter_wiring() -> None:
+    """Keep concrete adapter construction out of the entrypoint and HTTP layer."""
+
+    outer_files = (
+        SOURCE_ROOT / "main.py",
+        SOURCE_ROOT / "interfaces" / "api.py",
+    )
+    concrete_modules = frozenset(
+        {
+            "saxophone.extraction.remote",
+            "saxophone.ingestion.adapters",
+            "saxophone.platform.artifacts",
+            "saxophone.platform.chroma",
+            "saxophone.platform.knowledge",
+            "saxophone.platform.model_client",
+            "saxophone.platform.remote_gpu",
+            "saxophone.tagging.adapters",
+            "saxophone.tagging.persistence",
+        }
+    )
+
+    violations = {
+        str(path.relative_to(SOURCE_ROOT)): sorted(
+            imported for imported in _saxophone_imports(path) if imported in concrete_modules
+        )
+        for path in outer_files
+        if _saxophone_imports(path) & concrete_modules
+    }
+
+    assert violations == {}
+
+
 def test_retrieval_and_chat_remain_separate_application_boundaries() -> None:
     """Retrieval supplies evidence; chat consumes its public contract only."""
 
