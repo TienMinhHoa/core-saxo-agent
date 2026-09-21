@@ -54,6 +54,12 @@ class PdfLayoutJobStore:
             layout=job_dir / "extraction" / "source" / "layout",
         )
 
+    def page_image_path(self, job_id: str, page_number: int) -> Path:
+        """Return one validated rendered-page path under the store policy."""
+        if isinstance(page_number, bool) or not isinstance(page_number, int) or page_number < 1:
+            raise ValueError("page_number must be a positive integer")
+        return self.artifact_paths(job_id).pages / f"page-{page_number}.png"
+
     def save_uploaded_pdf(
         self, job_id: str, source: BinaryIO, *, max_bytes: int
     ) -> int:

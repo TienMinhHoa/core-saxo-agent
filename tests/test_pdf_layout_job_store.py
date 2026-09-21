@@ -174,6 +174,21 @@ def test_job_store_persists_uploaded_pdf_and_returns_byte_count(tmp_path) -> Non
     assert store.artifact_paths(job_id).source_pdf.read_bytes() == b"pdf bytes"
 
 
+def test_job_store_owns_validated_rendered_page_path(tmp_path) -> None:
+    store = PdfLayoutJobStore(tmp_path)
+    job_id = "12345678-1234-5678-1234-567812345678"
+
+    assert store.page_image_path(job_id, 3) == tmp_path / job_id / "pages" / "page-3.png"
+
+
+@pytest.mark.parametrize("page_number", [0, -1, True, 1.5, "1"])
+def test_job_store_rejects_invalid_rendered_page_numbers(tmp_path, page_number) -> None:
+    store = PdfLayoutJobStore(tmp_path)
+
+    with pytest.raises(ValueError, match="page_number"):
+        store.page_image_path("12345678-1234-5678-1234-567812345678", page_number)
+
+
 def test_job_store_rejects_upload_over_limit_without_leaving_partial_file(tmp_path) -> None:
     store = PdfLayoutJobStore(tmp_path)
     job_id = "12345678-1234-5678-1234-567812345678"

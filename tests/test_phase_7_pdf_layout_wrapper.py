@@ -187,8 +187,17 @@ def test_pdf_layout_routes_delegate_artifact_paths_to_job_store() -> None:
     assert ' / "extraction" / "source" / "layout"' not in source
     assert "JOB_STORE.artifact_paths(" in source
     assert "JOB_STORE.save_uploaded_pdf" in source
-    assert "artifact_paths(job_id).pages" in source
+    assert "JOB_STORE.page_image_path(job_id, page_number)" in source
     assert "artifact_paths(job_id).layout" in source
+
+
+def test_pdf_page_route_delegates_rendered_page_path_policy_to_job_store() -> None:
+    source = (
+        SOURCE_ROOT / "src" / "saxophone" / "interfaces" / "pdf_layout_web.py"
+    ).read_text(encoding="utf-8")
+
+    assert "JOB_STORE.page_image_path(job_id, page_number)" in source
+    assert 'f"page-{page_number}.png"' not in source
 
 
 def test_pdf_job_store_keeps_one_public_artifact_path_policy() -> None:

@@ -139,7 +139,10 @@ def job_layout(job_id: str) -> dict[str, Any]:
 def page_image(job_id: str, page_number: int) -> FileResponse:
     if page_number < 1:
         raise HTTPException(status_code=404, detail="Trang không tồn tại")
-    candidate = JOB_STORE.artifact_paths(job_id).pages / f"page-{page_number}.png"
+    try:
+        candidate = JOB_STORE.page_image_path(job_id, page_number)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="invalid rendered page") from exc
     if not candidate.is_file():
         raise HTTPException(status_code=404, detail="Trang không tồn tại")
     return FileResponse(candidate, media_type="image/png")
