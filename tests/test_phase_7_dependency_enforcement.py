@@ -632,6 +632,25 @@ def test_tagging_consumers_use_the_public_facade() -> None:
     assert violations == {}
 
 
+def test_ingestion_workflow_uses_the_public_facade() -> None:
+    """Workflow orchestration must not couple to ingestion implementation modules."""
+
+    workflow_file = SOURCE_ROOT / "workflows" / "ingest_extracted_document.py"
+    implementation_prefixes = (
+        "saxophone.ingestion.chunking",
+        "saxophone.ingestion.models",
+        "saxophone.ingestion.ports",
+        "saxophone.ingestion.use_cases",
+    )
+    violations = sorted(
+        imported
+        for imported in _saxophone_imports(workflow_file)
+        if imported.startswith(implementation_prefixes)
+    )
+
+    assert violations == []
+
+
 def test_tagging_exposes_a_public_application_facade() -> None:
     """Consumers should receive tagging contracts and workflows from one module."""
 

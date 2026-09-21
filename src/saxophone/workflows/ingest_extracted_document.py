@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from saxophone.documents import ArtifactRepository
 from saxophone.extraction import PdfExtractionResult
-from saxophone.ingestion.chunking import build_source_chunks
-from saxophone.ingestion.models import IndexInputRecord, IngestionCommand
-from saxophone.ingestion.use_cases import IngestDocument, IndexDocument
+from saxophone.ingestion import (
+    IndexDocument,
+    IndexInputRecord,
+    IngestDocument,
+    IngestionCommand,
+    build_source_chunks,
+)
 from saxophone.tagging import parse_chunk_paragraphs
 
 
