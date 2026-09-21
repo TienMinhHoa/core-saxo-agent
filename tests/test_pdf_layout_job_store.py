@@ -126,6 +126,19 @@ def test_queue_extraction_rejects_non_restartable_status(tmp_path) -> None:
         store.queue_extraction(job_id, device="cpu", language="vi")
 
 
+def test_update_state_owns_atomic_workflow_state_patch(tmp_path) -> None:
+    store = PdfLayoutJobStore(tmp_path)
+    job_id = "12345678-1234-5678-1234-567812345678"
+    store.create_uploaded_job(job_id, "source.pdf", "2026-09-21T00:00:00Z")
+
+    state = store.update_state(job_id, {"status": "running", "phase": "extracting"})
+
+    assert state["status"] == "running"
+    assert state["phase"] == "extracting"
+    assert store.load_state(job_id) == state
+    assert not (store.job_dir(job_id) / "job.json.tmp").exists()
+
+
 def test_job_store_owns_pdf_artifact_paths(tmp_path) -> None:
     store = PdfLayoutJobStore(tmp_path)
     job_id = "12345678-1234-5678-1234-567812345678"

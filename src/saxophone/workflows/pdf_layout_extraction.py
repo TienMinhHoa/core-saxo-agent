@@ -16,14 +16,13 @@ def run_extraction(
     job_id: str,
     *,
     artifact_paths: Callable[[str], PdfLayoutArtifactPaths],
-    load_state: Callable[[str], dict[str, Any]],
-    write_state: Callable[[str, dict[str, Any]], None],
+    update_state: Callable[[str, dict[str, Any]], dict[str, Any]],
     render_pages: Callable[[Path, Path], list[str]],
     extraction_lock: threading.Lock,
 ) -> None:
     """Run the legacy OCR adapter and persist the workflow state transitions."""
-    state = load_state(job_id)
-    state.update(
+    state = update_state(
+        job_id,
         {
             "status": "running",
             "started_at": _timestamp(),
@@ -32,9 +31,8 @@ def run_extraction(
             "progress_total": None,
             "progress_images": 0,
             "error": None,
-        }
+        },
     )
-    write_state(job_id, state)
     paths = artifact_paths(job_id)
     source_pdf = paths.source_pdf
     extraction_root = paths.extraction
@@ -53,21 +51,20 @@ def run_extraction(
                 lang=str(state["language"]), device=str(state["device"])
             )
             try:
-                state = load_state(job_id)
-                state.update({"phase": "extracting", "progress_total": total_pages})
-                write_state(job_id, state)
+                state = update_state(
+                    job_id, {"phase": "extracting", "progress_total": total_pages}
+                )
 
                 def report_progress(page: int, total: int | None, images: int) -> None:
-                    current_state = load_state(job_id)
-                    current_state.update(
+                    update_state(
+                        job_id,
                         {
                             "phase": "extracting",
                             "progress_pages": page,
                             "progress_total": total,
                             "progress_images": images,
-                        }
+                        },
                     )
-                    write_state(job_id, current_state)
 
                 save_one_pdf(
                     pipeline,
@@ -77,13 +74,11 @@ def run_extraction(
                 )
             finally:
                 pipeline.close()
-            state = load_state(job_id)
-            state.update({"phase": "rendering"})
-            write_state(job_id, state)
+            state = update_state(job_id, {"phase": "rendering"})
             page_images = render_pages(source_pdf, rendered_pages)
 
-        state = load_state(job_id)
-        state.update(
+        update_state(
+            job_id,
             {
                 "status": "completed",
                 "finished_at": _timestamp(),
@@ -92,21 +87,19 @@ def run_extraction(
                 "progress_pages": len(page_images),
                 "progress_total": len(page_images),
                 "error": None,
-            }
+            },
         )
-        write_state(job_id, state)
     except Exception as exc:  # pragma: no cover - OCR runtime is environment-specific
-        state = load_state(job_id)
-        state.update(
+        update_state(
+            job_id,
             {
                 "status": "failed",
                 "finished_at": _timestamp(),
                 "phase": "failed",
                 "error": f"{type(exc).__name__}: {exc}",
                 "traceback": traceback.format_exc(limit=12),
-            }
+            },
         )
-        write_state(job_id, state)
 
 
 def _timestamp() -> str:

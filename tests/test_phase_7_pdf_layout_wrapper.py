@@ -149,6 +149,21 @@ def test_pdf_extraction_workflow_consumes_one_artifact_path_policy() -> None:
     assert '"artifact_paths": JOB_STORE.artifact_paths' in interface_source
 
 
+def test_pdf_extraction_workflow_delegates_state_patches_to_job_store() -> None:
+    workflow_source = (
+        SOURCE_ROOT / "src" / "saxophone" / "workflows" / "pdf_layout_extraction.py"
+    ).read_text(encoding="utf-8")
+    interface_source = (
+        SOURCE_ROOT / "src" / "saxophone" / "interfaces" / "pdf_layout_web.py"
+    ).read_text(encoding="utf-8")
+
+    assert "update_state:" in workflow_source
+    assert "load_state:" not in workflow_source
+    assert "write_state:" not in workflow_source
+    assert '"update_state": JOB_STORE.update_state' in interface_source
+    assert "def _write_state" not in interface_source
+
+
 def test_layout_route_uses_job_store_projection_at_runtime(monkeypatch, tmp_path) -> None:
     from saxophone.interfaces import pdf_layout_web
 

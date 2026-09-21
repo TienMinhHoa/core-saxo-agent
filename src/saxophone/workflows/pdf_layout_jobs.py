@@ -7,7 +7,7 @@ import shutil
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 
 class PdfLayoutJobNotFound(FileNotFoundError):
@@ -117,6 +117,13 @@ class PdfLayoutJobStore:
             json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8"
         )
         temporary.replace(target)
+
+    def update_state(self, job_id: str, updates: Mapping[str, Any]) -> dict[str, Any]:
+        """Apply and persist one state patch at the job-store boundary."""
+        state = self.load_state(job_id)
+        state.update(updates)
+        self.write_state(job_id, state)
+        return state
 
     def queue_extraction(
         self, job_id: str, *, device: str, language: str

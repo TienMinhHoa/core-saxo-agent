@@ -56,11 +56,6 @@ def _load_state(job_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Job không tồn tại") from exc
 
 
-def _write_state(job_id: str, state: dict[str, Any]) -> None:
-    """Atomically update job state so polling never reads partial JSON."""
-    JOB_STORE.write_state(job_id, state)
-
-
 def _timestamp() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
@@ -149,8 +144,7 @@ def start_extraction(job_id: str, device: str = "cpu", language: str = "vi") -> 
         args=(job_id,),
         kwargs={
             "artifact_paths": JOB_STORE.artifact_paths,
-            "load_state": _load_state,
-            "write_state": _write_state,
+            "update_state": JOB_STORE.update_state,
             "render_pages": _render_pages,
             "extraction_lock": EXTRACTION_LOCK,
         },
