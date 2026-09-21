@@ -6,6 +6,7 @@ import json
 import shutil
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, BinaryIO, Mapping
 
@@ -101,9 +102,15 @@ class PdfLayoutJobStore:
             raise PdfLayoutJobNotFound(job_id) from exc
 
     def create_uploaded_job(
-        self, job_id: str, original_filename: str, created_at: str
+        self,
+        original_filename: str,
+        *,
+        job_id: str | None = None,
+        created_at: str | None = None,
     ) -> dict[str, Any]:
         """Create the persisted state for a newly uploaded PDF job."""
+        job_id = job_id or str(uuid.uuid4())
+        created_at = created_at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         job_dir = self.job_dir(job_id)
         job_dir.mkdir(parents=True, exist_ok=False)
         state = {

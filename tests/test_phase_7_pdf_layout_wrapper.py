@@ -108,6 +108,18 @@ def test_pdf_upload_route_delegates_initial_state_creation_to_job_store() -> Non
     assert '"original_filename": supplied_name' not in create_job_source
 
 
+def test_pdf_upload_interface_does_not_own_job_identity_or_timestamp() -> None:
+    source = (
+        SOURCE_ROOT / "src" / "saxophone" / "interfaces" / "pdf_layout_web.py"
+    ).read_text(encoding="utf-8")
+
+    assert "import uuid" not in source
+    assert "import time" not in source
+    assert "uuid.uuid4" not in source
+    assert "_timestamp" not in source
+    assert "JOB_STORE.create_uploaded_job(\n        supplied_name\n    )" in source
+
+
 def test_pdf_upload_cleanup_is_owned_by_job_store() -> None:
     source = (
         SOURCE_ROOT / "src" / "saxophone" / "interfaces" / "pdf_layout_web.py"

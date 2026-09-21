@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+from uuid import UUID
 
 import pytest
 
@@ -54,8 +55,8 @@ def test_create_uploaded_job_owns_initial_state_and_directory(tmp_path) -> None:
     job_id = "12345678-1234-5678-1234-567812345678"
 
     state = store.create_uploaded_job(
-        job_id,
         original_filename="source.pdf",
+        job_id=job_id,
         created_at="2026-09-21T00:00:00Z",
     )
 
@@ -79,19 +80,26 @@ def test_create_uploaded_job_owns_initial_state_and_directory(tmp_path) -> None:
     assert store.job_dir(job_id).is_dir()
 
 
+def test_create_uploaded_job_generates_identity_and_timestamp_when_omitted(tmp_path) -> None:
+    state = PdfLayoutJobStore(tmp_path).create_uploaded_job("source.pdf")
+
+    UUID(state["id"])
+    assert state["created_at"].endswith("Z")
+
+
 def test_create_uploaded_job_rejects_existing_job_directory(tmp_path) -> None:
     store = PdfLayoutJobStore(tmp_path)
     job_id = "12345678-1234-5678-1234-567812345678"
     store.job_dir(job_id).mkdir()
 
     with pytest.raises(FileExistsError):
-        store.create_uploaded_job(job_id, "source.pdf", "2026-09-21T00:00:00Z")
+        store.create_uploaded_job("source.pdf", job_id=job_id, created_at="2026-09-21T00:00:00Z")
 
 
 def test_job_store_owns_discarding_a_failed_upload(tmp_path) -> None:
     store = PdfLayoutJobStore(tmp_path)
     job_id = "12345678-1234-5678-1234-567812345678"
-    store.create_uploaded_job(job_id, "source.pdf", "2026-09-21T00:00:00Z")
+    store.create_uploaded_job("source.pdf", job_id=job_id, created_at="2026-09-21T00:00:00Z")
     store.source_pdf_path(job_id).write_bytes(b"partial upload")
 
     store.discard_job(job_id)
@@ -102,7 +110,7 @@ def test_job_store_owns_discarding_a_failed_upload(tmp_path) -> None:
 def test_queue_extraction_owns_transition_and_persists_requested_options(tmp_path) -> None:
     store = PdfLayoutJobStore(tmp_path)
     job_id = "12345678-1234-5678-1234-567812345678"
-    store.create_uploaded_job(job_id, "source.pdf", "2026-09-21T00:00:00Z")
+    store.create_uploaded_job("source.pdf", job_id=job_id, created_at="2026-09-21T00:00:00Z")
 
     state = store.queue_extraction(job_id, device="cpu", language="vi")
 
@@ -120,7 +128,7 @@ def test_queue_extraction_owns_transition_and_persists_requested_options(tmp_pat
 def test_queue_extraction_rejects_non_restartable_status(tmp_path) -> None:
     store = PdfLayoutJobStore(tmp_path)
     job_id = "12345678-1234-5678-1234-567812345678"
-    state = store.create_uploaded_job(job_id, "source.pdf", "2026-09-21T00:00:00Z")
+    state = store.create_uploaded_job("source.pdf", job_id=job_id, created_at="2026-09-21T00:00:00Z")
     state["status"] = "running"
     store.write_state(job_id, state)
 
@@ -131,7 +139,7 @@ def test_queue_extraction_rejects_non_restartable_status(tmp_path) -> None:
 def test_update_state_owns_atomic_workflow_state_patch(tmp_path) -> None:
     store = PdfLayoutJobStore(tmp_path)
     job_id = "12345678-1234-5678-1234-567812345678"
-    store.create_uploaded_job(job_id, "source.pdf", "2026-09-21T00:00:00Z")
+    store.create_uploaded_job("source.pdf", job_id=job_id, created_at="2026-09-21T00:00:00Z")
 
     state = store.update_state(job_id, {"status": "running", "phase": "extracting"})
 
@@ -169,7 +177,7 @@ def test_job_store_exposes_one_typed_artifact_path_policy(tmp_path) -> None:
 def test_job_store_persists_uploaded_pdf_and_returns_byte_count(tmp_path) -> None:
     store = PdfLayoutJobStore(tmp_path)
     job_id = "12345678-1234-5678-1234-567812345678"
-    store.create_uploaded_job(job_id, "source.pdf", "2026-09-21T00:00:00Z")
+    store.create_uploaded_job("source.pdf", job_id=job_id, created_at="2026-09-21T00:00:00Z")
 
     written = store.save_uploaded_pdf(job_id, BytesIO(b"pdf bytes"), max_bytes=32)
 
@@ -180,7 +188,7 @@ def test_job_store_persists_uploaded_pdf_and_returns_byte_count(tmp_path) -> Non
 def test_job_store_rejects_upload_over_limit_without_leaving_partial_file(tmp_path) -> None:
     store = PdfLayoutJobStore(tmp_path)
     job_id = "12345678-1234-5678-1234-567812345678"
-    store.create_uploaded_job(job_id, "source.pdf", "2026-09-21T00:00:00Z")
+    store.create_uploaded_job("source.pdf", job_id=job_id, created_at="2026-09-21T00:00:00Z")
 
     with pytest.raises(ValueError, match="upload exceeds maximum"):
         store.save_uploaded_pdf(job_id, BytesIO(b"12345"), max_bytes=4)

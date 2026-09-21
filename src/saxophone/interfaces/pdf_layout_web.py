@@ -15,8 +15,6 @@ import asyncio
 import os
 import re
 import threading
-import uuid
-import time
 from pathlib import Path
 from typing import Any
 
@@ -46,8 +44,6 @@ def _load_state(job_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Job không tồn tại") from exc
 
 
-def _timestamp() -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 """
 
 
@@ -65,10 +61,10 @@ async def create_job(file: UploadFile = File(...)) -> dict[str, Any]:
     supplied_name = Path(file.filename or "document.pdf").name
     if not supplied_name.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Chỉ nhận file PDF")
-    job_id = str(uuid.uuid4())
     state = JOB_STORE.create_uploaded_job(
-        job_id, original_filename=supplied_name, created_at=_timestamp()
+        supplied_name
     )
+    job_id = state["id"]
     try:
         size = await asyncio.to_thread(
             JOB_STORE.save_uploaded_pdf,
