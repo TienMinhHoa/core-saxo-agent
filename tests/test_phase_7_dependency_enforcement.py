@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+import re
 import tomllib
 
 
@@ -236,6 +237,26 @@ def test_dependency_manifests_keep_runtime_and_dev_tooling_separate() -> None:
     assert not any(dependency.lower().startswith("pytest") for dependency in runtime_dependencies)
     assert any(dependency.lower().startswith("pytest") for dependency in dev_dependencies)
     assert "pytest" not in requirements
+
+
+def test_legacy_ui_dependency_is_optional_and_not_runtime() -> None:
+    """Keep the Gradio compatibility UI outside the backend runtime install."""
+
+    project_root = SOURCE_ROOT.parents[1]
+    pyproject = tomllib.loads(
+        (project_root / "pyproject.toml").read_text(encoding="utf-8")
+    )
+    runtime_dependencies = {
+        re.split(r"[<>=!~\[]", dependency, maxsplit=1)[0].strip().lower()
+        for dependency in pyproject["project"]["dependencies"]
+    }
+    legacy_ui_dependencies = {
+        re.split(r"[<>=!~\[]", dependency, maxsplit=1)[0].strip().lower()
+        for dependency in pyproject["project"]["optional-dependencies"]["legacy-ui"]
+    }
+
+    assert "gradio" not in runtime_dependencies
+    assert "gradio" in legacy_ui_dependencies
 
 
 def test_backend_package_does_not_import_legacy_runtime_modules() -> None:
