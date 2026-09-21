@@ -27,7 +27,7 @@ from saxophone.workflows import (
     PdfLayoutJobStore,
     load_layout_pages,
 )
-from saxophone.workflows import start_extraction
+from saxophone.workflows import start_extraction as launch_extraction
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[3]
@@ -90,7 +90,7 @@ def start_extraction(job_id: str, device: str = "cpu", language: str = "vi") -> 
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail="Job cannot be queued") from exc
-    start_extraction(
+    launch_extraction(
         job_id,
         artifact_paths=JOB_STORE.artifact_paths,
         update_state=JOB_STORE.update_state,

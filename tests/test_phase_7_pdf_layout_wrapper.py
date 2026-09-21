@@ -329,6 +329,47 @@ def test_pdf_extract_route_maps_store_request_validation_to_http_400(monkeypatch
         raise AssertionError("invalid extraction options must map to HTTP 400")
 
 
+def test_pdf_extract_route_launches_workflow_without_self_recursion(monkeypatch) -> None:
+    from saxophone.interfaces import pdf_layout_web
+
+    expected_job_id = "12345678-1234-5678-1234-567812345678"
+    state = {"id": expected_job_id, "status": "queued"}
+    calls: list[object] = []
+
+    class FakeJobStore:
+        def queue_extraction(self, job_id: str, *, device: str, language: str):
+            calls.append(("queue", job_id, device, language))
+            return state
+
+        def public_state(self, current_state):
+            calls.append(("public", current_state))
+            return {"id": current_state["id"], "status": current_state["status"]}
+
+        def artifact_paths(self, job_id: str):
+            return f"paths:{job_id}"
+
+        def update_state(self, job_id: str, updates):
+            return updates
+
+    def fake_launcher(job_id: str, **kwargs) -> None:
+        calls.append(("launch", job_id, kwargs))
+
+    monkeypatch.setattr(pdf_layout_web, "JOB_STORE", FakeJobStore())
+    monkeypatch.setattr(pdf_layout_web, "launch_extraction", fake_launcher)
+
+    result = pdf_layout_web.start_extraction(
+        expected_job_id, device="gpu:0", language="vi"
+    )
+
+    assert result == {"id": expected_job_id, "status": "queued"}
+    assert calls[0] == ("queue", expected_job_id, "gpu:0", "vi")
+    assert calls[1][0] == "launch"
+    assert calls[1][1] == expected_job_id
+    assert calls[1][2]["artifact_paths"].__self__ is pdf_layout_web.JOB_STORE
+    assert calls[1][2]["artifact_paths"](expected_job_id) == f"paths:{expected_job_id}"
+    assert calls[2] == ("public", state)
+
+
 def test_pdf_extract_route_does_not_own_option_validation_policy() -> None:
     source = (
         SOURCE_ROOT / "src" / "saxophone" / "interfaces" / "pdf_layout_web.py"
