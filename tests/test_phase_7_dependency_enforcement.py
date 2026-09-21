@@ -510,6 +510,7 @@ def test_extraction_exposes_a_public_application_facade() -> None:
         "RepositoryExtractionArtifactPayloadProvider",
         "RAW_PDF_RASTER_SPACE",
         "finite_number",
+        "is_raw_pdf_raster_space",
         "normalize_blocks",
     }
 

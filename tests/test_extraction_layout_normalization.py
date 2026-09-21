@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from saxophone.extraction.layout import RAW_PDF_RASTER_SPACE, normalize_blocks
+from saxophone.extraction.layout import (
+    RAW_PDF_RASTER_SPACE,
+    is_raw_pdf_raster_space,
+    normalize_blocks,
+)
 
 
 def test_normalize_blocks_keeps_only_valid_source_space_bbox() -> None:
@@ -57,3 +61,13 @@ def test_normalize_blocks_rejects_boolean_and_non_finite_coordinates() -> None:
 
 def test_layout_coordinate_space_name_is_stable() -> None:
     assert RAW_PDF_RASTER_SPACE == "raw_pdf_raster_pixels"
+
+
+def test_raw_pdf_raster_space_requires_identity_transform() -> None:
+    assert is_raw_pdf_raster_space(
+        {"name": RAW_PDF_RASTER_SPACE, "transform_to_source": "identity"}
+    )
+    assert not is_raw_pdf_raster_space(
+        {"name": RAW_PDF_RASTER_SPACE, "transform_to_source": "scaled"}
+    )
+    assert not is_raw_pdf_raster_space(None)

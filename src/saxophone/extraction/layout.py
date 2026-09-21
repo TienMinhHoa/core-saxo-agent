@@ -8,6 +8,15 @@ from typing import Any
 RAW_PDF_RASTER_SPACE = "raw_pdf_raster_pixels"
 
 
+def is_raw_pdf_raster_space(value: Any) -> bool:
+    """Return whether metadata declares the supported source coordinate space."""
+    return (
+        isinstance(value, dict)
+        and value.get("name") == RAW_PDF_RASTER_SPACE
+        and value.get("transform_to_source") == "identity"
+    )
+
+
 def finite_number(value: Any) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None

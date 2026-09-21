@@ -12,7 +12,12 @@ from .persistence import (
     RepositoryExtractionArtifactPayloadProvider,
 )
 from .remote import RemotePdfExtractor
-from .layout import RAW_PDF_RASTER_SPACE, finite_number, normalize_blocks
+from .layout import (
+    RAW_PDF_RASTER_SPACE,
+    finite_number,
+    is_raw_pdf_raster_space,
+    normalize_blocks,
+)
 
 __all__ = [
     "CoordinateSpace",
@@ -27,4 +32,5 @@ __all__ = [
     "RAW_PDF_RASTER_SPACE",
     "normalize_blocks",
     "finite_number",
+    "is_raw_pdf_raster_space",
 ]

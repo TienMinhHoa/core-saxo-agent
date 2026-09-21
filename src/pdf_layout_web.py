@@ -26,7 +26,7 @@ from typing import Any
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 
-from saxophone.extraction.layout import RAW_PDF_RASTER_SPACE, finite_number, normalize_blocks
+from saxophone.extraction.layout import finite_number, is_raw_pdf_raster_space, normalize_blocks
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
@@ -151,13 +151,7 @@ def _layout_pages(job_id: str) -> list[dict[str, Any]]:
             width, height = _number(payload.get("width")), _number(payload.get("height"))
             if width is None or height is None or width <= 0 or height <= 0:
                 continue
-            coordinate_space = payload.get("coordinate_space")
-            if not isinstance(coordinate_space, dict):
-                continue
-            if (
-                coordinate_space.get("name") != RAW_PDF_RASTER_SPACE
-                or coordinate_space.get("transform_to_source") != "identity"
-            ):
+            if not is_raw_pdf_raster_space(payload.get("coordinate_space")):
                 continue
             page_index = payload.get("page_index")
             page = int(page_index) + 1 if isinstance(page_index, int) else len(pages) + 1
