@@ -13,6 +13,7 @@ from .role_selection import (
 )
 from .renderers import ConceptInventory, ConceptInventoryBuilder
 from .paragraph_traversal import ParagraphTraversal
+from .context_limiter import ContextLimiter
 
 __all__ = [
     "ChunkHit",
@@ -28,4 +29,5 @@ __all__ = [
     "ConceptInventory",
     "ConceptInventoryBuilder",
     "ParagraphTraversal",
+    "ContextLimiter",
 ]
