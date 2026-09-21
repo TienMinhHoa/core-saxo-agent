@@ -63,6 +63,11 @@ class TagParagraph:
             generated_tags=generated.tags,
             tags=tuple(item.resolved_tag for item in resolution.resolutions),
             status="completed",
+            chunk_id=paragraph.chunk_id,
+            ordinal=paragraph.ordinal,
+            heading_path=paragraph.heading_path,
+            image_refs=paragraph.image_refs,
+            image_captions=paragraph.image_captions,
         )
 
 

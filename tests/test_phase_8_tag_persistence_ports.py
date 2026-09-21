@@ -50,6 +50,11 @@ def _paragraph(*, text: str = "Harmony source") -> TaggedParagraph:
         generated_tags=("Concept of harmony",),
         tags=("Harmony definition",),
         status="completed",
+        chunk_id="chunk-1",
+        ordinal=2,
+        heading_path=("Music", "Harmony"),
+        image_refs=("images/harmony.png",),
+        image_captions={"images/harmony.png": "Harmony diagram"},
     )
 
 

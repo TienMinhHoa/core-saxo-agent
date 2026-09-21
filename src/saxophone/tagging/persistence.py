@@ -75,6 +75,11 @@ class JsonTaggedParagraphRepository:
             "generated_tags": list(paragraph.generated_tags),
             "tags": list(paragraph.tags),
             "status": paragraph.status,
+            "chunk_id": paragraph.chunk_id,
+            "ordinal": paragraph.ordinal,
+            "heading_path": list(paragraph.heading_path),
+            "image_refs": list(paragraph.image_refs),
+            "image_captions": dict(paragraph.image_captions),
         }
         _write_json_atomically(self._path_for(paragraph.paragraph_id), payload)
 

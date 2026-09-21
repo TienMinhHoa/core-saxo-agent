@@ -57,6 +57,10 @@ async def test_tag_paragraph_runs_generation_then_resolution_and_preserves_sourc
     assert result.generated_tags == ("Concept of harmony", "Harmonics")
     assert result.tags == ("Harmony definition", "Harmonics")
     assert result.status == "completed"
+    assert result.chunk_id == "chunk-1"
+    assert result.ordinal == 0
+    assert result.heading_path == ()
+    assert result.image_refs == ()
 
 
 @pytest.mark.anyio
@@ -179,3 +183,29 @@ async def test_tag_paragraph_does_not_silently_fallback_when_generation_fails() 
             tagging_profile="topic-tags-v1",
             resolution_profile="tag-conflicts-v1",
         )
+
+
+@pytest.mark.anyio
+async def test_tag_paragraph_preserves_source_provenance_projection() -> None:
+    paragraph = ParagraphBlock(
+        paragraph_id="chunk-1:p0000",
+        chunk_id="chunk-1",
+        ordinal=3,
+        text="Harmony source",
+        heading_path=("Music", "Harmony"),
+        image_refs=("images/harmony.png",),
+        image_captions={"images/harmony.png": "Harmony diagram"},
+    )
+
+    result = await TagParagraph(_Generator(), _Resolver()).execute(
+        paragraph,
+        tagging_profile="topic-tags-v1",
+        resolution_profile="tag-conflicts-v1",
+        existing_tags=(ExistingTagCandidate("Harmony definition"),),
+    )
+
+    assert result.chunk_id == paragraph.chunk_id
+    assert result.ordinal == paragraph.ordinal
+    assert result.heading_path == paragraph.heading_path
+    assert result.image_refs == paragraph.image_refs
+    assert dict(result.image_captions) == dict(paragraph.image_captions)
