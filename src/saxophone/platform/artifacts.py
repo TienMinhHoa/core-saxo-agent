@@ -64,6 +64,8 @@ class LocalArtifactRepository:
         *,
         io_limiter: anyio.CapacityLimiter | None = None,
     ) -> None:
+        if not isinstance(root, Path):
+            raise ValueError("root must be a Path")
         self._root = root.resolve()
         self._io_limiter = io_limiter or create_blocking_io_limiter()
         self._write_lock = threading.Lock()

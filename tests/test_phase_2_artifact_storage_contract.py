@@ -37,6 +37,14 @@ def test_local_repository_implements_artifact_port_and_round_trips_bytes(
     assert asyncio.run(repository.get(artifact)) == b"1234567"
 
 
+@pytest.mark.parametrize("root", ["artifacts", None, 123])
+def test_local_repository_rejects_non_path_root_before_storage_setup(
+    root: object,
+) -> None:
+    with pytest.raises(ValueError, match="root must be a Path"):
+        LocalArtifactRepository(root)  # type: ignore[arg-type]
+
+
 def test_put_rejects_payload_that_does_not_match_declared_size_or_digest(
     tmp_path: Path,
 ) -> None:
