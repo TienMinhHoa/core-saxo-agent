@@ -66,7 +66,10 @@ class LocalArtifactRepository:
     ) -> None:
         if not isinstance(root, Path):
             raise ValueError("root must be a Path")
-        self._root = root.resolve()
+        resolved_root = root.resolve()
+        if resolved_root.exists() and not resolved_root.is_dir():
+            raise ValueError("root must be a directory")
+        self._root = resolved_root
         self._io_limiter = io_limiter or create_blocking_io_limiter()
         self._write_lock = threading.Lock()
 

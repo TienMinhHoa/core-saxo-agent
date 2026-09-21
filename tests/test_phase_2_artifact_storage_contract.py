@@ -45,6 +45,14 @@ def test_local_repository_rejects_non_path_root_before_storage_setup(
         LocalArtifactRepository(root)  # type: ignore[arg-type]
 
 
+def test_local_repository_rejects_existing_file_as_root(tmp_path: Path) -> None:
+    root_file = tmp_path / "artifact-root"
+    root_file.write_bytes(b"not-a-directory")
+
+    with pytest.raises(ValueError, match="root must be a directory"):
+        LocalArtifactRepository(root_file)
+
+
 def test_put_rejects_payload_that_does_not_match_declared_size_or_digest(
     tmp_path: Path,
 ) -> None:
