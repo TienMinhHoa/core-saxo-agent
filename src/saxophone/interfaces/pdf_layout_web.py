@@ -26,7 +26,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 
 from saxophone.extraction import finite_number, is_raw_pdf_raster_space, normalize_blocks
-from saxophone.workflows.pdf_layout_extraction import run_extraction
+from saxophone.workflows import run_extraction
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[3]

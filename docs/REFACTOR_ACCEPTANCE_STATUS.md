@@ -370,3 +370,13 @@ deployment production.
 - Iteration 294: Bổ sung import runtime `Any` cho callback `ask_answer()` và contract
   test bảo vệ root entrypoint khỏi lỗi tên typing chưa được định nghĩa. Chi tiết tại
   `docs/ITERATION_294_PHASE7_CALLBACK_TYPING.md`.
+
+### Iteration 305 - public import boundary cho PDF workflow
+
+- Export `run_extraction` qua namespace `saxophone.workflows`; interface PDF
+  khong con import truc tiep module trien khai workflow.
+- Contract targeted **5 passed**; full offline **989 passed, 18 skipped, 1
+  warning**; `compileall` va `git diff --check` dat.
+- Live model-service smoke va production parity chua xac minh do thieu
+  endpoint, credential va production catalog; chi tiet tai
+  `docs/ITERATION_305_PHASE7_WORKFLOW_PUBLIC_IMPORT.md`.
