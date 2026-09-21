@@ -23,7 +23,7 @@ from music_rag.deepseek_answer import DeepSeekAnswerAgent
 from music_rag.embeddings import OpenAIEmbeddingProvider
 from music_rag.errors import MusicRagError
 from music_rag.service import MusicMaterialService
-from music_rag.store import CatalogStore
+from music_rag.ui_assets import approved_asset_paths
 from music_rag.util import require_within
 
 
@@ -61,35 +61,6 @@ def _render_source_bundle(service: MusicMaterialService, response: dict[str, Any
                 article.append(f"<{tag}>{block['text']}</{tag}>")
         article.append("</section>")
     return "\n".join(article), images
-
-
-def approved_asset_paths(catalog_path: Path, access_scope: str) -> list[str]:
-    """List only approved asset paths without hashing the full book at startup.
-
-    `MusicMaterialService.asset_path()` still validates checksum immediately
-    before an image is rendered. This list exists only for Gradio's static
-    file allow-list and intentionally names each file, never a directory.
-    """
-    service = MusicMaterialService(CatalogStore(catalog_path))
-    catalog = service.store.load()
-    paths: set[str] = set()
-    for item in catalog["items"].values():
-        if item.get("review_status") != "approved":
-            continue
-        document = catalog["documents"].get(f"{item['document_id']}:{item['source_version']}")
-        if document is None or document.get("access_scope") != access_scope:
-            continue
-        for block_id in item["content_block_ids"]:
-            try:
-                block = catalog["blocks"][block_id]
-                if block.get("kind") != "asset" or not block.get("asset_path"):
-                    continue
-                path = require_within(Path(document["asset_root"]), Path(block["asset_path"]))
-                if path.is_file():
-                    paths.add(str(path))
-            except (KeyError, ValueError):
-                continue
-    return sorted(paths)
 
 
 def _chroma_image_path(record: dict[str, Any], image: dict[str, Any]) -> Path | None:
