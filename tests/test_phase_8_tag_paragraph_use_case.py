@@ -79,6 +79,47 @@ async def test_tag_paragraph_rejects_resolution_for_another_paragraph() -> None:
 
 
 @pytest.mark.anyio
+async def test_tag_paragraph_rejects_generation_profile_drift() -> None:
+    class _DriftedGenerator(_Generator):
+        async def generate(self, request):
+            result = await super().generate(request)
+            return TagGenerationResult(
+                paragraph_id=result.paragraph_id,
+                tags=result.tags,
+                tagging_profile="older-profile",
+            )
+
+    with pytest.raises(ValueError, match="tagging profile"):
+        await TagParagraph(_DriftedGenerator(), _Resolver()).execute(
+            _paragraph(),
+            tagging_profile="topic-tags-v1",
+            resolution_profile="tag-conflicts-v1",
+        )
+
+
+@pytest.mark.anyio
+async def test_tag_paragraph_rejects_resolution_profile_drift() -> None:
+    class _DriftedResolver(_Resolver):
+        async def resolve(self, request):
+            result = await super().resolve(request)
+            return TagConflictResolution(
+                paragraph_id=result.paragraph_id,
+                resolutions=result.resolutions,
+                resolution_profile="older-profile",
+                generated_tags=result.generated_tags,
+                existing_tags=result.existing_tags,
+            )
+
+    with pytest.raises(ValueError, match="resolution profile"):
+        await TagParagraph(_Generator(), _DriftedResolver()).execute(
+            _paragraph(),
+            tagging_profile="topic-tags-v1",
+            resolution_profile="tag-conflicts-v1",
+            existing_tags=(ExistingTagCandidate("Harmony definition"),),
+        )
+
+
+@pytest.mark.anyio
 async def test_tag_paragraph_does_not_silently_fallback_when_generation_fails() -> None:
     class _FailingGenerator:
         async def generate(self, request):

@@ -39,6 +39,8 @@ class TagParagraph:
         )
         if generated.paragraph_id != paragraph.paragraph_id:
             raise ValueError("generated result paragraph ID does not match paragraph")
+        if generated.tagging_profile != tagging_profile:
+            raise ValueError("generated result tagging profile does not match request")
         resolution = await self._resolver.resolve(
             TagConflictResolutionRequest(
                 paragraph_id=paragraph.paragraph_id,
@@ -49,6 +51,8 @@ class TagParagraph:
         )
         if resolution.paragraph_id != paragraph.paragraph_id:
             raise ValueError("resolution paragraph ID does not match paragraph")
+        if resolution.resolution_profile != resolution_profile:
+            raise ValueError("resolution profile does not match request")
         if resolution.generated_tags and resolution.generated_tags != generated.tags:
             raise ValueError("resolution generated tags do not match generation result")
         return TaggedParagraph(
