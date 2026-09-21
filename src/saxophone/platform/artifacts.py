@@ -129,6 +129,9 @@ class LocalArtifactRepository:
             if path.is_symlink():
                 raise FileExistsError("artifact identity must not be a symbolic link")
             path.parent.mkdir(parents=True, exist_ok=True)
+            # Directory creation can follow a parent symlink introduced after
+            # the first path validation; revalidate before opening a temp file.
+            path = self._path_for(artifact)
             if path.exists():
                 if not path.is_file():
                     raise FileExistsError("artifact identity is immutable")

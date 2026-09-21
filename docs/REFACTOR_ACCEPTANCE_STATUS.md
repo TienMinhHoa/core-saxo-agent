@@ -297,3 +297,13 @@ deployment production.
   thiếu endpoint, credential và production catalog thật.
 - Live model-service smoke và production parity vẫn chưa xác minh do checkout
   chưa có endpoint, credential và catalog production thật.
+
+### Iteration 211 - recheck parent artifact sau `mkdir`
+
+- `LocalArtifactRepository` gọi lại `_path_for()` sau khi tạo parent directory,
+  tránh tiếp tục ghi nếu parent path bị biến thành symbolic link sau lần kiểm
+  tra ban đầu.
+- Regression targeted: **33 passed, 1 skipped**; bằng chứng chi tiết tại
+  `docs/ITERATION_211_ARTIFACT_PARENT_RECHECK.md`.
+- Live model-service smoke và production parity vẫn chưa xác minh do checkout
+  chưa có endpoint, credential và catalog production thật.

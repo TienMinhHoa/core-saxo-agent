@@ -330,6 +330,37 @@ def test_repository_rechecks_root_symbolic_link_before_artifact_path_resolution(
     assert list(tmp_path.rglob("*")) == []
 
 
+def test_repository_rechecks_artifact_parent_after_directory_creation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = LocalArtifactRepository(tmp_path)
+    artifact = _artifact()
+    parent = tmp_path / "document-123" / "manifest"
+    real_mkdir = Path.mkdir
+    real_is_symlink = Path.is_symlink
+    parent_created = False
+
+    def create_parent_then_report_symlink(
+        path: Path, *args: object, **kwargs: object
+    ) -> None:
+        nonlocal parent_created
+        real_mkdir(path, *args, **kwargs)
+        if path == parent:
+            parent_created = True
+
+    def report_symlink_after_creation(path: Path) -> bool:
+        return (path == parent and parent_created) or real_is_symlink(path)
+
+    monkeypatch.setattr(Path, "mkdir", create_parent_then_report_symlink)
+    monkeypatch.setattr(Path, "is_symlink", report_symlink_after_creation)
+
+    with pytest.raises(FileExistsError, match="symbolic link"):
+        asyncio.run(repository.put(artifact, b"1234567"))
+
+    assert list(tmp_path.rglob("*.tmp")) == []
+    assert not (parent / artifact.version).exists()
+
+
 def test_atomic_commit_does_not_replace_file_created_after_existence_check(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
