@@ -189,6 +189,18 @@ def test_project_declares_one_backend_asgi_entrypoint() -> None:
     assert backend_scripts == {"saxophone-api": "saxophone.main:main"}
 
 
+def test_backend_asgi_module_is_only_a_bootstrap_boundary() -> None:
+    """Keep ASGI import/bootstrap separate from route and adapter wiring."""
+
+    main_file = SOURCE_ROOT / "main.py"
+    imports = _saxophone_imports(main_file)
+
+    assert imports == {
+        "saxophone.app.factory",
+        "saxophone.app.settings",
+    }
+
+
 def test_dependency_manifests_keep_runtime_and_dev_tooling_separate() -> None:
     """Keep pytest out of runtime installs while retaining an explicit dev group."""
 
