@@ -58,6 +58,7 @@ from saxophone.tagging import (
     TaggedParagraphRepository,
 )
 from saxophone.interfaces.api import build_capability_router
+from saxophone.interfaces.pdf_layout_web import app as pdf_layout_app
 from saxophone.workflows import (
     IngestExtractedDocument,
     ProcessAndPersistDocument,
@@ -143,6 +144,13 @@ class AppOverrides:
     tag_generator: TagGenerator | None = None
     tag_conflict_resolver: TagConflictResolver | None = None
     knowledge_repository: KnowledgeRepository | None = None
+
+
+def create_layout_app() -> FastAPI:
+    """Compose PDF layout mode without general model-service dependencies."""
+    app = FastAPI(title="Saxophone PDF Layout")
+    app.mount("/pdf-layout", pdf_layout_app)
+    return app
 
 
 def create_app(
@@ -363,6 +371,7 @@ def create_app(
             max_upload_bytes=settings.max_upload_bytes,
         ),
     )
+    app.mount("/pdf-layout", pdf_layout_app)
 
     @app.get("/api/v1/health")
     async def health() -> dict[str, object]:

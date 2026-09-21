@@ -6,26 +6,13 @@ from pathlib import Path
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_legacy_pdf_layout_entrypoint_is_only_a_compatibility_wrapper() -> None:
-    source = (SOURCE_ROOT / "src" / "pdf_layout_web.py").read_text(encoding="utf-8")
-
-    assert "from saxophone.interfaces.pdf_layout_web import app, main" in source
-    assert "FastAPI(" not in source
-    assert "@app." not in source
-    assert "def _run_extraction" not in source
-
-
 def test_pdf_layout_docstrings_use_primary_backend_entrypoint() -> None:
     interface_source = (
         SOURCE_ROOT / "src" / "saxophone" / "interfaces" / "pdf_layout_web.py"
     ).read_text(encoding="utf-8")
-    wrapper_source = (SOURCE_ROOT / "src" / "pdf_layout_web.py").read_text(
-        encoding="utf-8"
-    )
 
     assert "uv run saxophone-api" in interface_source
     assert "uv run pdf-layout-web" not in interface_source
-    assert "pdf-layout-web" not in wrapper_source
 
 
 def test_pdf_layout_route_uses_extraction_number_policy_directly() -> None:
@@ -309,7 +296,7 @@ def test_pdf_extract_route_maps_store_queue_conflict_to_http_409(monkeypatch) ->
     from saxophone.interfaces import pdf_layout_web
 
     class ConflictingJobStore:
-        def queue_extraction(self, job_id: str, *, device: str, language: str):
+        def queue_extraction(self, job_id: str):
             raise ValueError("job cannot be queued from its current status")
 
     monkeypatch.setattr(pdf_layout_web, "JOB_STORE", ConflictingJobStore())
@@ -322,26 +309,6 @@ def test_pdf_extract_route_maps_store_queue_conflict_to_http_409(monkeypatch) ->
         raise AssertionError("store queue conflicts must map to HTTP 409")
 
 
-def test_pdf_extract_route_maps_store_request_validation_to_http_400(monkeypatch) -> None:
-    from fastapi import HTTPException
-
-    from saxophone.interfaces import pdf_layout_web
-    from saxophone.workflows import PdfLayoutJobRequestError
-
-    class InvalidRequestStore:
-        def queue_extraction(self, job_id: str, *, device: str, language: str):
-            raise PdfLayoutJobRequestError("device is invalid")
-
-    monkeypatch.setattr(pdf_layout_web, "JOB_STORE", InvalidRequestStore())
-
-    try:
-        pdf_layout_web.start_extraction("job-id")
-    except HTTPException as exc:
-        assert exc.status_code == 400
-    else:
-        raise AssertionError("invalid extraction options must map to HTTP 400")
-
-
 def test_pdf_extract_route_launches_workflow_without_self_recursion(monkeypatch) -> None:
     from saxophone.interfaces import pdf_layout_web
 
@@ -350,8 +317,8 @@ def test_pdf_extract_route_launches_workflow_without_self_recursion(monkeypatch)
     calls: list[object] = []
 
     class FakeJobStore:
-        def queue_extraction(self, job_id: str, *, device: str, language: str):
-            calls.append(("queue", job_id, device, language))
+        def queue_extraction(self, job_id: str):
+            calls.append(("queue", job_id))
             return state
 
         def public_state(self, current_state):
@@ -370,12 +337,10 @@ def test_pdf_extract_route_launches_workflow_without_self_recursion(monkeypatch)
     monkeypatch.setattr(pdf_layout_web, "JOB_STORE", FakeJobStore())
     monkeypatch.setattr(pdf_layout_web, "launch_extraction", fake_launcher)
 
-    result = pdf_layout_web.start_extraction(
-        expected_job_id, device="gpu:0", language="vi"
-    )
+    result = pdf_layout_web.start_extraction(expected_job_id)
 
     assert result == {"id": expected_job_id, "status": "queued"}
-    assert calls[0] == ("queue", expected_job_id, "gpu:0", "vi")
+    assert calls[0] == ("queue", expected_job_id)
     assert calls[1][0] == "launch"
     assert calls[1][1] == expected_job_id
     assert calls[1][2]["artifact_paths"].__self__ is pdf_layout_web.JOB_STORE
@@ -524,7 +489,12 @@ def test_layout_route_uses_job_store_projection_at_runtime(monkeypatch, tmp_path
 
     assert result == {
         "job": {"id": expected_job_id, "status": "completed"},
-        "pages": [{"page": 1, "image_url": f"/api/jobs/{expected_job_id}/pages/1"}],
+        "pages": [
+            {
+                "page": 1,
+                "image_url": f"/pdf-layout/api/jobs/{expected_job_id}/pages/1",
+            }
+        ],
     }
 
 

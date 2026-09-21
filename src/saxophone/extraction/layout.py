@@ -34,7 +34,7 @@ def normalize_blocks(payload: dict[str, Any]) -> list[dict[str, Any]]:
     for index, raw in enumerate(raw_blocks):
         if not isinstance(raw, dict):
             continue
-        bbox = raw.get("source_bbox")
+        bbox = raw.get("source_bbox", raw.get("block_bbox"))
         clean_bbox: list[float] | None = None
         if isinstance(bbox, list) and len(bbox) == 4:
             coordinates = [finite_number(item) for item in bbox]

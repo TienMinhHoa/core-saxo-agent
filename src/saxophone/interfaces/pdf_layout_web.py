@@ -4,6 +4,8 @@
 Run with:
     uv run saxophone-api --host 127.0.0.1 --port 8000
 
+Then open http://127.0.0.1:8000/pdf-layout/ in a browser.
+
 The browser uploads a PDF, starts a background PP-StructureV3 extraction job,
 then renders the source page with normalized layout boxes beside the extracted
 text/image blocks.  All files remain local under ``runtime/pdf-layout-jobs``.
@@ -23,7 +25,6 @@ from fastapi.responses import FileResponse, HTMLResponse
 from saxophone.extraction import read_layout_pages, render_pdf_pages
 from saxophone.workflows import (
     PdfLayoutJobNotFound,
-    PdfLayoutJobRequestError,
     PdfLayoutJobStore,
     load_layout_pages,
 )
@@ -31,6 +32,7 @@ from saxophone.workflows import start_extraction as launch_extraction
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[3]
+ROUTE_PREFIX = "/pdf-layout"
 JOBS_DIR = PROJECT_DIR / "runtime" / "pdf-layout-jobs"
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 EXTRACTION_LOCK = threading.Lock()
@@ -83,11 +85,9 @@ async def create_job(file: UploadFile = File(...)) -> dict[str, Any]:
 
 
 @app.post("/api/jobs/{job_id}/extract")
-def start_extraction(job_id: str, device: str = "cpu", language: str = "vi") -> dict[str, Any]:
+def start_extraction(job_id: str) -> dict[str, Any]:
     try:
-        state = JOB_STORE.queue_extraction(job_id, device=device, language=language)
-    except PdfLayoutJobRequestError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        state = JOB_STORE.queue_extraction(job_id)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail="Job cannot be queued") from exc
     launch_extraction(
@@ -117,7 +117,7 @@ def job_layout(job_id: str) -> dict[str, Any]:
             public_state=getattr(JOB_STORE, "public_state", PdfLayoutJobStore.public_state),
             layout_path=lambda current_job_id: JOB_STORE.artifact_paths(current_job_id).layout,
             read_pages=read_layout_pages,
-            page_url=lambda page: f"/api/jobs/{job_id}/pages/{page}",
+            page_url=lambda page: f"{ROUTE_PREFIX}/api/jobs/{job_id}/pages/{page}",
         )
     except PdfLayoutJobNotFound as exc:
         raise HTTPException(status_code=404, detail="Job khong ton tai") from exc
@@ -177,8 +177,7 @@ VIEWER_HTML = r"""<!doctype html>
   <main>
     <section class="controls">
       <label>PDF<input id="file" type="file" accept="application/pdf,.pdf"></label>
-      <label>Thiết bị<select id="device"><option value="cpu">CPU</option><option value="gpu:0">GPU 0</option><option value="gpu:1">GPU 1</option><option value="gpu:2">GPU 2</option><option value="gpu:3">GPU 3</option></select></label>
-      <label>Ngôn ngữ OCR<select id="language"><option value="vi">Tiếng Việt</option><option value="en">English</option></select></label>
+      <span>PaddleOCR-VL qua vLLM từ xa</span>
       <button id="upload">1. Thêm tài liệu</button><button id="extract" disabled>2. Chạy extract</button>
     </section>
     <p id="status">Chọn một PDF, sau đó thêm tài liệu.</p>
@@ -198,17 +197,17 @@ VIEWER_HTML = r"""<!doctype html>
     byId('upload').onclick = async () => {
       const file = byId('file').files[0]; if (!file) return status('Hãy chọn một file PDF.', true);
       byId('upload').disabled = true; byId('extract').disabled = true; status('Đang tải PDF lên…');
-      try { const form = new FormData(); form.append('file', file); state.job = await request('/api/jobs', {method:'POST', body:form}); renderProgress(state.job); byId('extract').disabled=false; status(`Đã thêm ${state.job.original_filename}. Bấm “Chạy extract”.`); }
+      try { const form = new FormData(); form.append('file', file); state.job = await request('/pdf-layout/api/jobs', {method:'POST', body:form}); renderProgress(state.job); byId('extract').disabled=false; status(`Đã thêm ${state.job.original_filename}. Bấm “Chạy extract”.`); }
       catch (error) { status(error.message, true); }
       finally { byId('upload').disabled=false; }
     };
     byId('extract').onclick = async () => {
       if (!state.job) return; byId('extract').disabled=true;
-      try { state.job = await request(`/api/jobs/${state.job.id}/extract?device=${encodeURIComponent(byId('device').value)}&language=${encodeURIComponent(byId('language').value)}`, {method:'POST'}); renderProgress(state.job); status('Đã xếp hàng OCR…'); poll(); }
+      try { state.job = await request(`/pdf-layout/api/jobs/${state.job.id}/extract`, {method:'POST'}); renderProgress(state.job); status('Đã xếp hàng OCR từ xa…'); poll(); }
       catch (error) { status(error.message, true); byId('extract').disabled=false; }
     };
-    function poll() { clearTimeout(state.poll); state.poll = setTimeout(async () => { try { state.job=await request(`/api/jobs/${state.job.id}`); renderProgress(state.job); const s=state.job.status; if (s==='queued'||s==='running') { const phase=state.job.phase; const message=phase==='initializing' ? 'Đang khởi tạo model OCR…' : phase==='rendering' ? 'Đang render ảnh các trang PDF…' : s==='queued' ? 'Đang chờ tài nguyên OCR…' : 'Đang extract PDF…'; status(message); return poll(); } if (s==='failed') { status(state.job.error || 'Extract thất bại.', true); return; } if (s==='completed') { status(`Hoàn tất: ${state.job.page_count} trang. Chọn box hoặc block để đối chiếu.`); return loadLayout(); } } catch(error) { status(error.message, true); } }, 2500); }
-    async function loadLayout() { const data=await request(`/api/jobs/${state.job.id}/layout`); state.pages=data.pages; state.selectedPage=0; state.selectedBlock=null; byId('viewer').hidden=false; render(); }
+    function poll() { clearTimeout(state.poll); state.poll = setTimeout(async () => { try { state.job=await request(`/pdf-layout/api/jobs/${state.job.id}`); renderProgress(state.job); const s=state.job.status; if (s==='queued'||s==='running') { const phase=state.job.phase; const message=phase==='initializing' ? 'Đang khởi tạo model OCR…' : phase==='rendering' ? 'Đang render ảnh các trang PDF…' : s==='queued' ? 'Đang chờ tài nguyên OCR…' : 'Đang extract PDF…'; status(message); return poll(); } if (s==='failed') { status(state.job.error || 'Extract thất bại.', true); return; } if (s==='completed') { status(`Hoàn tất: ${state.job.page_count} trang. Chọn box hoặc block để đối chiếu.`); return loadLayout(); } } catch(error) { status(error.message, true); } }, 2500); }
+    async function loadLayout() { const data=await request(`/pdf-layout/api/jobs/${state.job.id}/layout`); state.pages=data.pages; state.selectedPage=0; state.selectedBlock=null; byId('viewer').hidden=false; render(); }
     function render() { renderPageList(); renderCurrentPage(); renderBlocks(); }
     function renderPageList() { const list=byId('pages'); list.replaceChildren(); state.pages.forEach((page,index) => { const b=document.createElement('button'); b.className='page-button'+(index===state.selectedPage?' active':''); b.textContent=`Trang ${page.page} · ${page.blocks.length} block`; b.onclick=()=>{state.selectedPage=index;state.selectedBlock=null;render();}; list.append(b); }); }
     function renderCurrentPage() { const page=state.pages[state.selectedPage]; const wrap=byId('page-wrap'); wrap.replaceChildren(); const image=document.createElement('img'); image.src=page.image_url; image.alt=`PDF page ${page.page}`; wrap.append(image); page.blocks.forEach((block,index)=>{ if(!block.bbox) return; const [x1,y1,x2,y2]=block.bbox; const box=document.createElement('button'); box.className='box'+(state.selectedBlock===index?' active':''); box.style.left=`${100*x1/page.width}%`; box.style.top=`${100*y1/page.height}%`; box.style.width=`${100*(x2-x1)/page.width}%`; box.style.height=`${100*(y2-y1)/page.height}%`; box.setAttribute('aria-label',`${block.label} block ${index+1}`); const label=document.createElement('span'); label.textContent=`${block.label} #${index+1}`; box.append(label); box.onclick=()=>selectBlock(index); wrap.append(box); }); }

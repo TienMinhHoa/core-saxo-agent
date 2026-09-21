@@ -7,7 +7,6 @@ import pytest
 
 from saxophone.workflows.pdf_layout_jobs import (
     PdfLayoutArtifactPaths,
-    PdfLayoutJobRequestError,
     PdfLayoutJobNotFound,
     PdfLayoutJobStore,
 )
@@ -146,48 +145,17 @@ def test_queue_extraction_owns_transition_and_persists_requested_options(tmp_pat
     job_id = "12345678-1234-5678-1234-567812345678"
     store.create_uploaded_job("source.pdf", job_id=job_id, created_at="2026-09-21T00:00:00Z")
 
-    state = store.queue_extraction(job_id, device="cpu", language="vi")
+    state = store.queue_extraction(job_id)
 
     assert state["status"] == "queued"
-    assert state["device"] == "cpu"
-    assert state["language"] == "vi"
+    assert state["device"] == "remote-vllm"
+    assert state["language"] == "multilingual"
     assert state["phase"] == "queued"
     assert state["progress_pages"] == 0
     assert state["progress_total"] is None
     assert state["progress_images"] == 0
     assert state["error"] is None
     assert store.load_state(job_id) == state
-
-
-@pytest.mark.parametrize("device", ["", "cuda", "gpu:", "gpu:x", "GPU: "])
-def test_queue_extraction_rejects_invalid_device_at_store_boundary(tmp_path, device: str) -> None:
-    store = PdfLayoutJobStore(tmp_path)
-    job_id = "12345678-1234-5678-1234-567812345678"
-    store.create_uploaded_job("source.pdf", job_id=job_id, created_at="2026-09-21T00:00:00Z")
-
-    with pytest.raises(PdfLayoutJobRequestError, match="device"):
-        store.queue_extraction(job_id, device=device, language="vi")
-
-
-@pytest.mark.parametrize("language", ["", "v", "vi-VN", "vi-日本語", "日本語"])
-def test_queue_extraction_rejects_invalid_language_at_store_boundary(tmp_path, language: str) -> None:
-    store = PdfLayoutJobStore(tmp_path)
-    job_id = "12345678-1234-5678-1234-567812345678"
-    store.create_uploaded_job("source.pdf", job_id=job_id, created_at="2026-09-21T00:00:00Z")
-
-    with pytest.raises(PdfLayoutJobRequestError, match="language"):
-        store.queue_extraction(job_id, device="cpu", language=language)
-
-
-def test_queue_extraction_normalizes_options_before_persisting(tmp_path) -> None:
-    store = PdfLayoutJobStore(tmp_path)
-    job_id = "12345678-1234-5678-1234-567812345678"
-    store.create_uploaded_job("source.pdf", job_id=job_id, created_at="2026-09-21T00:00:00Z")
-
-    state = store.queue_extraction(job_id, device=" GPU:0 ", language=" EN ")
-
-    assert state["device"] == "gpu:0"
-    assert state["language"] == "en"
 
 
 def test_queue_extraction_rejects_non_restartable_status(tmp_path) -> None:
@@ -198,7 +166,7 @@ def test_queue_extraction_rejects_non_restartable_status(tmp_path) -> None:
     store.write_state(job_id, state)
 
     with pytest.raises(ValueError, match="cannot be queued"):
-        store.queue_extraction(job_id, device="cpu", language="vi")
+        store.queue_extraction(job_id)
 
 
 def test_update_state_owns_atomic_workflow_state_patch(tmp_path) -> None:

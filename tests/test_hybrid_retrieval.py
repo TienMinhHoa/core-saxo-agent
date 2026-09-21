@@ -1,20 +1,11 @@
 from __future__ import annotations
 
-import json
-
 import pytest
-from pathlib import Path
-
-from music_rag.store import CatalogStore
 from saxophone.retrieval.adapters import (
     HybridRetriever,
     InMemoryLexicalRetriever,
-    LegacySemanticRetriever,
 )
 from saxophone.retrieval.models import ChunkHit
-
-
-FIXTURE = Path(__file__).parent / "fixtures" / "golden" / "legacy_retrieval" / "catalog.json"
 
 
 def _hit(
@@ -93,95 +84,3 @@ async def test_hybrid_retriever_rejects_invalid_rrf_k_and_filters_results() -> N
 
     retriever = HybridRetriever(_Filtered([_hit("one", 1)]), _Filtered([]))
     assert [hit.chunk_ref for hit in await retriever.search("q", filters={"scope": "public"})] == ["one"]
-
-
-@pytest.mark.anyio
-async def test_legacy_semantic_retriever_maps_legacy_results_to_chunk_hits(tmp_path) -> None:
-    class _Provider:
-        model = "legacy-test-v1"
-
-        def embed(self, texts):
-            return [[1.0, 0.0] for _ in texts]
-
-    CatalogStore(tmp_path).save(
-        {
-            "documents": {"doc-1:v1": {"access_scope": "public"}},
-            "items": {
-                "item-1:1": {
-                    "item_id": "item-1",
-                    "item_version": 1,
-                    "document_id": "doc-1",
-                    "source_version": "v1",
-                    "review_status": "approved",
-                }
-            },
-            "semantic_index": {
-                "provider_model": "legacy-test-v1",
-                "units": [
-                    {
-                        "search_unit_id": "semantic_item-1:1:1",
-                        "item_id": "item-1",
-                        "item_version": 1,
-                        "document_id": "doc-1",
-                        "source_version": "v1",
-                        "evidence_block_ids": ["block-1"],
-                        "evidence_scope": "item",
-                        "embedding": [1.0, 0.0],
-                        "search_text": "rhythm pulse",
-                    }
-                ],
-            },
-        }
-    )
-
-    retriever = LegacySemanticRetriever(CatalogStore(tmp_path), _Provider())
-
-    hits = await retriever.search("pulse", filters={"access_scope": "public"})
-
-    assert len(hits) == 1
-    assert hits[0].source_ref == "doc-1:v1"
-    assert hits[0].chunk_ref == "semantic_item-1:1:1"
-    assert hits[0].retrieval_version == "legacy-semantic-v1"
-    assert hits[0].metadata["evidence_block_ids"] == ["block-1"]
-    assert hits[0].semantic_score == pytest.approx(0.85 + 0.15)
-    assert hits[0].keyword_score == pytest.approx(1.0)
-
-
-@pytest.mark.anyio
-async def test_legacy_semantic_retriever_requires_access_scope_filter(tmp_path) -> None:
-    retriever = LegacySemanticRetriever(CatalogStore(tmp_path), object())
-
-    with pytest.raises(ValueError, match="access_scope"):
-        await retriever.search("pulse")
-
-
-@pytest.mark.anyio
-async def test_legacy_semantic_retriever_rejects_blank_query_at_port_boundary(tmp_path) -> None:
-    retriever = LegacySemanticRetriever(CatalogStore(tmp_path), object())
-
-    with pytest.raises(ValueError, match="query must not be blank"):
-        await retriever.search("  ", filters={"access_scope": "public"})
-
-
-@pytest.mark.anyio
-async def test_legacy_adapter_matches_golden_catalog_order_scores_and_provenance(tmp_path) -> None:
-    class _Provider:
-        model = "legacy-golden-v1"
-
-        def embed(self, texts):
-            return [[1.0, 0.0] for _ in texts]
-
-    store = CatalogStore(tmp_path)
-    store.save(json.loads(FIXTURE.read_text(encoding="utf-8")))
-    retriever = LegacySemanticRetriever(store, _Provider())
-
-    hits = await retriever.search("pulse", filters={"access_scope": "public"}, limit=2)
-
-    assert [(hit.chunk_ref, hit.source_ref) for hit in hits] == [
-        ("semantic_item-pulse:1:1", "doc-public:v1"),
-        ("semantic_item-rhythm:1:1", "doc-public:v1"),
-    ]
-    assert hits[0].semantic_score == pytest.approx(1.0)
-    assert hits[0].keyword_score == pytest.approx(1.0)
-    assert hits[0].metadata["evidence_block_ids"] == ["block-pulse"]
-    assert all("private" not in hit.chunk_ref for hit in hits)

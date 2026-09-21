@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 import shutil
 import uuid
 from dataclasses import dataclass
@@ -14,10 +13,6 @@ from typing import Any, BinaryIO, Mapping
 
 class PdfLayoutJobNotFound(FileNotFoundError):
     """Raised when a job identifier or its persisted state is unavailable."""
-
-
-class PdfLayoutJobRequestError(ValueError):
-    """Raised when extraction options violate the job-store request contract."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,24 +157,16 @@ class PdfLayoutJobStore:
         self.write_state(job_id, state)
         return state
 
-    def queue_extraction(
-        self, job_id: str, *, device: str, language: str
-    ) -> dict[str, Any]:
-        """Move an uploaded or failed job into the persisted queued state."""
-        device = device.strip().lower()
-        if device != "cpu" and not re.fullmatch(r"gpu(?::\d+)?", device):
-            raise PdfLayoutJobRequestError("device must be cpu, gpu or gpu:<index>")
-        language = language.strip().lower()
-        if not re.fullmatch(r"[a-z_]{2,20}", language):
-            raise PdfLayoutJobRequestError("language must contain 2-20 ASCII letters or underscores")
+    def queue_extraction(self, job_id: str) -> dict[str, Any]:
+        """Queue a job for the one supported remote OCR provider."""
         state = self.load_state(job_id)
         if state.get("status") not in {"uploaded", "failed"}:
             raise ValueError("job cannot be queued from its current status")
         state.update(
             {
                 "status": "queued",
-                "device": device,
-                "language": language,
+                "device": "remote-vllm",
+                "language": "multilingual",
                 "phase": "queued",
                 "progress_pages": 0,
                 "progress_total": None,

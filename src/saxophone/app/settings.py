@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import math
-from pathlib import Path
 import re
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Mapping
 from urllib.parse import urlsplit
 
@@ -42,9 +42,13 @@ class AppSettings:
     def __post_init__(self) -> None:
         """Keep direct construction subject to the same runtime contract."""
         _validate_runtime_path(self.data_root, "data_root")
-        _validate_runtime_path(self.chroma_persist_directory, "chroma_persist_directory")
+        _validate_runtime_path(
+            self.chroma_persist_directory, "chroma_persist_directory"
+        )
         _validate_runtime_boolean(self.remote_gpu_tls_verify, "remote_gpu_tls_verify")
-        _validate_canonical_runtime_text(self.remote_gpu_base_url, "SAXO_REMOTE_GPU_BASE_URL")
+        _validate_canonical_runtime_text(
+            self.remote_gpu_base_url, "SAXO_REMOTE_GPU_BASE_URL"
+        )
         _validate_canonical_runtime_text(
             self.remote_gpu_bearer_token,
             "SAXO_REMOTE_GPU_BEARER_TOKEN",
@@ -123,7 +127,9 @@ class AppSettings:
         application boundary and makes configuration tests deterministic.
         """
         _validate_environment_mapping(environment)
-        data_root = _parse_data_root(environment.get("SAXO_DATA_ROOT", "runtime/saxophone"))
+        data_root = _parse_data_root(
+            environment.get("SAXO_DATA_ROOT", "runtime/saxophone")
+        )
         base_url = _parse_remote_gpu_base_url(
             environment.get("SAXO_REMOTE_GPU_BASE_URL"),
         )
@@ -228,7 +234,9 @@ def _parse_data_root(value: str | None) -> Path:
     if path.root and not path.is_absolute():
         raise SettingsValidationError("SAXO_DATA_ROOT must not be root-relative")
     if ".." in path.parts:
-        raise SettingsValidationError("SAXO_DATA_ROOT must not traverse parent directories")
+        raise SettingsValidationError(
+            "SAXO_DATA_ROOT must not traverse parent directories"
+        )
     return path
 
 
@@ -237,9 +245,13 @@ def _parse_chroma_directory(value: str | None) -> Path:
         raise SettingsValidationError("SAXO_CHROMA_PERSIST_DIRECTORY must not be empty")
     path = Path(value)
     if path.drive and not path.is_absolute():
-        raise SettingsValidationError("SAXO_CHROMA_PERSIST_DIRECTORY must not be drive-relative")
+        raise SettingsValidationError(
+            "SAXO_CHROMA_PERSIST_DIRECTORY must not be drive-relative"
+        )
     if path.root and not path.is_absolute():
-        raise SettingsValidationError("SAXO_CHROMA_PERSIST_DIRECTORY must not be root-relative")
+        raise SettingsValidationError(
+            "SAXO_CHROMA_PERSIST_DIRECTORY must not be root-relative"
+        )
     if ".." in path.parts:
         raise SettingsValidationError(
             "SAXO_CHROMA_PERSIST_DIRECTORY must not traverse parent directories",
@@ -261,11 +273,15 @@ def _parse_remote_gpu_base_url(value: str | None) -> str:
         or parsed.query
         or parsed.fragment
     ):
-        raise SettingsValidationError("SAXO_REMOTE_GPU_BASE_URL must be an HTTPS URL without credentials, query, or fragment")
+        raise SettingsValidationError(
+            "SAXO_REMOTE_GPU_BASE_URL must be an HTTPS URL without credentials, query, or fragment"
+        )
     try:
         parsed.port
     except ValueError as error:
-        raise SettingsValidationError("SAXO_REMOTE_GPU_BASE_URL contains an invalid port") from error
+        raise SettingsValidationError(
+            "SAXO_REMOTE_GPU_BASE_URL contains an invalid port"
+        ) from error
     return url
 
 
@@ -315,7 +331,9 @@ def _parse_positive_integer(value: str | None, variable: str) -> int:
     try:
         number = int(value) if value is not None else 0
     except ValueError as error:
-        raise SettingsValidationError(f"{variable} must be a positive integer") from error
+        raise SettingsValidationError(
+            f"{variable} must be a positive integer"
+        ) from error
     if number <= 0:
         raise SettingsValidationError(f"{variable} must be a positive integer")
     return number
@@ -325,7 +343,9 @@ def _parse_non_negative_integer(value: str | None, variable: str) -> int:
     try:
         number = int(value) if value is not None else -1
     except ValueError as error:
-        raise SettingsValidationError(f"{variable} must be a non-negative integer") from error
+        raise SettingsValidationError(
+            f"{variable} must be a non-negative integer"
+        ) from error
     if number < 0:
         raise SettingsValidationError(f"{variable} must be a non-negative integer")
     return number
@@ -340,7 +360,9 @@ def _parse_required_text(value: str | None, variable: str) -> str:
 
 def _parse_collection_name(value: str | None) -> str:
     _validate_optional_runtime_text(value, "SAXO_CHROMA_COLLECTION_NAME")
-    if value is None or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{1,61}[A-Za-z0-9]", value.strip()):
+    if value is None or not re.fullmatch(
+        r"[A-Za-z0-9][A-Za-z0-9_-]{1,61}[A-Za-z0-9]", value.strip()
+    ):
         raise SettingsValidationError(
             "SAXO_CHROMA_COLLECTION_NAME must be 3-63 characters using letters, numbers, '_' or '-'",
         )
@@ -355,7 +377,9 @@ def _validate_optional_runtime_text(value: object, variable: str) -> None:
 def _validate_canonical_runtime_text(value: object, variable: str) -> None:
     _validate_optional_runtime_text(value, variable)
     if isinstance(value, str) and value != value.strip():
-        raise SettingsValidationError(f"{variable} must not contain surrounding whitespace")
+        raise SettingsValidationError(
+            f"{variable} must not contain surrounding whitespace"
+        )
 
 
 def _parse_non_negative_float(
@@ -367,7 +391,9 @@ def _parse_non_negative_float(
     try:
         number = float(value) if value is not None else -1.0
     except ValueError as error:
-        raise SettingsValidationError(f"{variable} must be a non-negative number") from error
+        raise SettingsValidationError(
+            f"{variable} must be a non-negative number"
+        ) from error
     if (
         not math.isfinite(number)
         or (strictly_positive and number <= 0)
@@ -392,7 +418,11 @@ def _validate_runtime_float(
     strictly_positive: bool = False,
     maximum: float | None = None,
 ) -> None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+    ):
         raise SettingsValidationError(f"{field_name} must be a finite number")
     if (strictly_positive and value <= 0) or (not strictly_positive and value < 0):
         requirement = "positive" if strictly_positive else "non-negative"
@@ -405,7 +435,9 @@ def _validate_runtime_path(value: object, field_name: str) -> None:
     if not isinstance(value, Path):
         raise SettingsValidationError(f"{field_name} must be a filesystem path")
     if str(value) != str(value).strip():
-        raise SettingsValidationError(f"{field_name} must not contain surrounding whitespace")
+        raise SettingsValidationError(
+            f"{field_name} must not contain surrounding whitespace"
+        )
     if value == Path("."):
         raise SettingsValidationError(f"{field_name} must not be empty")
     if value.drive and not value.is_absolute():
@@ -413,9 +445,13 @@ def _validate_runtime_path(value: object, field_name: str) -> None:
     if value.root and not value.is_absolute():
         raise SettingsValidationError(f"{field_name} must not be root-relative")
     if ".." in value.parts:
-        raise SettingsValidationError(f"{field_name} must not traverse parent directories")
+        raise SettingsValidationError(
+            f"{field_name} must not traverse parent directories"
+        )
     if any(ord(character) < 32 or ord(character) == 127 for character in str(value)):
-        raise SettingsValidationError(f"{field_name} must not contain control characters")
+        raise SettingsValidationError(
+            f"{field_name} must not contain control characters"
+        )
     _validate_windows_device_path_components(value, field_name)
 
 
@@ -436,7 +472,9 @@ def _validate_windows_device_path_components(value: Path, field_name: str) -> No
             )
         normalized = component.rstrip(" .")
         device_name = normalized.split(".", 1)[0].upper()
-        if device_name in reserved_names or re.fullmatch(r"(?:COM|LPT)[1-9]", device_name):
+        if device_name in reserved_names or re.fullmatch(
+            r"(?:COM|LPT)[1-9]", device_name
+        ):
             raise SettingsValidationError(
                 f"{field_name} must not contain Windows device name components",
             )
