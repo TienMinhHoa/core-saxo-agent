@@ -498,6 +498,26 @@ def test_composition_root_consumes_retrieval_public_facade() -> None:
     assert violations == []
 
 
+def test_composition_root_consumes_chat_public_facade() -> None:
+    """The composition root should resolve chat contracts through its facade."""
+
+    factory_file = SOURCE_ROOT / "app" / "factory.py"
+    implementation_prefixes = (
+        "saxophone.chat.models",
+        "saxophone.chat.ports",
+        "saxophone.chat.remote_answer",
+        "saxophone.chat.service",
+    )
+
+    violations = sorted(
+        imported
+        for imported in _saxophone_imports(factory_file)
+        if imported.startswith(implementation_prefixes)
+    )
+
+    assert violations == []
+
+
 def test_composition_root_consumes_workflow_public_facade() -> None:
     """The composition root should resolve workflows through their stable facade."""
 
