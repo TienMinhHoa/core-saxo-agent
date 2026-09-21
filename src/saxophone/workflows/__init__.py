@@ -8,4 +8,5 @@ __all__ = [
     "ProcessDocument",
     "ProcessAndPersistDocument",
     "IngestExtractedDocument",
+    "run_extraction",
 ]

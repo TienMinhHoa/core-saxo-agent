@@ -43,3 +43,10 @@ def test_pdf_layout_route_uses_the_workflows_public_api() -> None:
 
     assert "from saxophone.workflows import run_extraction" in source
     assert "from saxophone.workflows.pdf_layout_extraction import run_extraction" not in source
+
+
+def test_pdf_extraction_workflow_is_declared_in_public_workflows_exports() -> None:
+    from saxophone import workflows
+
+    assert "run_extraction" in workflows.__all__
+    assert workflows.__all__.count("run_extraction") == 1

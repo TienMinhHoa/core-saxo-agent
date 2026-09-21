@@ -652,6 +652,7 @@ def test_workflows_exposes_a_public_application_facade() -> None:
         "IngestExtractedDocument",
         "ProcessAndPersistDocument",
         "ProcessDocument",
+        "run_extraction",
     }
 
     assert set(workflows.__all__) == expected
