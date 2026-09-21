@@ -198,3 +198,38 @@ def test_retrieval_and_chat_remain_separate_application_boundaries() -> None:
                 violations[str(path.relative_to(SOURCE_ROOT))] = found
 
     assert violations == {}
+
+
+def test_task_adapters_use_the_litellm_model_client_boundary() -> None:
+    """Remote task adapters must not grow their own provider transport."""
+
+    task_adapter_files = (
+        SOURCE_ROOT / "chat" / "remote_answer.py",
+        SOURCE_ROOT / "extraction" / "remote.py",
+        SOURCE_ROOT / "ingestion" / "adapters.py",
+        SOURCE_ROOT / "tagging" / "adapters.py",
+    )
+    violations = {
+        str(path.relative_to(SOURCE_ROOT)): {
+            "missing_model_client": "saxophone.platform.model_client" not in _saxophone_imports(path),
+            "direct_transport": sorted(_import_roots(path) & {"httpx", "openai"}),
+        }
+        for path in task_adapter_files
+        if "saxophone.platform.model_client" not in _saxophone_imports(path)
+        or _import_roots(path) & {"httpx", "openai"}
+    }
+
+    assert violations == {}
+
+
+def test_http_transport_is_confined_to_platform_and_composition_root() -> None:
+    """Feature modules receive the model port instead of importing HTTP clients."""
+
+    violations = {
+        str(path.relative_to(SOURCE_ROOT)): sorted(_import_roots(path) & {"httpx"})
+        for path in SOURCE_ROOT.rglob("*.py")
+        if _import_roots(path) & {"httpx"}
+        and path.relative_to(SOURCE_ROOT).parts[0] not in {"platform", "app"}
+    }
+
+    assert violations == {}
