@@ -54,11 +54,16 @@ class RemoteAnswerGenerator(AnswerGenerator):
 
         output = response.output
         try:
+            used_refs = _used_refs(output)
+            allowed_refs = set(evidence.selected_refs)
+            if any(ref not in allowed_refs for ref in used_refs):
+                raise ModelValidationError("model output used_refs must refer to supplied evidence")
             return GeneratedAnswer(
                 answer=_required_text(output, "answer"),
                 model_version=response.model,
                 token_usage=_required_mapping(output, "token_usage"),
                 cost=_required_number(output, "cost", default=0.0),
+                used_refs=used_refs,
             )
         except ValueError as error:
             raise ModelValidationError(f"model output violates answer contract: {error}") from error
@@ -83,6 +88,15 @@ def _required_mapping(output: Mapping[str, object], name: str) -> Mapping[str, i
     if not isinstance(value, Mapping):
         raise ModelValidationError(f"model output {name} must be a mapping")
     return value  # GeneratedAnswer validates keys and values.
+
+
+def _used_refs(output: Mapping[str, object]) -> tuple[str, ...]:
+    if "used_refs" not in output:
+        return ()
+    value = output["used_refs"]
+    if not isinstance(value, list) or any(not isinstance(ref, str) for ref in value):
+        raise ModelValidationError("model output used_refs must be a list of strings")
+    return tuple(value)
 
 
 def _required_number(output: Mapping[str, object], name: str, *, default: float) -> float:

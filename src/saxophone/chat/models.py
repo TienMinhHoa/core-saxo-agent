@@ -24,11 +24,18 @@ class GeneratedAnswer:
     model_version: str
     token_usage: Mapping[str, int]
     cost: float = 0.0
+    used_refs: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         _require_text("answer", self.answer)
         _require_text("model_version", self.model_version)
         _validate_token_usage(self.token_usage)
+        if not isinstance(self.used_refs, tuple):
+            raise ValueError("used_refs must be a tuple")
+        if any(not isinstance(ref, str) or not ref.strip() for ref in self.used_refs):
+            raise ValueError("used_refs must contain non-blank refs")
+        if len(set(self.used_refs)) != len(self.used_refs):
+            raise ValueError("used_refs must be unique")
         if not math.isfinite(self.cost) or self.cost < 0:
             raise ValueError("cost must be finite and non-negative")
         object.__setattr__(self, "token_usage", MappingProxyType(dict(self.token_usage)))

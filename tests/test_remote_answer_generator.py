@@ -108,3 +108,25 @@ async def test_remote_answer_generator_rejects_malformed_model_output() -> None:
         await RemoteAnswerGenerator(
             client, model="answer-model-v1", response_schema="answer-v1"
         ).generate("How?", _evidence())
+
+
+@pytest.mark.anyio
+async def test_remote_answer_generator_rejects_foreign_used_reference() -> None:
+    client = _ModelClient(
+        ModelResponse(
+            ModelTask.ANSWER_GENERATE,
+            "answer-model-v1",
+            "answer-v1",
+            {
+                "answer": "Start with long tones.",
+                "used_refs": ["chunk-foreign"],
+                "token_usage": {"total": 18},
+            },
+            "source-v1",
+        )
+    )
+
+    with pytest.raises(ModelValidationError, match="used_refs"):
+        await RemoteAnswerGenerator(
+            client, model="answer-model-v1", response_schema="answer-v1"
+        ).generate("How?", _evidence())
