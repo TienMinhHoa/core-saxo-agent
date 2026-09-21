@@ -9,8 +9,8 @@ khi có feature parity và quyết định migration riêng.
 
 - Các capability đích đã có trong package `src/saxophone`: composition root,
   extraction, ingestion, retrieval, chat, tagging, workflow và API adapters.
-- Bằng chứng offline hiện tại: `uv run pytest -q` đạt **1062 passed, 18 skipped,
-  1 warning**; `compileall` và `git diff --check` cũng đạt ở iteration 342.
+- Bằng chứng offline hiện tại: `uv run pytest -q` đạt **1065 passed, 18 skipped,
+  1 warning**; `compileall` và `git diff --check` cũng đạt ở iteration 349.
 - Iteration 343 chạy lại contract Phase 7 đạt **81 passed** và full suite đạt
   **1062 passed, 18 skipped, 1 warning**; chi tiết tại
   `docs/ITERATION_343_PHASE7_ACCEPTANCE_RECHECK.md`.
@@ -20,6 +20,9 @@ khi có feature parity và quyết định migration riêng.
 - Iteration 345 đã build wheel backend thành công bằng `uv build`; artifact và
   entry-point metadata được kiểm tra offline tại
   `docs/ITERATION_345_PHASE7_PACKAGE_BUILD.md`.
+- Iteration 349 đã đồng bộ docstring PDF về entrypoint `saxophone-api`; contract
+  wrapper đạt **38 passed**. Chi tiết tại
+  `docs/ITERATION_349_PHASE7_ENTRYPOINT_DOCSTRING_SYNC.md`.
 
 ### Iteration 156 — canonical contract của `ModelResponse`
 

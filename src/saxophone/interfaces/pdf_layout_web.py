@@ -2,7 +2,7 @@
 """Local web backend for extracting and visually reviewing PDF layouts.
 
 Run with:
-    uv run pdf-layout-web --host 127.0.0.1 --port 8000
+    uv run saxophone-api --host 127.0.0.1 --port 8000
 
 The browser uploads a PDF, starts a background PP-StructureV3 extraction job,
 then renders the source page with normalized layout boxes beside the extracted

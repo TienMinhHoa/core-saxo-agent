@@ -1,8 +1,8 @@
-"""Compatibility entrypoint for the legacy PDF layout viewer.
+"""Compatibility module for direct PDF layout viewer imports.
 
 The implementation lives under the backend's ``saxophone.interfaces``
-namespace; this module remains only for the historical console script and
-direct ``python -m pdf_layout_web`` invocations.
+namespace; the supported web entrypoint is ``saxophone-api``. This module
+remains only for direct ``python -m pdf_layout_web`` invocations.
 """
 
 from saxophone.interfaces.pdf_layout_web import app, main

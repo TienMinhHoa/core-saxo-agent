@@ -15,6 +15,19 @@ def test_legacy_pdf_layout_entrypoint_is_only_a_compatibility_wrapper() -> None:
     assert "def _run_extraction" not in source
 
 
+def test_pdf_layout_docstrings_use_primary_backend_entrypoint() -> None:
+    interface_source = (
+        SOURCE_ROOT / "src" / "saxophone" / "interfaces" / "pdf_layout_web.py"
+    ).read_text(encoding="utf-8")
+    wrapper_source = (SOURCE_ROOT / "src" / "pdf_layout_web.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "uv run saxophone-api" in interface_source
+    assert "uv run pdf-layout-web" not in interface_source
+    assert "pdf-layout-web" not in wrapper_source
+
+
 def test_pdf_layout_route_uses_extraction_number_policy_directly() -> None:
     source = (
         SOURCE_ROOT / "src" / "saxophone" / "interfaces" / "pdf_layout_web.py"
