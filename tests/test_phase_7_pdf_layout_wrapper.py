@@ -29,6 +29,15 @@ def test_pdf_layout_route_uses_extraction_number_policy_directly() -> None:
     assert "    return _number(" not in source
 
 
+def test_pdf_layout_interface_does_not_keep_dead_job_directory_helper() -> None:
+    source = (
+        SOURCE_ROOT / "src" / "saxophone" / "interfaces" / "pdf_layout_web.py"
+    ).read_text(encoding="utf-8")
+
+    assert "def _job_dir" not in source
+    assert "JOB_STORE.job_dir(" not in source
+
+
 def test_pdf_layout_route_delegates_extraction_orchestration_to_workflow() -> None:
     source = (
         SOURCE_ROOT / "src" / "saxophone" / "interfaces" / "pdf_layout_web.py"

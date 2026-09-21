@@ -38,15 +38,6 @@ JOB_STORE = PdfLayoutJobStore(JOBS_DIR)
 app = FastAPI(title="PDF Layout Extractor", docs_url=None, redoc_url=None)
 
 
-def _job_dir(job_id: str) -> Path:
-    """Resolve a UUID-backed job directory without accepting path traversal."""
-    try:
-        uuid.UUID(job_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail="Job không tồn tại") from exc
-    return JOB_STORE.job_dir(job_id)
-
-
 def _load_state(job_id: str) -> dict[str, Any]:
     try:
         return JOB_STORE.load_state(job_id)
