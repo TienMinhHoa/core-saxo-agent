@@ -200,6 +200,16 @@ def test_project_does_not_advertise_legacy_pdf_web_script() -> None:
     assert "pdf-layout-web" not in scripts
 
 
+def test_readme_identifies_saxophone_api_as_primary_backend() -> None:
+    """Keep the runbook aligned with the single-backend entrypoint decision."""
+
+    readme = (SOURCE_ROOT.parents[1] / "README.md").read_text(encoding="utf-8")
+    opening = readme[: readme.index("## Trạng thái demo hiện tại")]
+
+    assert "Backend web chính là `saxophone-api`" in opening
+    assert "Gradio app chỉ là compatibility UI legacy" in opening
+
+
 def test_backend_asgi_module_is_only_a_bootstrap_boundary() -> None:
     """Keep ASGI import/bootstrap separate from route and adapter wiring."""
 

@@ -1,6 +1,10 @@
 # Music Theory Source RAG
 
-Gradio app cho luồng: **câu hỏi → semantic retrieval → chọn content item → trả toàn bộ source block và ảnh**. Ứng dụng không dùng LLM để viết một câu trả lời mới từ sách.
+Backend web chính là `saxophone-api`, phục vụ các workflow PDF/extraction của
+modular monolith. Gradio app chỉ là compatibility UI legacy cho luồng:
+**câu hỏi → semantic retrieval → chọn content item → trả toàn bộ source block và ảnh**;
+ứng dụng này không thuộc runtime backend mặc định và không dùng LLM để viết một câu
+trả lời mới từ sách.
 
 ## Trạng thái demo hiện tại
 
