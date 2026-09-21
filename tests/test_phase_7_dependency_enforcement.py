@@ -411,6 +411,66 @@ def test_extraction_exposes_a_public_application_facade() -> None:
     assert all(hasattr(extraction, name) for name in expected)
 
 
+def test_tagging_consumers_use_the_public_facade() -> None:
+    """Application consumers must not couple to tagging implementation modules."""
+
+    consumer_files = (
+        SOURCE_ROOT / "ingestion" / "use_cases.py",
+        SOURCE_ROOT / "workflows" / "ingest_extracted_document.py",
+    )
+    implementation_prefixes = (
+        "saxophone.tagging.models",
+        "saxophone.tagging.parser",
+        "saxophone.tagging.ports",
+        "saxophone.tagging.use_cases",
+    )
+    violations = {
+        str(path.relative_to(SOURCE_ROOT)): sorted(
+            imported
+            for imported in _saxophone_imports(path)
+            if imported.startswith(implementation_prefixes)
+        )
+        for path in consumer_files
+        if any(
+            imported.startswith(implementation_prefixes)
+            for imported in _saxophone_imports(path)
+        )
+    }
+
+    assert violations == {}
+
+
+def test_tagging_exposes_a_public_application_facade() -> None:
+    """Consumers should receive tagging contracts and workflows from one module."""
+
+    from saxophone import tagging
+
+    expected = {
+        "ExistingTagCandidate",
+        "JsonTagCatalogRepository",
+        "JsonTaggedParagraphRepository",
+        "ParagraphBlock",
+        "RemoteParagraphTagger",
+        "RemoteTagConflictResolver",
+        "TagAndPersistParagraph",
+        "TagCatalogRepository",
+        "TagConflictResolution",
+        "TagConflictResolutionRequest",
+        "TagConflictResolver",
+        "TagGenerationRequest",
+        "TagGenerationResult",
+        "TagGenerator",
+        "TagParagraph",
+        "TagResolution",
+        "TaggedParagraph",
+        "TaggedParagraphRepository",
+        "parse_chunk_paragraphs",
+    }
+
+    assert set(tagging.__all__) == expected
+    assert all(hasattr(tagging, name) for name in expected)
+
+
 def test_ingestion_does_not_depend_on_inbound_framework_or_schemas() -> None:
     """Keep ingestion application code independent from HTTP presentation details."""
 

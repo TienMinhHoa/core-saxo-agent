@@ -7,9 +7,7 @@ from collections.abc import Mapping, Sequence
 
 from saxophone.documents.knowledge import KnowledgeChunk
 from saxophone.documents.ports import KnowledgeRepository
-from saxophone.tagging.models import TaggedParagraph
-from saxophone.tagging.models import ParagraphBlock
-from saxophone.tagging.use_cases import TagAndPersistParagraph
+from saxophone.tagging import ParagraphBlock, TagAndPersistParagraph, TaggedParagraph
 
 from .models import (
     ChunkIndexRecord,

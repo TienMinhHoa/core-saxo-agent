@@ -7,7 +7,7 @@ from saxophone.extraction import PdfExtractionResult
 from saxophone.ingestion.chunking import build_source_chunks
 from saxophone.ingestion.models import IndexInputRecord, IngestionCommand
 from saxophone.ingestion.use_cases import IngestDocument, IndexDocument
-from saxophone.tagging.parser import parse_chunk_paragraphs
+from saxophone.tagging import parse_chunk_paragraphs
 
 
 class IngestExtractedDocument:
