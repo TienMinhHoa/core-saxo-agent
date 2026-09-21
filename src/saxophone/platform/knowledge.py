@@ -23,7 +23,13 @@ class JsonKnowledgeRepository:
         *,
         io_limiter: anyio.CapacityLimiter | None = None,
     ) -> None:
-        self._root = root.resolve()
+        if not isinstance(root, Path):
+            raise ValueError("root must be a Path")
+        _reject_symbolic_link_in_path(root)
+        resolved_root = root.resolve()
+        if resolved_root.exists() and not resolved_root.is_dir():
+            raise ValueError("root must be a directory")
+        self._root = resolved_root
         self._io_limiter = io_limiter or create_blocking_io_limiter()
 
     async def upsert(self, chunk: KnowledgeChunk) -> None:
@@ -51,6 +57,7 @@ class JsonKnowledgeRepository:
         )
 
     def _write(self, chunk: KnowledgeChunk) -> None:
+        _reject_symbolic_link_in_path(self._root)
         self._root.mkdir(parents=True, exist_ok=True)
         payload = {
             "chunk_id": chunk.chunk_id,
@@ -102,3 +109,16 @@ def _write_json_atomically(path: Path, payload: object) -> None:
     except BaseException:
         Path(temporary_name).unlink(missing_ok=True)
         raise
+
+
+def _reject_symbolic_link_in_path(path: Path) -> None:
+    """Reject a root whose explicit path crosses a symbolic-link component."""
+
+    absolute_path = path.absolute()
+    current = Path(absolute_path.anchor)
+    for component in absolute_path.parts[1:]:
+        current /= component
+        if current.is_symlink():
+            if current == absolute_path:
+                raise ValueError("root must not be a symbolic link")
+            raise ValueError("root path must not contain a symbolic link")

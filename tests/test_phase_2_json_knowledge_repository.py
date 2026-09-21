@@ -75,3 +75,29 @@ def test_json_repository_writes_atomic_sidecar_without_temporary_files(
 
     assert list(tmp_path.glob("*.tmp")) == []
     assert len(list(tmp_path.glob("*.json"))) == 1
+
+
+def test_json_repository_rejects_non_path_root() -> None:
+    with pytest.raises(ValueError, match="root must be a Path"):
+        JsonKnowledgeRepository("not-a-path")  # type: ignore[arg-type]
+
+
+def test_json_repository_rejects_existing_file_root(tmp_path: Path) -> None:
+    root_file = tmp_path / "knowledge.json"
+    root_file.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="root must be a directory"):
+        JsonKnowledgeRepository(root_file)
+
+
+def test_json_repository_rejects_symbolic_link_root(tmp_path: Path) -> None:
+    target = tmp_path / "target"
+    target.mkdir()
+    link = tmp_path / "link"
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except (OSError, NotImplementedError) as error:
+        pytest.skip(f"symbolic links unavailable: {error}")
+
+    with pytest.raises(ValueError, match="root must not be a symbolic link"):
+        JsonKnowledgeRepository(link)
