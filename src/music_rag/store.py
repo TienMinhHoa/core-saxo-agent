@@ -49,6 +49,9 @@ class CatalogStore:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 json.dump(catalog, handle, ensure_ascii=False, indent=2, sort_keys=True)
                 handle.write("\n")
+            # Re-check after creating the temporary file: the root or target
+            # may have changed between the initial validation and replacement.
+            self._validate_paths()
             os.replace(temporary, self.path)
         except BaseException:
             Path(temporary).unlink(missing_ok=True)
