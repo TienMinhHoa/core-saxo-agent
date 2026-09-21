@@ -171,6 +171,24 @@ def test_backend_dependency_manifests_do_not_lock_local_gpu_runtime() -> None:
     assert violations == {}
 
 
+def test_project_declares_one_backend_asgi_entrypoint() -> None:
+    """Legacy CLI tools must not create a second backend web entrypoint."""
+
+    project_root = SOURCE_ROOT.parents[1]
+    scripts = tomllib.loads(
+        (project_root / "pyproject.toml").read_text(encoding="utf-8")
+    )["project"]["scripts"]
+
+    backend_scripts = {
+        name: target
+        for name, target in scripts.items()
+        if target.startswith("saxophone.")
+        and (target == "saxophone.main:main" or "FastAPI" in target)
+    }
+
+    assert backend_scripts == {"saxophone-api": "saxophone.main:main"}
+
+
 def test_dependency_manifests_keep_runtime_and_dev_tooling_separate() -> None:
     """Keep pytest out of runtime installs while retaining an explicit dev group."""
 
