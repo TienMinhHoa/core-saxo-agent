@@ -297,6 +297,26 @@ def test_retrieval_and_chat_remain_separate_application_boundaries() -> None:
     assert violations == {}
 
 
+def test_retrieval_does_not_depend_on_answer_generation() -> None:
+    """Retrieval owns evidence selection; answer generation belongs to chat."""
+
+    forbidden_prefixes = ("saxophone.chat",)
+    violations = {
+        str(path.relative_to(SOURCE_ROOT)): sorted(
+            imported
+            for imported in _saxophone_imports(path)
+            if imported.startswith(forbidden_prefixes)
+        )
+        for path in (SOURCE_ROOT / "retrieval").rglob("*.py")
+        if any(
+            imported.startswith(forbidden_prefixes)
+            for imported in _saxophone_imports(path)
+        )
+    }
+
+    assert violations == {}
+
+
 def test_chat_consumes_retrieval_public_facade() -> None:
     """Chat must not couple to retrieval implementation modules."""
 
