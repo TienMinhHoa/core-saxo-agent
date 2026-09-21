@@ -29,6 +29,30 @@ def load_layout_pages(
     }
 
 
+def start_extraction(
+    job_id: str,
+    *,
+    artifact_paths: Callable[[str], PdfLayoutArtifactPaths],
+    update_state: Callable[[str, dict[str, Any]], dict[str, Any]],
+    render_pages: Callable[[Path, Path], list[str]],
+    extraction_lock: threading.Lock,
+    thread_factory: Callable[..., threading.Thread] = threading.Thread,
+) -> None:
+    """Launch one extraction workflow without exposing thread wiring to HTTP."""
+    worker = thread_factory(
+        target=run_extraction,
+        args=(job_id,),
+        kwargs={
+            "artifact_paths": artifact_paths,
+            "update_state": update_state,
+            "render_pages": render_pages,
+            "extraction_lock": extraction_lock,
+        },
+        daemon=True,
+    )
+    worker.start()
+
+
 def run_extraction(
     job_id: str,
     *,

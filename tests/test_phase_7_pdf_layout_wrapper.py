@@ -43,7 +43,7 @@ def test_pdf_layout_route_delegates_extraction_orchestration_to_workflow() -> No
         SOURCE_ROOT / "src" / "saxophone" / "interfaces" / "pdf_layout_web.py"
     ).read_text(encoding="utf-8")
 
-    assert "from saxophone.workflows import run_extraction" in source
+    assert "from saxophone.workflows import start_extraction" in source
     assert "def _run_extraction" not in source
     assert "importlib.import_module" not in source
     assert "traceback.format_exc" not in source
@@ -54,7 +54,7 @@ def test_pdf_layout_route_uses_the_workflows_public_api() -> None:
         SOURCE_ROOT / "src" / "saxophone" / "interfaces" / "pdf_layout_web.py"
     ).read_text(encoding="utf-8")
 
-    assert "from saxophone.workflows import run_extraction" in source
+    assert "from saxophone.workflows import start_extraction" in source
     assert "from saxophone.workflows.pdf_layout_extraction import run_extraction" not in source
 
 
@@ -156,7 +156,63 @@ def test_pdf_layout_interface_does_not_keep_local_pdf_raster_implementation() ->
     assert "def _page_number" not in source
     assert "subprocess.run" not in source
     assert "shutil.which(\"pdftoppm\")" not in source
-    assert '"render_pages": render_pdf_pages' in source
+    assert "render_pages=render_pdf_pages" in source
+
+
+def test_pdf_layout_interface_delegates_extraction_launch_to_workflow() -> None:
+    source = (
+        SOURCE_ROOT / "src" / "saxophone" / "interfaces" / "pdf_layout_web.py"
+    ).read_text(encoding="utf-8")
+
+    assert "from saxophone.workflows import start_extraction" in source
+    assert "threading.Thread" not in source
+    assert ".start()" not in source
+
+
+def test_extraction_workflow_exposes_thread_launch_policy() -> None:
+    from saxophone import workflows
+
+    assert "start_extraction" in workflows.__all__
+    assert workflows.__all__.count("start_extraction") == 1
+
+
+def test_start_extraction_configures_and_starts_daemon_worker() -> None:
+    from saxophone.workflows import start_extraction
+
+    calls: list[object] = []
+
+    class Worker:
+        def start(self) -> None:
+            calls.append("started")
+
+    def factory(**kwargs):
+        calls.append(kwargs)
+        return Worker()
+
+    artifact_paths = lambda job_id: job_id
+    update_state = lambda job_id, updates: updates
+    render_pages = lambda source, destination: []
+    extraction_lock = object()
+
+    start_extraction(
+        "job-id",
+        artifact_paths=artifact_paths,
+        update_state=update_state,
+        render_pages=render_pages,
+        extraction_lock=extraction_lock,
+        thread_factory=factory,
+    )
+
+    assert calls[1] == "started"
+    worker_kwargs = calls[0]
+    assert worker_kwargs["args"] == ("job-id",)
+    assert worker_kwargs["daemon"] is True
+    assert worker_kwargs["kwargs"] == {
+        "artifact_paths": artifact_paths,
+        "update_state": update_state,
+        "render_pages": render_pages,
+        "extraction_lock": extraction_lock,
+    }
 
 
 def test_pdf_layout_interface_delegates_public_state_projection_to_job_store() -> None:
@@ -350,7 +406,7 @@ def test_pdf_extraction_workflow_accepts_typed_artifact_path_policy() -> None:
 
     assert "job_dir:" not in workflow_source
     assert "artifact_paths:" in workflow_source
-    assert '"artifact_paths": JOB_STORE.artifact_paths' in interface_source
+    assert "artifact_paths=JOB_STORE.artifact_paths" in interface_source
 
 
 def test_pdf_extraction_workflow_consumes_one_artifact_path_policy() -> None:
@@ -365,7 +421,7 @@ def test_pdf_extraction_workflow_consumes_one_artifact_path_policy() -> None:
     assert "source_pdf_path:" not in workflow_source
     assert "extraction_dir:" not in workflow_source
     assert "pages_dir:" not in workflow_source
-    assert '"artifact_paths": JOB_STORE.artifact_paths' in interface_source
+    assert "artifact_paths=JOB_STORE.artifact_paths" in interface_source
 
 
 def test_pdf_extraction_workflow_delegates_state_patches_to_job_store() -> None:
@@ -379,7 +435,7 @@ def test_pdf_extraction_workflow_delegates_state_patches_to_job_store() -> None:
     assert "update_state:" in workflow_source
     assert "load_state:" not in workflow_source
     assert "write_state:" not in workflow_source
-    assert '"update_state": JOB_STORE.update_state' in interface_source
+    assert "update_state=JOB_STORE.update_state" in interface_source
     assert "def _write_state" not in interface_source
 
 

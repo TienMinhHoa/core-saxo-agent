@@ -656,9 +656,10 @@ def test_workflows_exposes_a_public_application_facade() -> None:
         "PdfLayoutJobNotFound",
         "PdfLayoutJobRequestError",
         "PdfLayoutJobStore",
-        "load_layout_pages",
-        "run_extraction",
-    }
+            "load_layout_pages",
+            "run_extraction",
+            "start_extraction",
+        }
 
     assert set(workflows.__all__) == expected
     assert all(hasattr(workflows, name) for name in expected)
