@@ -13,3 +13,13 @@ def test_legacy_pdf_layout_entrypoint_is_only_a_compatibility_wrapper() -> None:
     assert "FastAPI(" not in source
     assert "@app." not in source
     assert "def _run_extraction" not in source
+
+
+def test_pdf_layout_route_uses_extraction_number_policy_directly() -> None:
+    source = (
+        SOURCE_ROOT / "src" / "saxophone" / "interfaces" / "pdf_layout_web.py"
+    ).read_text(encoding="utf-8")
+
+    assert "from saxophone.extraction import finite_number" in source
+    assert "def _number" not in source
+    assert "    return _number(" not in source

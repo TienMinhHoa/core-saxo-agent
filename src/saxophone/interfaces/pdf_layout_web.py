@@ -136,11 +136,6 @@ def _normalise_blocks(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return normalize_blocks(payload)
 
 
-def _number(value: Any) -> float | None:
-    """Compatibility wrapper for the legacy viewer route."""
-    return finite_number(value)
-
-
 def _layout_pages(job_id: str) -> list[dict[str, Any]]:
     """Read the saved Paddle JSON into compact data used by the web client."""
     job_dir = _job_dir(job_id)
@@ -149,7 +144,9 @@ def _layout_pages(job_id: str) -> list[dict[str, Any]]:
     for path in sorted(layout_dir.glob("page-*.json")):
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
-            width, height = _number(payload.get("width")), _number(payload.get("height"))
+            width, height = finite_number(payload.get("width")), finite_number(
+                payload.get("height")
+            )
             if width is None or height is None or width <= 0 or height <= 0:
                 continue
             if not is_raw_pdf_raster_space(payload.get("coordinate_space")):
