@@ -319,6 +319,28 @@ def test_ingestion_does_not_depend_on_inbound_framework_or_schemas() -> None:
     assert violations == {}
 
 
+def test_extraction_does_not_depend_on_inbound_framework_or_schemas() -> None:
+    """Keep extraction application code independent from HTTP presentation details."""
+
+    forbidden_roots = {"fastapi", "pydantic"}
+    violations: dict[str, list[str]] = {}
+    extraction_root = SOURCE_ROOT / "extraction"
+    for path in extraction_root.rglob("*.py"):
+        forbidden_imports = sorted(_import_roots(path) & forbidden_roots)
+        inbound_imports = sorted(
+            imported
+            for imported in _saxophone_imports(path)
+            if imported.startswith("saxophone.interfaces")
+        )
+        if forbidden_imports or inbound_imports:
+            violations[str(path.relative_to(SOURCE_ROOT))] = [
+                *forbidden_imports,
+                *inbound_imports,
+            ]
+
+    assert violations == {}
+
+
 def test_task_adapters_use_the_litellm_model_client_boundary() -> None:
     """Remote task adapters must not grow their own provider transport."""
 
