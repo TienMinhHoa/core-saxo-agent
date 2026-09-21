@@ -350,3 +350,6 @@ deployment production.
   `docs/ITERATION_211_ARTIFACT_PARENT_RECHECK.md`.
 - Live model-service smoke và production parity vẫn chưa xác minh do checkout
   chưa có endpoint, credential và catalog production thật.
+- Iteration 294: Bổ sung import runtime `Any` cho callback `ask_answer()` và contract
+  test bảo vệ root entrypoint khỏi lỗi tên typing chưa được định nghĩa. Chi tiết tại
+  `docs/ITERATION_294_PHASE7_CALLBACK_TYPING.md`.

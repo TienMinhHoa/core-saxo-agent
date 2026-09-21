@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
+from typing import Any
 
 import gradio as gr
 from dotenv import load_dotenv

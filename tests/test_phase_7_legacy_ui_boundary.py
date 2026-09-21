@@ -73,3 +73,17 @@ def test_root_entrypoint_has_no_dead_answer_cost_formatter() -> None:
     }
 
     assert "_answer_cost_markdown" not in definitions
+
+
+def test_root_entrypoint_imports_runtime_typing_names_used_by_callbacks() -> None:
+    """Callback-local annotations must not fail when the callback is invoked."""
+
+    tree = ast.parse(Path("app.py").read_text(encoding="utf-8"))
+    imported_names = {
+        alias.asname or alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module == "typing"
+        for alias in node.names
+    }
+
+    assert "Any" in imported_names
