@@ -478,6 +478,16 @@ def test_extraction_consumers_use_the_public_facade() -> None:
     assert violations == {}
 
 
+def test_pdf_layout_workflow_does_not_embed_legacy_provider_loading() -> None:
+    """Workflow orchestration delegates legacy compatibility to an adapter."""
+
+    workflow = (SOURCE_ROOT / "workflows" / "pdf_layout_extraction.py").read_text(
+        encoding="utf-8"
+    )
+    assert "importlib" not in workflow
+    assert 'extracted.parse_pdf_2_md' not in workflow
+
+
 def test_legacy_layout_route_uses_extraction_boundary() -> None:
     """The compatibility route must not import layout constants from legacy code."""
 

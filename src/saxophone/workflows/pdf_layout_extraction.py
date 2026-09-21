@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import importlib
 import threading
 import traceback
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from saxophone.extraction.legacy import run_legacy_extraction
 from saxophone.workflows import PdfLayoutArtifactPaths
 
 
@@ -74,61 +74,15 @@ def run_extraction(
             "error": None,
         },
     )
-    paths = artifact_paths(job_id)
-    source_pdf = paths.source_pdf
-    extraction_root = paths.extraction
-    rendered_pages = paths.pages
     try:
-        legacy_pipeline = importlib.import_module("extracted.parse_pdf_2_md")
-        check_gpu = legacy_pipeline.check_gpu
-        create_source_coordinate_pipeline = legacy_pipeline.create_source_coordinate_pipeline
-        pdf_page_count = legacy_pipeline.pdf_page_count
-        save_one_pdf = legacy_pipeline.save_one_pdf
-
-        with extraction_lock:
-            check_gpu(str(state["device"]))
-            total_pages = pdf_page_count(source_pdf)
-            pipeline = create_source_coordinate_pipeline(
-                lang=str(state["language"]), device=str(state["device"])
-            )
-            try:
-                state = update_state(
-                    job_id, {"phase": "extracting", "progress_total": total_pages}
-                )
-
-                def report_progress(page: int, total: int | None, images: int) -> None:
-                    update_state(
-                        job_id,
-                        {
-                            "phase": "extracting",
-                            "progress_pages": page,
-                            "progress_total": total,
-                            "progress_images": images,
-                        },
-                    )
-
-                save_one_pdf(
-                    pipeline,
-                    source_pdf,
-                    extraction_root,
-                    on_progress=report_progress,
-                )
-            finally:
-                pipeline.close()
-            state = update_state(job_id, {"phase": "rendering"})
-            page_images = render_pages(source_pdf, rendered_pages)
-
-        update_state(
-            job_id,
-            {
-                "status": "completed",
-                "finished_at": _timestamp(),
-                "page_count": len(page_images),
-                "phase": "completed",
-                "progress_pages": len(page_images),
-                "progress_total": len(page_images),
-                "error": None,
-            },
+        run_legacy_extraction(
+            state,
+            job_id=job_id,
+            artifact_paths=artifact_paths,
+            update_state=update_state,
+            render_pages=render_pages,
+            extraction_lock=extraction_lock,
+            timestamp=_timestamp,
         )
     except Exception as exc:  # pragma: no cover - OCR runtime is environment-specific
         update_state(
