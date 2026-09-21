@@ -27,6 +27,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 
 from extracted.layout_geometry import RAW_PDF_RASTER_SPACE
+from saxophone.extraction.layout import finite_number, normalize_blocks
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
@@ -130,45 +131,14 @@ def _render_pages(source_pdf: Path, page_dir: Path) -> list[str]:
     return [path.name for path in sorted(page_dir.glob("page-*.png"), key=_page_number)]
 
 
-def _number(value: Any) -> float | None:
-    """Accept finite numeric JSON values but exclude booleans and invalid data."""
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    return None
-
-
 def _normalise_blocks(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    """Expose only viewer fields from Paddle's verbose per-page result."""
-    blocks: list[dict[str, Any]] = []
-    raw_blocks = payload.get("parsing_res_list", [])
-    if not isinstance(raw_blocks, list):
-        return blocks
-    for index, raw in enumerate(raw_blocks):
-        if not isinstance(raw, dict):
-            continue
-        # Never fall back to Paddle's raw bbox.  A preprocessed OCR image may
-        # have a different coordinate system from the original PDF raster.
-        bbox = raw.get("source_bbox")
-        clean_bbox: list[float] | None = None
-        if isinstance(bbox, list) and len(bbox) == 4:
-            coordinates = [_number(item) for item in bbox]
-            if all(item is not None for item in coordinates):
-                left, top, right, bottom = coordinates
-                if right > left and bottom > top:
-                    clean_bbox = [left, top, right, bottom]
-        text = raw.get("block_content")
-        blocks.append(
-            {
-                "id": raw.get("block_id", index),
-                "order": raw.get("block_order", index + 1),
-                "label": str(raw.get("block_label", "unknown")),
-                "text": text if isinstance(text, str) else "",
-                "bbox": clean_bbox,
-            }
-        )
-    return blocks
+    """Compatibility wrapper for the legacy viewer route."""
+    return normalize_blocks(payload)
+
+
+def _number(value: Any) -> float | None:
+    """Compatibility wrapper for the legacy viewer route."""
+    return finite_number(value)
 
 
 def _layout_pages(job_id: str) -> list[dict[str, Any]]:

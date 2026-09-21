@@ -494,6 +494,9 @@ def test_extraction_exposes_a_public_application_facade() -> None:
         "PersistExtractionArtifacts",
         "RemotePdfExtractor",
         "RepositoryExtractionArtifactPayloadProvider",
+        "RAW_PDF_RASTER_SPACE",
+        "finite_number",
+        "normalize_blocks",
     }
 
     assert set(extraction.__all__) == expected
