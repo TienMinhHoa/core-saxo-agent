@@ -22,14 +22,14 @@ def create_chroma_vector_index(
     import chromadb
 
     client = chromadb.PersistentClient(path=str(settings.chroma_persist_directory))
-    collection = client.get_or_create_collection(
-        name=settings.chroma_collection_name,
-        metadata={
-            "embedding_dimension": settings.embedding_dimension,
-            "schema_version": _CHROMA_SCHEMA_VERSION,
-        },
-    )
     try:
+        collection = client.get_or_create_collection(
+            name=settings.chroma_collection_name,
+            metadata={
+                "embedding_dimension": settings.embedding_dimension,
+                "schema_version": _CHROMA_SCHEMA_VERSION,
+            },
+        )
         metadata = getattr(collection, "metadata", None)
         if metadata is not None and not isinstance(metadata, Mapping):
             raise ValueError("Chroma collection metadata must be a mapping")

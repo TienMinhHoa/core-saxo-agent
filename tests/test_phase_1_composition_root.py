@@ -352,6 +352,32 @@ def test_chroma_client_is_closed_when_collection_metadata_validation_fails(monke
     assert clients[0].closed is True
 
 
+def test_chroma_client_is_closed_when_collection_creation_fails(monkeypatch) -> None:
+    clients: list[object] = []
+
+    class FakeClient:
+        def __init__(self, *, path: str) -> None:
+            self.closed = False
+            clients.append(self)
+
+        def get_or_create_collection(self, *, name: str, metadata: dict[str, object]):
+            raise RuntimeError("collection creation failed")
+
+        def close(self) -> None:
+            self.closed = True
+
+    class FakeChroma:
+        PersistentClient = FakeClient
+
+    monkeypatch.setitem(__import__("sys").modules, "chromadb", FakeChroma)
+
+    with pytest.raises(RuntimeError, match="collection creation failed"):
+        create_chroma_vector_index(AppSettings.from_environment(VALID_ENVIRONMENT))
+
+    assert len(clients) == 1
+    assert clients[0].closed is True
+
+
 def test_default_composition_rejects_non_mapping_chroma_metadata(monkeypatch) -> None:
     class FakeCollection:
         metadata = ["not-a-metadata-mapping"]
