@@ -224,6 +224,27 @@ def test_get_raises_file_not_found_for_missing_artifact(tmp_path: Path) -> None:
         asyncio.run(repository.get(_artifact()))
 
 
+def test_get_performs_artifact_path_validation_inside_blocking_io_worker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = LocalArtifactRepository(tmp_path)
+    caller_thread = threading.get_ident()
+    observed_threads: list[int] = []
+    real_path_for = repository._path_for
+
+    def observe_path_for(artifact: ArtifactRef) -> Path:
+        observed_threads.append(threading.get_ident())
+        return real_path_for(artifact)
+
+    monkeypatch.setattr(repository, "_path_for", observe_path_for)
+
+    with pytest.raises(FileNotFoundError):
+        asyncio.run(repository.get(_artifact()))
+
+    assert observed_threads
+    assert observed_threads == [thread_id for thread_id in observed_threads if thread_id != caller_thread]
+
+
 def test_repository_rejects_symbolic_link_at_artifact_identity(
     tmp_path: Path,
 ) -> None:

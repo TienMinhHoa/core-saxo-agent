@@ -88,14 +88,17 @@ class LocalArtifactRepository:
 
     async def get(self, artifact: ArtifactRef) -> bytes:
         _require_artifact_ref(artifact)
-        path = self._path_for(artifact)
         payload = await anyio.to_thread.run_sync(
-            self._read_file,
-            path,
+            self._read_artifact,
+            artifact,
             limiter=self._io_limiter,
         )
         self._validate_payload(artifact, payload)
         return payload
+
+    def _read_artifact(self, artifact: ArtifactRef) -> bytes:
+        """Validate and read the artifact without filesystem work on the event loop."""
+        return self._read_file(self._path_for(artifact))
 
     @staticmethod
     def _read_file(path: Path) -> bytes:
