@@ -38,8 +38,7 @@ from saxophone.platform.remote_gpu import (
     HttpRemoteGpuGateway,
     RemoteGpuGateway,
 )
-from saxophone.retrieval.use_cases import RetrieveEvidence
-from saxophone.retrieval.ports import ChunkRetriever
+from saxophone.retrieval import ChunkRetriever, RetrieveEvidence
 from saxophone.tagging.persistence import JsonTagCatalogRepository, JsonTaggedParagraphRepository
 from saxophone.tagging.adapters import RemoteParagraphTagger, RemoteTagConflictResolver
 from saxophone.tagging.ports import TagCatalogRepository, TagConflictResolver, TagGenerator, TaggedParagraphRepository

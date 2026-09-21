@@ -460,6 +460,25 @@ def test_api_consumes_application_public_facades() -> None:
     assert violations == []
 
 
+def test_composition_root_consumes_retrieval_public_facade() -> None:
+    """The composition root should wire retrieval through its stable facade."""
+
+    factory_file = SOURCE_ROOT / "app" / "factory.py"
+    implementation_prefixes = (
+        "saxophone.retrieval.models",
+        "saxophone.retrieval.ports",
+        "saxophone.retrieval.use_cases",
+    )
+
+    violations = sorted(
+        imported
+        for imported in _saxophone_imports(factory_file)
+        if imported.startswith(implementation_prefixes)
+    )
+
+    assert violations == []
+
+
 def test_composition_root_consumes_workflow_public_facade() -> None:
     """The composition root should resolve workflows through their stable facade."""
 
