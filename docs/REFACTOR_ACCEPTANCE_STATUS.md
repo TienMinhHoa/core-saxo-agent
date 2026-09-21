@@ -458,3 +458,12 @@ deployment production.
 - Contract targeted **81 passed**; full offline **1026 passed, 18 skipped, 1 warning**; `compileall` và `git diff --check` đạt.
 - Chi tiết tại `docs/ITERATION_328_PHASE7_WORKFLOW_JOB_STORE_FACADE.md`.
 - Live model-service smoke và production parity vẫn chưa xác minh do checkout thiếu endpoint, credential và production catalog.
+
+### Iteration 351 - kiểm chứng hợp đồng dependency Phase 7
+
+- Chạy lại slice dependency enforcement, compatibility UI boundary và PDF
+  layout wrapper: **94 passed**; chi tiết tại
+  `docs/ITERATION_351_PHASE7_DEPENDENCY_CONTRACT_RECHECK.md`.
+- Kết quả chỉ xác nhận offline. Live model-service smoke và production parity
+  vẫn chưa xác minh vì checkout thiếu endpoint, credential và production
+  catalog.
