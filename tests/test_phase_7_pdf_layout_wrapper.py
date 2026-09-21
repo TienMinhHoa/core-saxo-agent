@@ -175,6 +175,26 @@ def test_pdf_extract_route_delegates_queue_transition_to_job_store() -> None:
 
     assert "JOB_STORE.queue_extraction(" in extract_source
     assert "state.update(" not in extract_source
+    assert 'state.get("status")' not in extract_source
+
+
+def test_pdf_extract_route_maps_store_queue_conflict_to_http_409(monkeypatch) -> None:
+    from fastapi import HTTPException
+
+    from saxophone.interfaces import pdf_layout_web
+
+    class ConflictingJobStore:
+        def queue_extraction(self, job_id: str, *, device: str, language: str):
+            raise ValueError("job cannot be queued from its current status")
+
+    monkeypatch.setattr(pdf_layout_web, "JOB_STORE", ConflictingJobStore())
+
+    try:
+        pdf_layout_web.start_extraction("job-id")
+    except HTTPException as exc:
+        assert exc.status_code == 409
+    else:
+        raise AssertionError("store queue conflicts must map to HTTP 409")
 
 
 def test_pdf_layout_routes_delegate_artifact_paths_to_job_store() -> None:

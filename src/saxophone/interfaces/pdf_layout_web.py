@@ -89,9 +89,6 @@ async def create_job(file: UploadFile = File(...)) -> dict[str, Any]:
 
 @app.post("/api/jobs/{job_id}/extract")
 def start_extraction(job_id: str, device: str = "cpu", language: str = "vi") -> dict[str, Any]:
-    state = _load_state(job_id)
-    if state.get("status") not in {"uploaded", "failed"}:
-        raise HTTPException(status_code=409, detail="Job này đã hoặc đang được xử lý")
     device = device.strip().lower()
     if device != "cpu" and not re.fullmatch(r"gpu(?::\d+)?", device):
         raise HTTPException(status_code=400, detail="device phải là cpu, gpu hoặc gpu:<số>")
