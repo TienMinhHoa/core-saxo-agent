@@ -97,12 +97,13 @@ class LocalArtifactRepository:
             artifact,
             limiter=self._io_limiter,
         )
-        self._validate_payload(artifact, payload)
         return payload
 
     def _read_artifact(self, artifact: ArtifactRef) -> bytes:
         """Validate and read the artifact without filesystem work on the event loop."""
-        return self._read_file(self._path_for(artifact))
+        payload = self._read_file(self._path_for(artifact))
+        self._validate_payload(artifact, payload)
+        return payload
 
     @staticmethod
     def _read_file(path: Path) -> bytes:
