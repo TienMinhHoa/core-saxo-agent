@@ -80,3 +80,32 @@ def test_create_uploaded_job_rejects_existing_job_directory(tmp_path) -> None:
 
     with pytest.raises(FileExistsError):
         store.create_uploaded_job(job_id, "source.pdf", "2026-09-21T00:00:00Z")
+
+
+def test_queue_extraction_owns_transition_and_persists_requested_options(tmp_path) -> None:
+    store = PdfLayoutJobStore(tmp_path)
+    job_id = "12345678-1234-5678-1234-567812345678"
+    store.create_uploaded_job(job_id, "source.pdf", "2026-09-21T00:00:00Z")
+
+    state = store.queue_extraction(job_id, device="cpu", language="vi")
+
+    assert state["status"] == "queued"
+    assert state["device"] == "cpu"
+    assert state["language"] == "vi"
+    assert state["phase"] == "queued"
+    assert state["progress_pages"] == 0
+    assert state["progress_total"] is None
+    assert state["progress_images"] == 0
+    assert state["error"] is None
+    assert store.load_state(job_id) == state
+
+
+def test_queue_extraction_rejects_non_restartable_status(tmp_path) -> None:
+    store = PdfLayoutJobStore(tmp_path)
+    job_id = "12345678-1234-5678-1234-567812345678"
+    state = store.create_uploaded_job(job_id, "source.pdf", "2026-09-21T00:00:00Z")
+    state["status"] = "running"
+    store.write_state(job_id, state)
+
+    with pytest.raises(ValueError, match="cannot be queued"):
+        store.queue_extraction(job_id, device="cpu", language="vi")

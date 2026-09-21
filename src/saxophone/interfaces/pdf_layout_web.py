@@ -142,19 +142,10 @@ def start_extraction(job_id: str, device: str = "cpu", language: str = "vi") -> 
     language = language.strip().lower()
     if not re.fullmatch(r"[a-z_]{2,20}", language):
         raise HTTPException(status_code=400, detail="Mã ngôn ngữ không hợp lệ")
-    state.update(
-        {
-            "status": "queued",
-            "device": device,
-            "language": language,
-            "phase": "queued",
-            "progress_pages": 0,
-            "progress_total": None,
-            "progress_images": 0,
-            "error": None,
-        }
-    )
-    _write_state(job_id, state)
+    try:
+        state = JOB_STORE.queue_extraction(job_id, device=device, language=language)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail="Job cannot be queued") from exc
     threading.Thread(
         target=run_extraction,
         args=(job_id,),

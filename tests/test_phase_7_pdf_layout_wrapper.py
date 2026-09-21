@@ -86,6 +86,17 @@ def test_pdf_upload_route_delegates_initial_state_creation_to_job_store() -> Non
     assert '"original_filename": supplied_name' not in create_job_source
 
 
+def test_pdf_extract_route_delegates_queue_transition_to_job_store() -> None:
+    source = (
+        SOURCE_ROOT / "src" / "saxophone" / "interfaces" / "pdf_layout_web.py"
+    ).read_text(encoding="utf-8")
+    extract_source = source.split('@app.post("/api/jobs/{job_id}/extract")', 1)[1]
+    extract_source = extract_source.split('@app.get("/api/jobs/{job_id}")', 1)[0]
+
+    assert "JOB_STORE.queue_extraction(" in extract_source
+    assert "state.update(" not in extract_source
+
+
 def test_layout_route_uses_job_store_projection_at_runtime(monkeypatch, tmp_path) -> None:
     from saxophone.interfaces import pdf_layout_web
 

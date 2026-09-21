@@ -401,6 +401,16 @@ deployment production.
 - Live model-service smoke va production parity van chua xac minh do thieu
   endpoint, credential va production catalog.
 
+### Iteration 314 - ranh gioi trang thai queued cua PDF job
+
+- `PdfLayoutJobStore.queue_extraction()` nay so huu validation status, reset
+  progress va persistence cho buoc chuyen job sang `queued`; route extract
+  khong con tu mutate state dictionary.
+- Targeted: **22 passed**; chi tiet tai
+  `docs/ITERATION_314_PHASE7_PDF_QUEUE_STATE_BOUNDARY.md`.
+- Live model-service smoke va production parity van chua xac minh do thieu
+  endpoint, credential va production catalog.
+
 ### Iteration 312 - sua loi runtime projection route layout PDF
 
 - `job_layout()` da dung `JOB_STORE.public_state(state)`, khong con goi

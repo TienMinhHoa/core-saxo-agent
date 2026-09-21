@@ -80,6 +80,28 @@ class PdfLayoutJobStore:
         )
         temporary.replace(target)
 
+    def queue_extraction(
+        self, job_id: str, *, device: str, language: str
+    ) -> dict[str, Any]:
+        """Move an uploaded or failed job into the persisted queued state."""
+        state = self.load_state(job_id)
+        if state.get("status") not in {"uploaded", "failed"}:
+            raise ValueError("job cannot be queued from its current status")
+        state.update(
+            {
+                "status": "queued",
+                "device": device,
+                "language": language,
+                "phase": "queued",
+                "progress_pages": 0,
+                "progress_total": None,
+                "progress_images": 0,
+                "error": None,
+            }
+        )
+        self.write_state(job_id, state)
+        return state
+
     @classmethod
     def public_state(cls, state: dict[str, Any]) -> dict[str, Any]:
         return {key: state.get(key) for key in cls._PUBLIC_FIELDS}
