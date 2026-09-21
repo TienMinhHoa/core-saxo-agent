@@ -11,6 +11,7 @@ text/image blocks.  All files remain local under ``runtime/pdf-layout-jobs``.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import os
 import re
 import threading
@@ -84,13 +85,25 @@ async def create_job(file: UploadFile = File(...)) -> dict[str, Any]:
         job_id, original_filename=supplied_name, created_at=_timestamp()
     )
     try:
-        size = await _save_upload(file, JOB_STORE.artifact_paths(job_id).source_pdf)
+        size = await asyncio.to_thread(
+            JOB_STORE.save_uploaded_pdf,
+            job_id,
+            file.file,
+            max_bytes=MAX_UPLOAD_BYTES,
+        )
         if size == 0:
             raise HTTPException(status_code=400, detail="PDF rỗng")
         return JOB_STORE.public_state(state)
+    except ValueError as exc:
+        JOB_STORE.discard_job(job_id)
+        if "upload exceeds maximum" in str(exc):
+            raise HTTPException(status_code=413, detail="PDF upload exceeds maximum size") from exc
+        raise
     except Exception:
         JOB_STORE.discard_job(job_id)
         raise
+    finally:
+        await file.close()
 
 
 @app.post("/api/jobs/{job_id}/extract")

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from io import BytesIO
+
 import pytest
 
 from saxophone.workflows.pdf_layout_jobs import (
@@ -162,3 +164,25 @@ def test_job_store_exposes_one_typed_artifact_path_policy(tmp_path) -> None:
     assert paths.extraction == job_dir / "extraction"
     assert paths.pages == job_dir / "pages"
     assert paths.layout == job_dir / "extraction" / "source" / "layout"
+
+
+def test_job_store_persists_uploaded_pdf_and_returns_byte_count(tmp_path) -> None:
+    store = PdfLayoutJobStore(tmp_path)
+    job_id = "12345678-1234-5678-1234-567812345678"
+    store.create_uploaded_job(job_id, "source.pdf", "2026-09-21T00:00:00Z")
+
+    written = store.save_uploaded_pdf(job_id, BytesIO(b"pdf bytes"), max_bytes=32)
+
+    assert written == 9
+    assert store.source_pdf_path(job_id).read_bytes() == b"pdf bytes"
+
+
+def test_job_store_rejects_upload_over_limit_without_leaving_partial_file(tmp_path) -> None:
+    store = PdfLayoutJobStore(tmp_path)
+    job_id = "12345678-1234-5678-1234-567812345678"
+    store.create_uploaded_job(job_id, "source.pdf", "2026-09-21T00:00:00Z")
+
+    with pytest.raises(ValueError, match="upload exceeds maximum"):
+        store.save_uploaded_pdf(job_id, BytesIO(b"12345"), max_bytes=4)
+
+    assert not store.source_pdf_path(job_id).exists()

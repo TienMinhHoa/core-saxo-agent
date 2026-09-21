@@ -7,7 +7,7 @@ import shutil
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, BinaryIO, Mapping
 
 
 class PdfLayoutJobNotFound(FileNotFoundError):
@@ -67,6 +67,27 @@ class PdfLayoutJobStore:
             pages=self.pages_dir(job_id),
             layout=self.layout_dir(job_id),
         )
+
+    def save_uploaded_pdf(
+        self, job_id: str, source: BinaryIO, *, max_bytes: int
+    ) -> int:
+        """Persist the upload under the store-owned source-artifact policy."""
+        if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes <= 0:
+            raise ValueError("max_bytes must be a positive integer")
+
+        destination = self.source_pdf_path(job_id)
+        written = 0
+        try:
+            with destination.open("wb") as handle:
+                while chunk := source.read(1024 * 1024):
+                    written += len(chunk)
+                    if written > max_bytes:
+                        raise ValueError("upload exceeds maximum size")
+                    handle.write(chunk)
+        except Exception:
+            destination.unlink(missing_ok=True)
+            raise
+        return written
 
     def load_state(self, job_id: str) -> dict[str, Any]:
         try:

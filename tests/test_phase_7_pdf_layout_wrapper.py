@@ -138,7 +138,7 @@ def test_pdf_layout_routes_delegate_artifact_paths_to_job_store() -> None:
     assert ' / "pages"' not in source
     assert ' / "extraction" / "source" / "layout"' not in source
     assert "JOB_STORE.artifact_paths(" in source
-    assert "artifact_paths(job_id).source_pdf" in source
+    assert "JOB_STORE.save_uploaded_pdf" in source
     assert "artifact_paths(job_id).pages" in source
     assert "artifact_paths(job_id).layout" in source
 
