@@ -27,8 +27,6 @@ from .ports import (
 
 __all__ = [
     "ExistingTagCandidate",
-    "ConceptCandidate",
-    "ConceptCandidateExample",
     "JsonTagCatalogRepository",
     "JsonTaggedParagraphRepository",
     "ParagraphBlock",
@@ -46,8 +44,6 @@ __all__ = [
     "TagResolution",
     "TaggedParagraph",
     "TaggedParagraphRepository",
-    "deduplicate_concept_candidates",
-    "normalize_concept_label",
     "parse_chunk_paragraphs",
 ]
 
