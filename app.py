@@ -29,6 +29,7 @@ from music_rag.ui_rendering import (
     format_answer_cost as _format_answer_cost,
     render_chroma_results as _render_chroma_results,
 )
+from music_rag.ui_workflows import select_answer_records
 
 def create_app(
     catalog_path: str | Path,
@@ -79,22 +80,8 @@ def create_app(
             response = retrieval.response
             if response is None:
                 return "Không tìm thấy source chunk phù hợp để tổng hợp.", "", "", [], ""
-            records: list[dict[str, Any]] = []
-            seen_ids: set[str] = set()
-            # Include the agent-selected source first, then the other top
-            # final-round hits so the answer model can synthesize across the
-            # evidence that the retrieval agent inspected.
-            for item in response.get("items", []):
-                record = item.get("record") if isinstance(item, dict) else None
-                chunk_id = record.get("chunk_id") if isinstance(record, dict) else None
-                if isinstance(record, dict) and isinstance(chunk_id, str) and chunk_id not in seen_ids:
-                    records.append(record)
-                    seen_ids.add(chunk_id)
-            for record in retrieval.final_hits[:3]:
-                chunk_id = record.get("chunk_id") if isinstance(record, dict) else None
-                if isinstance(record, dict) and isinstance(chunk_id, str) and chunk_id not in seen_ids:
-                    records.append(record)
-                    seen_ids.add(chunk_id)
+            # Include selected evidence first, then unique final-round hits.
+            records = select_answer_records(response, retrieval.final_hits)
             if not records:
                 return "Không có source chunk hợp lệ để tổng hợp.", "", "", [], ""
             answer_result = DeepSeekAnswerAgent().answer(request, records)
