@@ -25,7 +25,7 @@ from typing import Any
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 
-from saxophone.extraction import finite_number, is_raw_pdf_raster_space, normalize_blocks
+from saxophone.extraction import read_layout_pages
 from saxophone.workflows import run_extraction
 
 
@@ -130,42 +130,6 @@ def _render_pages(source_pdf: Path, page_dir: Path) -> list[str]:
     return [path.name for path in sorted(page_dir.glob("page-*.png"), key=_page_number)]
 
 
-def _normalise_blocks(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    """Compatibility wrapper for the legacy viewer route."""
-    return normalize_blocks(payload)
-
-
-def _layout_pages(job_id: str) -> list[dict[str, Any]]:
-    """Read the saved Paddle JSON into compact data used by the web client."""
-    job_dir = _job_dir(job_id)
-    layout_dir = job_dir / "extraction" / "source" / "layout"
-    pages: list[dict[str, Any]] = []
-    for path in sorted(layout_dir.glob("page-*.json")):
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-            width, height = finite_number(payload.get("width")), finite_number(
-                payload.get("height")
-            )
-            if width is None or height is None or width <= 0 or height <= 0:
-                continue
-            if not is_raw_pdf_raster_space(payload.get("coordinate_space")):
-                continue
-            page_index = payload.get("page_index")
-            page = int(page_index) + 1 if isinstance(page_index, int) else len(pages) + 1
-            pages.append(
-                {
-                    "page": page,
-                    "width": width,
-                    "height": height,
-                    "image_url": f"/api/jobs/{job_id}/pages/{page}",
-                    "blocks": _normalise_blocks(payload),
-                }
-            )
-        except (OSError, ValueError, TypeError):
-            continue
-    return pages
-
-
 @app.get("/", response_class=HTMLResponse)
 def home() -> HTMLResponse:
     # The viewer is a single inline HTML/JS asset; never leave an old client
@@ -257,7 +221,13 @@ def job_layout(job_id: str) -> dict[str, Any]:
     state = _load_state(job_id)
     if state.get("status") != "completed":
         raise HTTPException(status_code=409, detail="Kết quả chưa sẵn sàng")
-    return {"job": _public_state(state), "pages": _layout_pages(job_id)}
+    layout_dir = _job_dir(job_id) / "extraction" / "source" / "layout"
+    return {
+        "job": _public_state(state),
+        "pages": read_layout_pages(
+            layout_dir, lambda page: f"/api/jobs/{job_id}/pages/{page}"
+        ),
+    }
 
 
 @app.get("/api/jobs/{job_id}/pages/{page_number}")

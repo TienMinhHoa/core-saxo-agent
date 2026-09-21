@@ -18,6 +18,7 @@ from .layout import (
     is_raw_pdf_raster_space,
     normalize_blocks,
 )
+from .layout_view import read_layout_pages
 
 __all__ = [
     "CoordinateSpace",
@@ -33,4 +34,5 @@ __all__ = [
     "normalize_blocks",
     "finite_number",
     "is_raw_pdf_raster_space",
+    "read_layout_pages",
 ]
