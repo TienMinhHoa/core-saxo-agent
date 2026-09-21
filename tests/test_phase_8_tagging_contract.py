@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from saxophone.tagging.models import ParagraphBlock, TagGenerationRequest, TagGenerationResult
+from saxophone.tagging.models import (
+    ContentRole,
+    ParagraphBlock,
+    ParagraphConceptRole,
+    TagGenerationRequest,
+    TagGenerationResult,
+)
 from saxophone.tagging.ports import TagGenerator
 
 
@@ -46,3 +52,21 @@ def test_tag_result_rejects_duplicate_or_non_string_tags() -> None:
 
 def test_tag_generator_is_an_async_provider_port() -> None:
     assert hasattr(TagGenerator, "generate")
+
+
+def test_paragraph_concept_role_keeps_role_attached_to_its_concept() -> None:
+    relation = ParagraphConceptRole(
+        paragraph_id="chunk-1:p-0",
+        canonical_concept="Major triad",
+        content_role=ContentRole.DEFINITION,
+    )
+
+    assert relation.canonical_concept == "Major triad"
+    assert relation.content_role is ContentRole.DEFINITION
+
+
+def test_content_role_rejects_unknown_values_and_relation_rejects_blank_concepts() -> None:
+    with pytest.raises(ValueError, match="content_role"):
+        ParagraphConceptRole("p-1", "Harmony", "Unknown")
+    with pytest.raises(ValueError, match="canonical_concept"):
+        ParagraphConceptRole("p-1", " ", ContentRole.EXPLANATION)

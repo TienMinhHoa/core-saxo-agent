@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from enum import Enum
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Mapping
@@ -98,6 +99,43 @@ class TagConflictResolution:
         object.__setattr__(self, "resolutions", normalized)
         object.__setattr__(self, "generated_tags", generated)
         object.__setattr__(self, "existing_tags", existing)
+
+
+class ContentRole(str, Enum):
+    """Allowed semantic role for one concept within one paragraph."""
+
+    DEFINITION = "Definition"
+    EXPLANATION = "Explanation"
+    EXAMPLE = "Example"
+    EXERCISE = "Exercise"
+    PROCEDURE = "Procedure"
+    COMPARISON = "Comparison"
+    RULE = "Rule"
+    EXCEPTION = "Exception"
+    WARNING = "Warning"
+    FORMULA = "Formula"
+    SUMMARY = "Summary"
+    HISTORICAL_CONTEXT = "Historical context"
+
+
+@dataclass(frozen=True, slots=True)
+class ParagraphConceptRole:
+    """Keep a content role attached to its canonical concept and paragraph."""
+
+    paragraph_id: str
+    canonical_concept: str
+    content_role: ContentRole
+
+    def __post_init__(self) -> None:
+        _require_non_blank("paragraph_id", self.paragraph_id)
+        _require_non_blank("canonical_concept", self.canonical_concept)
+        try:
+            role = self.content_role if isinstance(self.content_role, ContentRole) else ContentRole(self.content_role)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("content_role must be one of the supported roles") from exc
+        object.__setattr__(self, "paragraph_id", self.paragraph_id.strip())
+        object.__setattr__(self, "canonical_concept", self.canonical_concept.strip())
+        object.__setattr__(self, "content_role", role)
 
 
 @dataclass(frozen=True, slots=True)

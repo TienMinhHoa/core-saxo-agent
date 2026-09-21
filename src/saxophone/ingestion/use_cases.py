@@ -300,7 +300,8 @@ def build_index_inputs(
             (
                 paragraph
                 for paragraph_id, paragraph in tagged_paragraphs.items()
-                if paragraph_id.startswith(f"{chunk.chunk_id}:p")
+                if paragraph.chunk_id == chunk.chunk_id
+                or paragraph_id.startswith(f"{chunk.chunk_id}:")
             ),
             key=lambda paragraph: paragraph.paragraph_id,
         )
