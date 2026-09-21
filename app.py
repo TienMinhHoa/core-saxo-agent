@@ -13,9 +13,9 @@ from dotenv import load_dotenv
 from music_rag.chroma_chunks import DEFAULT_CHROMA_DIR, DEFAULT_COLLECTION
 from music_rag.chroma_service import ChromaChunkService
 from music_rag.ui_rendering import (
-    chroma_asset_paths as chroma_asset_paths,
-    format_answer_cost as _format_answer_cost,
-    render_chroma_results as _render_chroma_results,
+    chroma_asset_paths,
+    format_answer_cost,
+    render_chroma_results,
 )
 from music_rag.ui_workflows import handle_answer_request, handle_chroma_request
 
@@ -40,7 +40,7 @@ def create_app(
             request,
             chroma_service=chroma_service,
             access_scope=access_scope,
-            render_results=_render_chroma_results,
+            render_results=render_chroma_results,
         )
 
     def ask_answer(request: str) -> tuple[str, str, str, list[tuple[str, str]], str]:
@@ -48,8 +48,8 @@ def create_app(
             request,
             chroma_service=chroma_service,
             access_scope=access_scope,
-            render_results=_render_chroma_results,
-            format_cost=_format_answer_cost,
+            render_results=render_chroma_results,
+            format_cost=format_answer_cost,
         )
 
     css = """

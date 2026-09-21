@@ -75,6 +75,21 @@ def test_root_entrypoint_has_no_dead_answer_cost_formatter() -> None:
     assert "_answer_cost_markdown" not in definitions
 
 
+def test_root_entrypoint_uses_public_ui_rendering_names() -> None:
+    """The composition root must not create private aliases for UI helpers."""
+
+    tree = ast.parse(Path("app.py").read_text(encoding="utf-8"))
+    aliases = {
+        alias.asname
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module == "music_rag.ui_rendering"
+        for alias in node.names
+        if alias.asname is not None
+    }
+
+    assert aliases.isdisjoint({"_format_answer_cost", "_render_chroma_results"})
+
+
 def test_root_entrypoint_does_not_select_chroma_records_itself() -> None:
     tree = ast.parse(Path("app.py").read_text(encoding="utf-8"))
     imported_names = {
