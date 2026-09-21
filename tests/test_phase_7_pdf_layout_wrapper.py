@@ -63,7 +63,8 @@ def test_pdf_layout_interface_uses_the_workflows_public_job_store_facade() -> No
         SOURCE_ROOT / "src" / "saxophone" / "interfaces" / "pdf_layout_web.py"
     ).read_text(encoding="utf-8")
 
-    assert "from saxophone.workflows import PdfLayoutJobNotFound, PdfLayoutJobStore" in source
+    assert "PdfLayoutJobNotFound" in source
+    assert "PdfLayoutJobStore" in source
     assert "from saxophone.workflows.pdf_layout_jobs import" not in source
 
 
@@ -195,6 +196,38 @@ def test_pdf_extract_route_maps_store_queue_conflict_to_http_409(monkeypatch) ->
         assert exc.status_code == 409
     else:
         raise AssertionError("store queue conflicts must map to HTTP 409")
+
+
+def test_pdf_extract_route_maps_store_request_validation_to_http_400(monkeypatch) -> None:
+    from fastapi import HTTPException
+
+    from saxophone.interfaces import pdf_layout_web
+    from saxophone.workflows import PdfLayoutJobRequestError
+
+    class InvalidRequestStore:
+        def queue_extraction(self, job_id: str, *, device: str, language: str):
+            raise PdfLayoutJobRequestError("device is invalid")
+
+    monkeypatch.setattr(pdf_layout_web, "JOB_STORE", InvalidRequestStore())
+
+    try:
+        pdf_layout_web.start_extraction("job-id")
+    except HTTPException as exc:
+        assert exc.status_code == 400
+    else:
+        raise AssertionError("invalid extraction options must map to HTTP 400")
+
+
+def test_pdf_extract_route_does_not_own_option_validation_policy() -> None:
+    source = (
+        SOURCE_ROOT / "src" / "saxophone" / "interfaces" / "pdf_layout_web.py"
+    ).read_text(encoding="utf-8")
+    extract_source = source.split('@app.post("/api/jobs/{job_id}/extract")', 1)[1]
+    extract_source = extract_source.split('@app.get("/api/jobs/{job_id}")', 1)[0]
+
+    assert "re.fullmatch" not in extract_source
+    assert "device.strip()" not in extract_source
+    assert "language.strip()" not in extract_source
 
 
 def test_pdf_layout_routes_delegate_artifact_paths_to_job_store() -> None:

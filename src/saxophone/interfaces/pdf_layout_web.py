@@ -13,7 +13,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
-import re
 import threading
 from pathlib import Path
 from typing import Any
@@ -22,7 +21,11 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 
 from saxophone.extraction import read_layout_pages, render_pdf_pages
-from saxophone.workflows import PdfLayoutJobNotFound, PdfLayoutJobStore
+from saxophone.workflows import (
+    PdfLayoutJobNotFound,
+    PdfLayoutJobRequestError,
+    PdfLayoutJobStore,
+)
 from saxophone.workflows import run_extraction
 
 
@@ -89,14 +92,10 @@ async def create_job(file: UploadFile = File(...)) -> dict[str, Any]:
 
 @app.post("/api/jobs/{job_id}/extract")
 def start_extraction(job_id: str, device: str = "cpu", language: str = "vi") -> dict[str, Any]:
-    device = device.strip().lower()
-    if device != "cpu" and not re.fullmatch(r"gpu(?::\d+)?", device):
-        raise HTTPException(status_code=400, detail="device phải là cpu, gpu hoặc gpu:<số>")
-    language = language.strip().lower()
-    if not re.fullmatch(r"[a-z_]{2,20}", language):
-        raise HTTPException(status_code=400, detail="Mã ngôn ngữ không hợp lệ")
     try:
         state = JOB_STORE.queue_extraction(job_id, device=device, language=language)
+    except PdfLayoutJobRequestError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail="Job cannot be queued") from exc
     threading.Thread(

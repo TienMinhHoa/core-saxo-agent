@@ -4,6 +4,7 @@ from .ingest_extracted_document import IngestExtractedDocument
 from .pdf_layout_jobs import (
     PdfLayoutArtifactPaths,
     PdfLayoutJobNotFound,
+    PdfLayoutJobRequestError,
     PdfLayoutJobStore,
 )
 from .pdf_layout_extraction import run_extraction
@@ -14,6 +15,7 @@ __all__ = [
     "ProcessAndPersistDocument",
     "IngestExtractedDocument",
     "PdfLayoutJobNotFound",
+    "PdfLayoutJobRequestError",
     "PdfLayoutJobStore",
     "PdfLayoutArtifactPaths",
     "run_extraction",
