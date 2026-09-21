@@ -78,7 +78,11 @@ class TagConflictResolution:
             for value in self.resolutions
         )
         generated = tuple(tag.strip() for tag in self.generated_tags)
+        if any(not isinstance(tag, str) or not tag.strip() for tag in self.existing_tags):
+            raise ValueError("existing_tags must contain non-blank strings")
         existing = tuple(tag.strip() for tag in self.existing_tags)
+        if len(set(existing)) != len(existing):
+            raise ValueError("existing_tags must not contain duplicates")
         candidates = set(existing)
         for item in normalized:
             if item.action == "reuse_existing" and item.resolved_tag not in candidates:

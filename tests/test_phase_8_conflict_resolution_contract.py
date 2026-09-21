@@ -75,5 +75,17 @@ def test_empty_generation_cannot_return_conflict_resolutions() -> None:
         )
 
 
+@pytest.mark.parametrize("existing_tags", [("",), ("Harmony", "Harmony"), ("Harmony", 7)])
+def test_existing_tag_candidates_must_be_unique_non_blank_strings(existing_tags) -> None:
+    with pytest.raises(ValueError, match="existing_tags"):
+        TagConflictResolution(
+            paragraph_id="p-1",
+            resolutions=(("Harmony", "keep_new", "Harmony"),),
+            resolution_profile="tag-conflicts-v1",
+            generated_tags=("Harmony",),
+            existing_tags=existing_tags,
+        )
+
+
 def test_conflict_resolver_is_an_async_provider_port() -> None:
     assert hasattr(TagConflictResolver, "resolve")
