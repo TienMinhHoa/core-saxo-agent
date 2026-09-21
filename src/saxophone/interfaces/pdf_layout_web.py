@@ -106,7 +106,7 @@ async def create_job(file: UploadFile = File(...)) -> dict[str, Any]:
         job_id, original_filename=supplied_name, created_at=_timestamp()
     )
     try:
-        size = await _save_upload(file, JOB_STORE.source_pdf_path(job_id))
+        size = await _save_upload(file, JOB_STORE.artifact_paths(job_id).source_pdf)
         if size == 0:
             raise HTTPException(status_code=400, detail="PDF rỗng")
         return JOB_STORE.public_state(state)
@@ -154,7 +154,7 @@ def job_layout(job_id: str) -> dict[str, Any]:
     state = _load_state(job_id)
     if state.get("status") != "completed":
         raise HTTPException(status_code=409, detail="Kết quả chưa sẵn sàng")
-    layout_dir = JOB_STORE.layout_dir(job_id)
+    layout_dir = JOB_STORE.artifact_paths(job_id).layout
     return {
         "job": JOB_STORE.public_state(state),
         "pages": read_layout_pages(
@@ -167,7 +167,7 @@ def job_layout(job_id: str) -> dict[str, Any]:
 def page_image(job_id: str, page_number: int) -> FileResponse:
     if page_number < 1:
         raise HTTPException(status_code=404, detail="Trang không tồn tại")
-    candidate = JOB_STORE.pages_dir(job_id) / f"page-{page_number}.png"
+    candidate = JOB_STORE.artifact_paths(job_id).pages / f"page-{page_number}.png"
     if not candidate.is_file():
         raise HTTPException(status_code=404, detail="Trang không tồn tại")
     return FileResponse(candidate, media_type="image/png")

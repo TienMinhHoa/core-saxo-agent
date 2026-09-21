@@ -21,6 +21,7 @@ class PdfLayoutArtifactPaths:
     source_pdf: Path
     extraction: Path
     pages: Path
+    layout: Path
 
 
 class PdfLayoutJobStore:
@@ -64,6 +65,7 @@ class PdfLayoutJobStore:
             source_pdf=self.source_pdf_path(job_id),
             extraction=self.extraction_dir(job_id),
             pages=self.pages_dir(job_id),
+            layout=self.layout_dir(job_id),
         )
 
     def load_state(self, job_id: str) -> dict[str, Any]:

@@ -161,3 +161,4 @@ def test_job_store_exposes_one_typed_artifact_path_policy(tmp_path) -> None:
     assert paths.source_pdf == job_dir / "source.pdf"
     assert paths.extraction == job_dir / "extraction"
     assert paths.pages == job_dir / "pages"
+    assert paths.layout == job_dir / "extraction" / "source" / "layout"

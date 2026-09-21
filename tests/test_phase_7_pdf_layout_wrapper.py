@@ -125,9 +125,10 @@ def test_pdf_layout_routes_delegate_artifact_paths_to_job_store() -> None:
     assert ' / "source.pdf"' not in source
     assert ' / "pages"' not in source
     assert ' / "extraction" / "source" / "layout"' not in source
-    assert "JOB_STORE.source_pdf_path(" in source
-    assert "JOB_STORE.pages_dir(" in source
-    assert "JOB_STORE.layout_dir(" in source
+    assert "JOB_STORE.artifact_paths(" in source
+    assert "artifact_paths(job_id).source_pdf" in source
+    assert "artifact_paths(job_id).pages" in source
+    assert "artifact_paths(job_id).layout" in source
 
 
 def test_pdf_extraction_workflow_accepts_typed_artifact_path_policy() -> None:
@@ -174,6 +175,8 @@ def test_pdf_extraction_workflow_delegates_state_patches_to_job_store() -> None:
 
 
 def test_layout_route_uses_job_store_projection_at_runtime(monkeypatch, tmp_path) -> None:
+    from types import SimpleNamespace
+
     from saxophone.interfaces import pdf_layout_web
 
     expected_job_id = "12345678-1234-5678-1234-567812345678"
@@ -184,13 +187,9 @@ def test_layout_route_uses_job_store_projection_at_runtime(monkeypatch, tmp_path
             assert job_id == expected_job_id
             return state
 
-        def job_dir(self, job_id: str):
+        def artifact_paths(self, job_id: str):
             assert job_id == expected_job_id
-            return tmp_path
-
-        def layout_dir(self, job_id: str):
-            assert job_id == expected_job_id
-            return tmp_path
+            return SimpleNamespace(layout=tmp_path)
 
         def public_state(self, loaded_state):
             return {"id": loaded_state["id"], "status": loaded_state["status"]}
