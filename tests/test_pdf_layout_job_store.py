@@ -117,5 +117,6 @@ def test_job_store_owns_pdf_artifact_paths(tmp_path) -> None:
     job_dir = store.job_dir(job_id)
 
     assert store.source_pdf_path(job_id) == job_dir / "source.pdf"
+    assert store.extraction_dir(job_id) == job_dir / "extraction"
     assert store.pages_dir(job_id) == job_dir / "pages"
     assert store.layout_dir(job_id) == job_dir / "extraction" / "source" / "layout"

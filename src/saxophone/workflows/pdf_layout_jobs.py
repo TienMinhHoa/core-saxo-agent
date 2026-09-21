@@ -44,6 +44,10 @@ class PdfLayoutJobStore:
         """Return the canonical normalized-layout directory for a validated job."""
         return self.job_dir(job_id) / "extraction" / "source" / "layout"
 
+    def extraction_dir(self, job_id: str) -> Path:
+        """Return the canonical extraction artifact directory for a validated job."""
+        return self.job_dir(job_id) / "extraction"
+
     def load_state(self, job_id: str) -> dict[str, Any]:
         try:
             state = json.loads(

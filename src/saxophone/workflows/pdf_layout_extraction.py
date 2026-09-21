@@ -13,7 +13,9 @@ from typing import Any
 def run_extraction(
     job_id: str,
     *,
-    job_dir: Callable[[str], Path],
+    source_pdf_path: Callable[[str], Path],
+    extraction_dir: Callable[[str], Path],
+    pages_dir: Callable[[str], Path],
     load_state: Callable[[str], dict[str, Any]],
     write_state: Callable[[str, dict[str, Any]], None],
     render_pages: Callable[[Path, Path], list[str]],
@@ -33,7 +35,9 @@ def run_extraction(
         }
     )
     write_state(job_id, state)
-    current_job_dir = job_dir(job_id)
+    source_pdf = source_pdf_path(job_id)
+    extraction_root = extraction_dir(job_id)
+    rendered_pages = pages_dir(job_id)
     try:
         legacy_pipeline = importlib.import_module("extracted.parse_pdf_2_md")
         check_gpu = legacy_pipeline.check_gpu
@@ -43,7 +47,7 @@ def run_extraction(
 
         with extraction_lock:
             check_gpu(str(state["device"]))
-            total_pages = pdf_page_count(current_job_dir / "source.pdf")
+            total_pages = pdf_page_count(source_pdf)
             pipeline = create_source_coordinate_pipeline(
                 lang=str(state["language"]), device=str(state["device"])
             )
@@ -66,8 +70,8 @@ def run_extraction(
 
                 save_one_pdf(
                     pipeline,
-                    current_job_dir / "source.pdf",
-                    current_job_dir / "extraction",
+                    source_pdf,
+                    extraction_root,
                     on_progress=report_progress,
                 )
             finally:
@@ -75,7 +79,7 @@ def run_extraction(
             state = load_state(job_id)
             state.update({"phase": "rendering"})
             write_state(job_id, state)
-            page_images = render_pages(current_job_dir / "source.pdf", current_job_dir / "pages")
+            page_images = render_pages(source_pdf, rendered_pages)
 
         state = load_state(job_id)
         state.update(
