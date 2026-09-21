@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from saxophone.tagging.concepts import normalize_concept_label
+from saxophone.tagging.models import ParagraphConceptRole
+
 
 @dataclass(frozen=True, slots=True)
 class RoleAvailability:
@@ -27,6 +30,60 @@ class ConceptInventoryItem:
 @dataclass(frozen=True, slots=True)
 class ConceptInventory:
     concepts: tuple[ConceptInventoryItem, ...]
+
+
+class ConceptInventoryBuilder:
+    """Aggregate source relations into the role-selector inventory DTO."""
+
+    def build(
+        self,
+        relations: tuple[ParagraphConceptRole, ...],
+        *,
+        paragraph_chunks: dict[str, str],
+        chunk_ranks: dict[str, int],
+    ) -> ConceptInventory:
+        grouped: dict[str, dict[str, object]] = {}
+        seen_relations: set[tuple[str, str, str]] = set()
+        for relation in relations:
+            if not isinstance(relation, ParagraphConceptRole):
+                raise ValueError("relations must contain ParagraphConceptRole values")
+            key = (relation.paragraph_id, normalize_concept_label(relation.canonical_concept), relation.content_role.value)
+            if key in seen_relations:
+                raise ValueError("relations must not contain duplicate entries")
+            seen_relations.add(key)
+            chunk_id = paragraph_chunks.get(relation.paragraph_id)
+            if not isinstance(chunk_id, str) or not chunk_id.strip():
+                raise ValueError("paragraph_chunks must contain every paragraph")
+            chunk_id = chunk_id.strip()
+            rank = chunk_ranks.get(chunk_id)
+            if isinstance(rank, bool) or not isinstance(rank, int) or rank < 1:
+                raise ValueError("chunk rank must be a positive integer")
+            concept_key = normalize_concept_label(relation.canonical_concept)
+            bucket = grouped.setdefault(
+                concept_key,
+                {"label": relation.canonical_concept.strip(), "roles": {}, "chunks": {}},
+            )
+            roles = bucket["roles"]
+            chunks = bucket["chunks"]
+            assert isinstance(roles, dict) and isinstance(chunks, dict)
+            role_paragraphs = roles.setdefault(relation.content_role.value, set())
+            assert isinstance(role_paragraphs, set)
+            role_paragraphs.add(relation.paragraph_id)
+            chunks[chunk_id] = rank
+
+        items: list[ConceptInventoryItem] = []
+        for bucket in grouped.values():
+            roles = bucket["roles"]
+            chunks = bucket["chunks"]
+            assert isinstance(roles, dict) and isinstance(chunks, dict)
+            items.append(
+                ConceptInventoryItem(
+                    bucket["label"],
+                    tuple(RoleAvailability(role, len(paragraphs)) for role, paragraphs in sorted(roles.items())),
+                    tuple(ParentChunk(chunk_id, rank) for chunk_id, rank in sorted(chunks.items(), key=lambda item: (item[1], item[0]))),
+                )
+            )
+        return ConceptInventory(tuple(items))
 
 
 @dataclass(frozen=True, slots=True)

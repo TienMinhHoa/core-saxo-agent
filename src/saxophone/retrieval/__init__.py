@@ -11,6 +11,7 @@ from .role_selection import (
     ConceptRoleSelector,
     RemoteConceptRoleSelector,
 )
+from .renderers import ConceptInventory, ConceptInventoryBuilder
 
 __all__ = [
     "ChunkHit",
@@ -23,4 +24,6 @@ __all__ = [
     "ConceptRoleSelectionResult",
     "ConceptRoleSelector",
     "RemoteConceptRoleSelector",
+    "ConceptInventory",
+    "ConceptInventoryBuilder",
 ]
