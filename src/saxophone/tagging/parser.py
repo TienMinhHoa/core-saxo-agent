@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from typing import Mapping
 
-from saxophone.ingestion.models import IngestionSourceChunk
+from saxophone.ingestion import IngestionSourceChunk
 
 from .models import ParagraphBlock
 

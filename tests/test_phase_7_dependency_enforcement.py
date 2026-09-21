@@ -677,6 +677,20 @@ def test_tagging_consumers_use_the_public_facade() -> None:
     assert violations == {}
 
 
+def test_tagging_parser_consumes_ingestion_public_facade() -> None:
+    """Tagging must consume the stable ingestion contract, not its models module."""
+
+    parser_file = SOURCE_ROOT / "tagging" / "parser.py"
+    implementation_prefixes = ("saxophone.ingestion.models",)
+    violations = sorted(
+        imported
+        for imported in _saxophone_imports(parser_file)
+        if imported.startswith(implementation_prefixes)
+    )
+
+    assert violations == []
+
+
 def test_ingestion_workflow_uses_the_public_facade() -> None:
     """Workflow orchestration must not couple to ingestion implementation modules."""
 
