@@ -22,8 +22,8 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 
 from saxophone.extraction import read_layout_pages, render_pdf_pages
+from saxophone.workflows import PdfLayoutJobNotFound, PdfLayoutJobStore
 from saxophone.workflows import run_extraction
-from saxophone.workflows.pdf_layout_jobs import PdfLayoutJobNotFound, PdfLayoutJobStore
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[3]

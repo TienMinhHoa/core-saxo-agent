@@ -443,3 +443,9 @@ deployment production.
   `docs/ITERATION_319_PHASE7_PDF_UPLOAD_CLEANUP_OWNERSHIP.md`.
 - Live model-service smoke và production parity vẫn chưa xác minh do checkout
   thiếu endpoint, credential và production catalog thật.
+# Iteration 328 bổ sung - facade public cho PDF job store
+
+- Export `PdfLayoutJobStore` và `PdfLayoutJobNotFound` qua `saxophone.workflows`; PDF HTTP interface không còn import trực tiếp module `pdf_layout_jobs`.
+- Contract targeted **81 passed**; full offline **1026 passed, 18 skipped, 1 warning**; `compileall` và `git diff --check` đạt.
+- Chi tiết tại `docs/ITERATION_328_PHASE7_WORKFLOW_JOB_STORE_FACADE.md`.
+- Live model-service smoke và production parity vẫn chưa xác minh do checkout thiếu endpoint, credential và production catalog.
