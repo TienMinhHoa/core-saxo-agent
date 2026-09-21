@@ -139,8 +139,12 @@ def _render_chroma_results(hits: list[dict[str, Any]]) -> tuple[str, list[tuple[
 
 # Compatibility names remain stable while pure policy helpers live in the
 # package namespace instead of being owned by the root entrypoint.
-from music_rag.ui_rendering import chroma_asset_paths as chroma_asset_paths
-from music_rag.ui_rendering import display_status as _display_status
+from music_rag.ui_rendering import (
+    chroma_asset_paths as chroma_asset_paths,
+    display_status as _display_status,
+    render_chroma_results as _render_chroma_results,
+    render_source_bundle as _render_source_bundle,
+)
 
 
 def _answer_cost_markdown(result: dict[str, Any]) -> str:

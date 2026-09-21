@@ -9,7 +9,12 @@ from pathlib import Path
 def test_ui_rendering_exposes_only_pure_policy_helpers() -> None:
     from music_rag.ui_rendering import __all__
 
-    assert set(__all__) == {"chroma_asset_paths", "display_status"}
+    assert set(__all__) == {
+        "chroma_asset_paths",
+        "display_status",
+        "render_chroma_results",
+        "render_source_bundle",
+    }
 
 
 def test_root_entrypoint_delegates_status_and_asset_policy() -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 from pathlib import Path
 from typing import Any
@@ -57,4 +58,75 @@ def chroma_asset_paths(chroma_dir: str | Path) -> list[str]:
     return sorted(paths)
 
 
-__all__ = ["chroma_asset_paths", "display_status"]
+def render_source_bundle(
+    service: Any,
+    response: dict[str, Any],
+    access_scope: str,
+) -> tuple[str, list[tuple[str, str]]]:
+    """Render a validated catalog response for the compatibility UI."""
+    article: list[str] = []
+    images: list[tuple[str, str]] = []
+    for item in response["items"]:
+        source = item["source"]
+        article.append(
+            "<section class='source-item'>"
+            f"<h2>{html.escape(str(item['item_type']))}</h2>"
+            f"<p class='source-meta'>{html.escape(str(source['title']))}"
+            f" · {html.escape(str(source.get('author') or 'Unknown author'))}</p>"
+        )
+        for block in item["blocks"]:
+            if block["kind"] == "asset":
+                path = service.asset_path(
+                    item["item_id"], item["item_version"], block["block_id"], access_scope
+                )
+                images.append((str(path), f"Source block {block['block_id']}"))
+            else:
+                tag = "h3" if block["kind"] == "heading" else "pre"
+                article.append(f"<{tag}>{block['text']}</{tag}>")
+        article.append("</section>")
+    return "\n".join(article), images
+
+
+def render_chroma_results(hits: list[dict[str, Any]]) -> tuple[str, list[tuple[str, str]]]:
+    """Render retrieved chunks and return only verified sidecar images."""
+    article: list[str] = []
+    images: list[tuple[str, str]] = []
+    seen_images: set[str] = set()
+    for rank, hit in enumerate(hits, start=1):
+        header = html.escape(str(hit.get("header") or "(no header)"))
+        page_start = html.escape(str(hit.get("page_start") or "?"))
+        page_end = html.escape(str(hit.get("page_end") or "?"))
+        score = hit.get("score")
+        score_text = f"{float(score):.3f}" if isinstance(score, (int, float)) else "?"
+        content = html.escape(str(hit.get("content") or ""), quote=False)
+        article.append(
+            "<section class='chroma-hit'>"
+            f"<h3>{rank}. {header}</h3>"
+            f"<p class='source-meta'>Pages {page_start}-{page_end} · score {score_text} · "
+            f"{len(hit.get('images') or [])} verified images</p>"
+            f"<pre>{content}</pre>"
+        )
+        for image in hit.get("images", []):
+            if not isinstance(image, dict):
+                continue
+            path = _safe_image_path(hit, image)
+            if path is None or str(path) in seen_images:
+                continue
+            seen_images.add(str(path))
+            figure_number = image.get("figure_number") or "figure"
+            figure_title = image.get("figure_title")
+            caption = image.get("caption") or image.get("summary") or "No caption"
+            label = str(figure_number)
+            if figure_title:
+                label += f" · {figure_title}"
+            images.append((str(path), f"{header} · {label}: {caption}"))
+        article.append("</section>")
+    return "\n".join(article), images
+
+
+__all__ = [
+    "chroma_asset_paths",
+    "display_status",
+    "render_chroma_results",
+    "render_source_bundle",
+]
