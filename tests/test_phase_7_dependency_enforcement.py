@@ -20,6 +20,28 @@ FORBIDDEN_PROVIDER_ROOTS = frozenset(
 )
 FORBIDDEN_CONTRACT_ROOTS = FORBIDDEN_PROVIDER_ROOTS | {"dotenv", "fastapi"}
 LOCAL_GPU_RUNTIME_ROOTS = frozenset({"paddle", "paddlex", "torch", "transformers"})
+FORBIDDEN_LOCKED_DEPENDENCY_NAMES = frozenset(
+    {
+        "cuda-python",
+        "nvidia-cublas-cu12",
+        "nvidia-cuda-cupti-cu12",
+        "nvidia-cuda-nvrtc-cu12",
+        "nvidia-cuda-runtime-cu12",
+        "nvidia-cudnn-cu12",
+        "nvidia-cufft-cu12",
+        "nvidia-curand-cu12",
+        "nvidia-cusolver-cu12",
+        "nvidia-cusparse-cu12",
+        "nvidia-nccl-cu12",
+        "nvidia-nvjitlink-cu12",
+        "nvidia-nvtx-cu12",
+        "paddlepaddle",
+        "paddlepaddle-gpu",
+        "paddlex",
+        "torch",
+        "transformers",
+    }
+)
 REMOVED_WORKFLOW_LIFECYCLE_SYMBOLS = frozenset(
     {
         "WorkflowJob",
@@ -118,6 +140,32 @@ def test_backend_package_does_not_import_local_gpu_runtime() -> None:
         for path in SOURCE_ROOT.rglob("*.py")
         if _import_roots(path) & LOCAL_GPU_RUNTIME_ROOTS
     }
+
+    assert violations == {}
+
+
+def test_backend_dependency_manifests_do_not_lock_local_gpu_runtime() -> None:
+    """Keep GPU/model execution outside the backend installation boundary."""
+
+    manifest_paths = (
+        SOURCE_ROOT.parents[1] / "pyproject.toml",
+        SOURCE_ROOT.parents[1] / "requirements.txt",
+        SOURCE_ROOT.parents[1] / "uv.lock",
+    )
+    violations: dict[str, list[str]] = {}
+    for path in manifest_paths:
+        text = path.read_text(encoding="utf-8").lower()
+        found = sorted(
+            name
+            for name in FORBIDDEN_LOCKED_DEPENDENCY_NAMES
+            if (
+                f'name = "{name}"' in text
+                or f"{name}==" in text
+                or f"{name}>=" in text
+            )
+        )
+        if found:
+            violations[str(path.relative_to(manifest_paths[0].parent))] = found
 
     assert violations == {}
 
