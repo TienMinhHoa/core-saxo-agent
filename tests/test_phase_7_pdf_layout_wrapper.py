@@ -75,6 +75,39 @@ def test_pdf_layout_interface_delegates_public_state_projection_to_job_store() -
     assert "JOB_STORE.public_state(state)" in source
 
 
+def test_layout_route_uses_job_store_projection_at_runtime(monkeypatch, tmp_path) -> None:
+    from saxophone.interfaces import pdf_layout_web
+
+    expected_job_id = "12345678-1234-5678-1234-567812345678"
+    state = {"id": expected_job_id, "status": "completed", "secret": "hidden"}
+
+    class FakeJobStore:
+        def load_state(self, job_id: str):
+            assert job_id == expected_job_id
+            return state
+
+        def job_dir(self, job_id: str):
+            assert job_id == expected_job_id
+            return tmp_path
+
+        def public_state(self, loaded_state):
+            return {"id": loaded_state["id"], "status": loaded_state["status"]}
+
+    monkeypatch.setattr(pdf_layout_web, "JOB_STORE", FakeJobStore())
+    monkeypatch.setattr(
+        pdf_layout_web,
+        "read_layout_pages",
+        lambda layout_dir, page_url: [{"page": 1, "image_url": page_url(1)}],
+    )
+
+    result = pdf_layout_web.job_layout(expected_job_id)
+
+    assert result == {
+        "job": {"id": expected_job_id, "status": "completed"},
+        "pages": [{"page": 1, "image_url": f"/api/jobs/{expected_job_id}/pages/1"}],
+    }
+
+
 def test_pdf_layout_missing_job_maps_store_error_to_http_404(monkeypatch) -> None:
     from fastapi import HTTPException
 

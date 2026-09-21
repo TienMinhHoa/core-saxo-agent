@@ -391,3 +391,13 @@ deployment production.
 - Chi tiet tai `docs/ITERATION_311_PHASE7_PDF_STATE_PROJECTION.md`.
 - Live model-service smoke va production parity van chua xac minh do thieu
   endpoint, credential va production catalog.
+
+### Iteration 312 - sua loi runtime projection route layout PDF
+
+- `job_layout()` da dung `JOB_STORE.public_state(state)`, khong con goi
+  `_public_state()` da bi xoa; regression test da tai hien loi `NameError`
+  truoc khi sua va xanh sau khi sua.
+- Contract targeted **10 passed**; full offline **1001 passed, 18 skipped, 1
+  warning**; `compileall` va `git diff --check` dat.
+- Live model-service smoke va production parity van chua xac minh do thieu
+  endpoint, credential va production catalog.

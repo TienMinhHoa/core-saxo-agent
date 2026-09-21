@@ -196,7 +196,7 @@ def job_layout(job_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=409, detail="Kết quả chưa sẵn sàng")
     layout_dir = _job_dir(job_id) / "extraction" / "source" / "layout"
     return {
-        "job": _public_state(state),
+        "job": JOB_STORE.public_state(state),
         "pages": read_layout_pages(
             layout_dir, lambda page: f"/api/jobs/{job_id}/pages/{page}"
         ),
