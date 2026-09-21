@@ -108,6 +108,7 @@ class LocalArtifactRepository:
         return path.read_bytes()
 
     def _path_for(self, artifact: ArtifactRef) -> Path:
+        _reject_symbolic_link_in_path(self._root)
         relative = Path(artifact.artifact_id) / artifact.version
         if relative.is_absolute() or ".." in relative.parts:
             raise ValueError("artifact_id must stay within the artifact root")

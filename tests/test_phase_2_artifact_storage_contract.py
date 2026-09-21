@@ -312,6 +312,24 @@ def test_repository_checks_artifact_components_before_resolving_path(
     assert list(tmp_path.rglob("*")) == []
 
 
+def test_repository_rechecks_root_symbolic_link_before_artifact_path_resolution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = LocalArtifactRepository(tmp_path)
+    artifact = _artifact()
+    real_is_symlink = Path.is_symlink
+
+    def pretend_symlink(path: Path) -> bool:
+        return path == tmp_path or real_is_symlink(path)
+
+    monkeypatch.setattr(Path, "is_symlink", pretend_symlink)
+
+    with pytest.raises(ValueError, match="root must not be a symbolic link"):
+        asyncio.run(repository.put(artifact, b"1234567"))
+
+    assert list(tmp_path.rglob("*")) == []
+
+
 def test_atomic_commit_does_not_replace_file_created_after_existence_check(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
