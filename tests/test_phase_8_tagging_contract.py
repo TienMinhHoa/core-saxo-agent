@@ -6,6 +6,8 @@ from saxophone.tagging.models import (
     ContentRole,
     ParagraphBlock,
     ParagraphConceptRole,
+    TagConflictResolution,
+    TagResolution,
     TagGenerationRequest,
     TagGenerationResult,
 )
@@ -70,3 +72,32 @@ def test_content_role_rejects_unknown_values_and_relation_rejects_blank_concepts
         ParagraphConceptRole("p-1", "Harmony", "Unknown")
     with pytest.raises(ValueError, match="canonical_concept"):
         ParagraphConceptRole("p-1", " ", ContentRole.EXPLANATION)
+
+
+def test_conflict_resolution_rejects_malformed_generated_tag_values() -> None:
+    with pytest.raises(ValueError, match="generated_tags"):
+        TagConflictResolution(
+            paragraph_id="p-1",
+            resolutions=(TagResolution("Harmony", "keep_new", "Harmony"),),
+            resolution_profile="resolve-v1",
+            generated_tags=("Harmony", "Harmony"),
+        )
+
+    with pytest.raises(ValueError, match="generated_tags"):
+        TagConflictResolution(
+            paragraph_id="p-1",
+            resolutions=(TagResolution("Harmony", "keep_new", "Harmony"),),
+            resolution_profile="resolve-v1",
+            generated_tags=(" ",),
+        )
+
+
+def test_conflict_resolution_requires_reuse_to_reference_existing_candidate() -> None:
+    with pytest.raises(ValueError, match="existing tag candidate"):
+        TagConflictResolution(
+            paragraph_id="p-1",
+            resolutions=(TagResolution("Harmony", "reuse_existing", "Harmony"),),
+            resolution_profile="resolve-v1",
+            generated_tags=("Harmony",),
+            existing_tags=("Chord",),
+        )

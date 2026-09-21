@@ -80,6 +80,7 @@ class TagConflictResolution:
             value if isinstance(value, TagResolution) else TagResolution(*value)
             for value in self.resolutions
         )
+        _validate_tags(self.generated_tags, "generated_tags")
         generated = tuple(tag.strip() for tag in self.generated_tags)
         if any(not isinstance(tag, str) or not tag.strip() for tag in self.existing_tags):
             raise ValueError("existing_tags must contain non-blank strings")
