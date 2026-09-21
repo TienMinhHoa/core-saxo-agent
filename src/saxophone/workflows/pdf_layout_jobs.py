@@ -101,6 +101,13 @@ class PdfLayoutJobStore:
         """Load one job and apply the store-owned browser projection."""
         return self.public_state(self.load_state(job_id))
 
+    def load_completed_state(self, job_id: str) -> dict[str, Any]:
+        """Load a job whose layout result is ready for browser projection."""
+        state = self.load_state(job_id)
+        if state.get("status") != "completed":
+            raise ValueError("layout result is not ready")
+        return state
+
     def create_uploaded_job(
         self,
         original_filename: str,

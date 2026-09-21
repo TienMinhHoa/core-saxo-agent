@@ -65,6 +65,25 @@ def test_load_public_state_loads_and_projects_state_at_store_boundary(tmp_path) 
     assert set(projected) == set(PdfLayoutJobStore._PUBLIC_FIELDS)
 
 
+def test_load_completed_state_owns_layout_readiness_policy(tmp_path) -> None:
+    store = PdfLayoutJobStore(tmp_path)
+    job_id = "12345678-1234-5678-1234-567812345678"
+    store.job_dir(job_id).mkdir()
+    store.write_state(job_id, {"id": job_id, "status": "completed"})
+
+    assert store.load_completed_state(job_id)["status"] == "completed"
+
+
+def test_load_completed_state_rejects_non_completed_job(tmp_path) -> None:
+    store = PdfLayoutJobStore(tmp_path)
+    job_id = "12345678-1234-5678-1234-567812345678"
+    store.job_dir(job_id).mkdir()
+    store.write_state(job_id, {"id": job_id, "status": "running"})
+
+    with pytest.raises(ValueError, match="layout result is not ready"):
+        store.load_completed_state(job_id)
+
+
 def test_create_uploaded_job_owns_initial_state_and_directory(tmp_path) -> None:
     store = PdfLayoutJobStore(tmp_path)
     job_id = "12345678-1234-5678-1234-567812345678"

@@ -122,6 +122,15 @@ def test_pdf_layout_interface_delegates_public_state_projection_to_job_store() -
     assert "JOB_STORE.public_state(state)" in source
 
 
+def test_pdf_layout_interface_delegates_layout_readiness_to_job_store() -> None:
+    source = (
+        SOURCE_ROOT / "src" / "saxophone" / "interfaces" / "pdf_layout_web.py"
+    ).read_text(encoding="utf-8")
+
+    assert "JOB_STORE.load_completed_state(job_id)" in source
+    assert 'state.get("status") != "completed"' not in source
+
+
 def test_pdf_upload_route_delegates_initial_state_creation_to_job_store() -> None:
     source = (
         SOURCE_ROOT / "src" / "saxophone" / "interfaces" / "pdf_layout_web.py"
@@ -337,7 +346,7 @@ def test_layout_route_uses_job_store_projection_at_runtime(monkeypatch, tmp_path
     state = {"id": expected_job_id, "status": "completed", "secret": "hidden"}
 
     class FakeJobStore:
-        def load_state(self, job_id: str):
+        def load_completed_state(self, job_id: str):
             assert job_id == expected_job_id
             return state
 
@@ -370,13 +379,13 @@ def test_pdf_layout_missing_job_maps_store_error_to_http_404(monkeypatch) -> Non
     from saxophone.workflows.pdf_layout_jobs import PdfLayoutJobNotFound
 
     class MissingJobStore:
-        def load_state(self, job_id: str):
+        def load_completed_state(self, job_id: str):
             raise PdfLayoutJobNotFound(job_id)
 
     monkeypatch.setattr(pdf_layout_web, "JOB_STORE", MissingJobStore())
 
     try:
-        pdf_layout_web._load_state("12345678-1234-5678-1234-567812345678")
+        pdf_layout_web.job_layout("12345678-1234-5678-1234-567812345678")
     except HTTPException as exc:
         assert exc.status_code == 404
     else:

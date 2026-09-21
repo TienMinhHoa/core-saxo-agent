@@ -38,15 +38,6 @@ JOB_STORE = PdfLayoutJobStore(JOBS_DIR)
 app = FastAPI(title="PDF Layout Extractor", docs_url=None, redoc_url=None)
 
 
-def _load_state(job_id: str) -> dict[str, Any]:
-    try:
-        return JOB_STORE.load_state(job_id)
-    except PdfLayoutJobNotFound as exc:
-        raise HTTPException(status_code=404, detail="Job khﾃｴng t盻渡 t蘯｡i") from exc
-    except (OSError, ValueError, TypeError) as exc:
-        raise HTTPException(status_code=404, detail="Job không tồn tại") from exc
-
-
 """
 
 
@@ -122,9 +113,12 @@ def job_status(job_id: str) -> dict[str, Any]:
 
 @app.get("/api/jobs/{job_id}/layout")
 def job_layout(job_id: str) -> dict[str, Any]:
-    state = _load_state(job_id)
-    if state.get("status") != "completed":
-        raise HTTPException(status_code=409, detail="Kết quả chưa sẵn sàng")
+    try:
+        state = JOB_STORE.load_completed_state(job_id)
+    except PdfLayoutJobNotFound as exc:
+        raise HTTPException(status_code=404, detail="Job khong ton tai") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail="Ket qua chua san sang") from exc
     layout_dir = JOB_STORE.artifact_paths(job_id).layout
     return {
         "job": JOB_STORE.public_state(state),
