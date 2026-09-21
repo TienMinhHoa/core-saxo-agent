@@ -457,6 +457,20 @@ def test_legacy_layout_route_uses_extraction_boundary() -> None:
     assert legacy_imports == set()
 
 
+def test_layout_route_consumes_extraction_public_facade() -> None:
+    """Keep the compatibility route independent from extraction internals."""
+
+    route = SOURCE_ROOT / "interfaces" / "pdf_layout_web.py"
+    implementation_prefixes = ("saxophone.extraction.layout",)
+    violations = sorted(
+        imported
+        for imported in _saxophone_imports(route)
+        if imported.startswith(implementation_prefixes)
+    )
+
+    assert violations == []
+
+
 def test_api_consumes_application_public_facades() -> None:
     """The inbound adapter should depend on stable module facades only."""
 
