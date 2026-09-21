@@ -75,6 +75,18 @@ def test_pdf_layout_interface_delegates_layout_reading_to_extraction_policy() ->
     assert "def _normalise_blocks" not in source
 
 
+def test_pdf_layout_interface_does_not_keep_local_pdf_raster_implementation() -> None:
+    source = (
+        SOURCE_ROOT / "src" / "saxophone" / "interfaces" / "pdf_layout_web.py"
+    ).read_text(encoding="utf-8")
+
+    assert "def _render_pages" not in source
+    assert "def _page_number" not in source
+    assert "subprocess.run" not in source
+    assert "shutil.which(\"pdftoppm\")" not in source
+    assert '"render_pages": render_pdf_pages' in source
+
+
 def test_pdf_layout_interface_delegates_public_state_projection_to_job_store() -> None:
     source = (
         SOURCE_ROOT / "src" / "saxophone" / "interfaces" / "pdf_layout_web.py"

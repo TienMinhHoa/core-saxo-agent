@@ -13,8 +13,6 @@ from __future__ import annotations
 import argparse
 import os
 import re
-import shutil
-import subprocess
 import threading
 import uuid
 import time
@@ -67,26 +65,6 @@ async def _save_upload(upload: UploadFile, destination: Path) -> int:
     finally:
         await upload.close()
     return bytes_written
-
-
-def _page_number(path: Path) -> int:
-    match = re.search(r"-(\d+)\.png$", path.name)
-    return int(match.group(1)) if match else 0
-
-
-def _render_pages(source_pdf: Path, page_dir: Path) -> list[str]:
-    """Rasterize PDF pages locally for an overlay-friendly browser viewer."""
-    if shutil.which("pdftoppm") is None:
-        raise RuntimeError("Thiếu lệnh pdftoppm. Cài poppler-utils để render trang PDF.")
-    page_dir.mkdir(parents=True, exist_ok=True)
-    prefix = page_dir / "page"
-    subprocess.run(
-        ["pdftoppm", "-png", "-r", "144", str(source_pdf), str(prefix)],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return [path.name for path in sorted(page_dir.glob("page-*.png"), key=_page_number)]
 
 
 @app.get("/", response_class=HTMLResponse)
