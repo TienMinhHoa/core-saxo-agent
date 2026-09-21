@@ -31,6 +31,7 @@ class CatalogStore:
         self.path = self.root / "catalog.json"
 
     def load(self) -> dict[str, Any]:
+        self._validate_paths()
         if not self.path.exists():
             return json.loads(json.dumps(EMPTY_CATALOG))
         with self.path.open(encoding="utf-8") as handle:
@@ -40,7 +41,9 @@ class CatalogStore:
         return catalog
 
     def save(self, catalog: dict[str, Any]) -> None:
+        self._validate_paths()
         self.root.mkdir(parents=True, exist_ok=True)
+        self._validate_paths()
         fd, temporary = tempfile.mkstemp(prefix="catalog-", suffix=".json", dir=self.root)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -51,8 +54,27 @@ class CatalogStore:
             Path(temporary).unlink(missing_ok=True)
             raise
 
+    def _validate_paths(self) -> None:
+        _reject_symbolic_link_in_path(self.root)
+        if self.root.exists() and not self.root.is_dir():
+            raise ValueError("root must be a directory")
+        _reject_symbolic_link_in_path(self.path)
+        if self.path.exists() and not self.path.is_file():
+            raise ValueError("catalog path must be a file")
+
     def document(self, document_id: str, source_version: str) -> dict[str, Any]:
         record = self.load()["documents"].get(f"{document_id}:{source_version}")
         if record is None:
             raise NotFound("document_version_not_found")
         return record
+
+
+def _reject_symbolic_link_in_path(path: Path) -> None:
+    """Reject explicit path components that could redirect JSON persistence."""
+
+    absolute_path = path.absolute()
+    current = Path(absolute_path.anchor)
+    for component in absolute_path.parts[1:]:
+        current /= component
+        if current.is_symlink():
+            raise ValueError("catalog path must not contain a symbolic link")
