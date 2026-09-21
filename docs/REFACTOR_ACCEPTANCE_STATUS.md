@@ -300,6 +300,17 @@ deployment production.
 
 ### Iteration 211 - recheck parent artifact sau `mkdir`
 
+### Iteration 215 - image gate checksum qua bounded worker
+
+- `RepositoryBackedImageArtifactGate` không còn hash/checksum image payload trên
+  event loop; bước xác minh chạy qua bounded `CapacityLimiter`, có thể dùng
+  limiter được inject từ composition root.
+- Contract targeted đạt **4 passed**; full suite đạt **903 passed, 3 skipped,
+  1 warning**. Chi tiết tại
+  `docs/ITERATION_215_IMAGE_GATE_PAYLOAD_VALIDATION_BOUNDARY.md`.
+- Live model-service smoke và production parity vẫn chưa xác minh vì checkout
+  thiếu endpoint, credential và production catalog thật.
+
 ### Iteration 213 - payload validation của artifact không chạy trên event loop
 
 - `LocalArtifactRepository.put()` đưa payload size/SHA-256 validation và atomic

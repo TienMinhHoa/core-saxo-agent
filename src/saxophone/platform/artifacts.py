@@ -36,11 +36,18 @@ class RepositoryBackedImageArtifactGate:
     """Validate image references and verify their immutable repository bytes."""
 
     def __init__(
-        self, repository: ArtifactRepository, resolver: ImageArtifactResolver
+        self,
+        repository: ArtifactRepository,
+        resolver: ImageArtifactResolver,
+        *,
+        io_limiter: anyio.CapacityLimiter | None = None,
     ) -> None:
+        if io_limiter is not None and not isinstance(io_limiter, anyio.CapacityLimiter):
+            raise ValueError("io_limiter must be a CapacityLimiter")
         self._repository = repository
         self._resolver = resolver
         self._safe_gate = SafeImageArtifactGate()
+        self._io_limiter = io_limiter or create_blocking_io_limiter()
 
     async def validate(self, image_refs: tuple[str, ...]) -> tuple[str, ...]:
         safe_refs = await self._safe_gate.validate(image_refs)
@@ -51,7 +58,12 @@ class RepositoryBackedImageArtifactGate:
             if not is_image_media_type(artifact.media_type):
                 raise ValueError("resolved image artifact must have an image media type")
             payload = await self._repository.get(artifact)
-            _validate_payload(artifact, payload)
+            await anyio.to_thread.run_sync(
+                _validate_payload,
+                artifact,
+                payload,
+                limiter=self._io_limiter,
+            )
         return safe_refs
 
 
