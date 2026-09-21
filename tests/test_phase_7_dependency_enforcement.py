@@ -297,6 +297,31 @@ def test_backend_source_does_not_reintroduce_removed_job_lifecycle_contract() ->
     assert violations == {}
 
 
+def test_root_legacy_ui_entrypoint_is_only_a_compatibility_wrapper() -> None:
+    """Keep the repository-root launcher free of legacy UI business logic."""
+
+    project_root = SOURCE_ROOT.parents[1]
+    entrypoint = project_root / "app.py"
+    tree = ast.parse(entrypoint.read_text(encoding="utf-8"), filename=str(entrypoint))
+
+    imported_modules = {
+        node.module
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module is not None
+    }
+    imported_names = {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        for alias in node.names
+    }
+
+    assert imported_modules == {"music_rag.ui_app"}
+    assert imported_names == {"create_app", "main"}
+    assert "gradio" not in _import_roots(entrypoint)
+    assert "chromadb" not in _import_roots(entrypoint)
+
+
 def test_business_layers_do_not_depend_on_inbound_or_composition_layers() -> None:
     """Keep HTTP/bootstrap details at the outer edge of the modular monolith."""
 
