@@ -300,12 +300,24 @@ def test_retrieval_and_chat_remain_separate_application_boundaries() -> None:
 def test_chat_consumes_retrieval_public_facade() -> None:
     """Chat must not couple to retrieval implementation modules."""
 
-    chat_service = SOURCE_ROOT / "chat" / "service.py"
-    imports = _saxophone_imports(chat_service)
+    violations: dict[str, list[str]] = {}
+    for path in (SOURCE_ROOT / "chat").rglob("*.py"):
+        imports = _saxophone_imports(path)
+        forbidden = sorted(
+            imported
+            for imported in imports
+            if imported in {
+                "saxophone.retrieval.adapters",
+                "saxophone.retrieval.candidates",
+                "saxophone.retrieval.models",
+                "saxophone.retrieval.ports",
+                "saxophone.retrieval.use_cases",
+            }
+        )
+        if forbidden:
+            violations[str(path.relative_to(SOURCE_ROOT))] = forbidden
 
-    assert "saxophone.retrieval" in imports
-    assert "saxophone.retrieval.use_cases" not in imports
-    assert "saxophone.retrieval.ports" not in imports
+    assert violations == {}
 
 
 def test_ingestion_does_not_depend_on_inbound_framework_or_schemas() -> None:

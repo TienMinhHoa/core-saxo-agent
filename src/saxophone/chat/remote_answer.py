@@ -11,7 +11,7 @@ from saxophone.platform.model_client import (
     ModelTask,
     ModelValidationError,
 )
-from saxophone.retrieval.models import EvidenceBundle
+from saxophone.retrieval import EvidenceBundle
 
 from .models import GeneratedAnswer
 from .ports import AnswerGenerator
