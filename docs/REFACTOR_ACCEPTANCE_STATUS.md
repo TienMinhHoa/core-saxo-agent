@@ -467,3 +467,11 @@ deployment production.
 - Kết quả chỉ xác nhận offline. Live model-service smoke và production parity
   vẫn chưa xác minh vì checkout thiếu endpoint, credential và production
   catalog.
+
+### Iteration 357 - tái kiểm chứng Phase 8 paragraph tagging
+
+- Contract Phase 8 đạt **31 passed, 2 skipped**; parser, remote tagging, conflict
+  resolution, persistence và ingestion projection đều được kiểm chứng offline.
+- Chi tiết bằng chứng tại `docs/ITERATION_357_PHASE8_TAGGING_ACCEPTANCE_RECHECK.md`.
+- Live model-service smoke và production parity vẫn chưa xác minh vì checkout
+  thiếu endpoint, credential và production catalog thực tế.
