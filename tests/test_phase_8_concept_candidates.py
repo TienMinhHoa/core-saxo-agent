@@ -7,6 +7,7 @@ from saxophone.tagging.concepts import (
     ConceptCandidateExample,
     deduplicate_concept_candidates,
     normalize_concept_label,
+    rank_concept_candidates,
 )
 
 
@@ -40,3 +41,20 @@ def test_candidates_deduplicate_by_normalized_canonical_label() -> None:
 
 def test_empty_candidate_catalog_is_deterministically_empty() -> None:
     assert deduplicate_concept_candidates(()) == ()
+
+
+def test_candidate_ranking_prefers_exact_match_then_token_overlap() -> None:
+    candidates = (
+        ConceptCandidate("Harmonics", 1, 0.95),
+        ConceptCandidate("Major Triad", 3, 0.70),
+        ConceptCandidate("Harmony", 2, 0.80),
+        ConceptCandidate("Major Triad", 1, 0.60),
+    )
+    ranked = rank_concept_candidates("  harmony ", candidates, limit=3)
+    assert [item.canonical_label for item in ranked] == ["Harmony", "Harmonics", "Major Triad"]
+
+
+@pytest.mark.parametrize("query,limit", [("", 1), ("Harmony", 0), ("Harmony", True)])
+def test_candidate_ranking_rejects_invalid_query_or_limit(query: str, limit: int) -> None:
+    with pytest.raises(ValueError):
+        rank_concept_candidates(query, (), limit=limit)

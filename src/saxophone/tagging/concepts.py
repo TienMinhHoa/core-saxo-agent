@@ -5,7 +5,7 @@ from __future__ import annotations
 import unicodedata
 import math
 from dataclasses import dataclass
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 
 
 def normalize_concept_label(label: str) -> str:
@@ -60,6 +60,34 @@ class ConceptCandidate:
         object.__setattr__(self, "canonical_label", canonical)
         object.__setattr__(self, "normalized_label", normalized)
         object.__setattr__(self, "examples", tuple(self.examples))
+
+
+def rank_concept_candidates(
+    query_text: str,
+    candidates: Sequence[ConceptCandidate],
+    *,
+    limit: int,
+) -> tuple[ConceptCandidate, ...]:
+    """Rank candidates deterministically, preferring exact normalized matches.
+
+    This is an application-level projection: production vector search can supply
+    the candidates, while exact lookup and final ordering remain consistent.
+    """
+    if not isinstance(query_text, str) or not query_text.strip():
+        raise ValueError("query_text must not be blank")
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+        raise ValueError("limit must be a positive integer")
+    unique = deduplicate_concept_candidates(candidates)
+    query_key = normalize_concept_label(query_text)
+    query_tokens = set(query_key.split())
+
+    def sort_key(candidate: ConceptCandidate) -> tuple[int, float, int, str]:
+        candidate_key = candidate.normalized_label
+        exact = 0 if candidate_key == query_key else 1
+        overlap = len(query_tokens & set(candidate_key.split()))
+        return (exact, -overlap, candidate.rank, candidate_key)
+
+    return tuple(sorted(unique, key=sort_key)[:limit])
 
 
 def deduplicate_concept_candidates(

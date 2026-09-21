@@ -12,6 +12,14 @@ from .models import (
     TagGenerationResult,
     TaggedParagraph,
 )
+from .concepts import ConceptCandidate
+
+
+class ConceptCandidateRetriever(Protocol):
+    """Retrieve canonical concept candidates before LLM tagging."""
+
+    async def search(self, query_text: str, *, limit: int) -> tuple[ConceptCandidate, ...]:
+        """Return validated, deterministically ordered concept candidates."""
 
 
 class TaggedParagraphRepository(Protocol):
