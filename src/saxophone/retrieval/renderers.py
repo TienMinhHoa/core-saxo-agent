@@ -104,6 +104,7 @@ class SourceParagraph:
     concepts_and_roles: tuple[str, ...]
     pages: tuple[str, ...]
     image_refs: tuple[str, ...]
+    chunk_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)

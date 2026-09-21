@@ -12,6 +12,7 @@ from .role_selection import (
     RemoteConceptRoleSelector,
 )
 from .renderers import ConceptInventory, ConceptInventoryBuilder
+from .paragraph_traversal import ParagraphTraversal
 
 __all__ = [
     "ChunkHit",
@@ -26,4 +27,5 @@ __all__ = [
     "RemoteConceptRoleSelector",
     "ConceptInventory",
     "ConceptInventoryBuilder",
+    "ParagraphTraversal",
 ]
