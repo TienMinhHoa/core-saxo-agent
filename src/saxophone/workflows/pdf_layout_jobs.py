@@ -33,9 +33,12 @@ class PdfLayoutJobStore:
 
     def load_state(self, job_id: str) -> dict[str, Any]:
         try:
-            return json.loads(
+            state = json.loads(
                 (self.job_dir(job_id) / "job.json").read_text(encoding="utf-8")
             )
+            if not isinstance(state, dict):
+                raise TypeError("persisted job state must be a JSON object")
+            return state
         except (OSError, ValueError, TypeError) as exc:
             raise PdfLayoutJobNotFound(job_id) from exc
 

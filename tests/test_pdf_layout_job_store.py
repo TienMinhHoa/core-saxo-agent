@@ -30,3 +30,14 @@ def test_public_state_exposes_only_browser_safe_fields() -> None:
         "original_filename", "created_at", "started_at", "finished_at", "device", "language",
         "page_count", "phase", "progress_pages", "progress_total", "progress_images",
     )}}
+
+
+def test_load_state_rejects_json_payloads_that_are_not_state_objects(tmp_path) -> None:
+    store = PdfLayoutJobStore(tmp_path)
+    job_id = "12345678-1234-5678-1234-567812345678"
+    job_dir = store.job_dir(job_id)
+    job_dir.mkdir()
+    (job_dir / "job.json").write_text("[\"not-a-state-object\"]", encoding="utf-8")
+
+    with pytest.raises(PdfLayoutJobNotFound):
+        store.load_state(job_id)
