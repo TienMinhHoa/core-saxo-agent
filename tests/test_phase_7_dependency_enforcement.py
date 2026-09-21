@@ -985,3 +985,9 @@ def test_http_transport_is_confined_to_platform_and_composition_root() -> None:
     }
 
     assert violations == {}
+def test_packaging_does_not_reintroduce_removed_legacy_extracted_package() -> None:
+    """The backend distribution must not advertise the removed local OCR package."""
+    pyproject = (SOURCE_ROOT.parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+
+    assert 'include = ["music_rag*", "extracted*", "saxophone*"]' not in pyproject
+    assert 'include = ["music_rag*", "saxophone*"]' in pyproject
