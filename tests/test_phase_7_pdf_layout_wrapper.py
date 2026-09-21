@@ -23,3 +23,14 @@ def test_pdf_layout_route_uses_extraction_number_policy_directly() -> None:
     assert "from saxophone.extraction import finite_number" in source
     assert "def _number" not in source
     assert "    return _number(" not in source
+
+
+def test_pdf_layout_route_delegates_extraction_orchestration_to_workflow() -> None:
+    source = (
+        SOURCE_ROOT / "src" / "saxophone" / "interfaces" / "pdf_layout_web.py"
+    ).read_text(encoding="utf-8")
+
+    assert "from saxophone.workflows.pdf_layout_extraction import run_extraction" in source
+    assert "def _run_extraction" not in source
+    assert "importlib.import_module" not in source
+    assert "traceback.format_exc" not in source

@@ -11,7 +11,6 @@ text/image blocks.  All files remain local under ``runtime/pdf-layout-jobs``.
 from __future__ import annotations
 
 import argparse
-import importlib
 import json
 import os
 import re
@@ -19,7 +18,6 @@ import shutil
 import subprocess
 import threading
 import time
-import traceback
 import uuid
 from pathlib import Path
 from typing import Any
@@ -28,6 +26,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 
 from saxophone.extraction import finite_number, is_raw_pdf_raster_space, normalize_blocks
+from saxophone.workflows.pdf_layout_extraction import run_extraction
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[3]
@@ -167,97 +166,6 @@ def _layout_pages(job_id: str) -> list[dict[str, Any]]:
     return pages
 
 
-def _run_extraction(job_id: str) -> None:
-    """Run one GPU/CPU extraction at a time, persisting completion or error."""
-    state = _load_state(job_id)
-    state.update(
-        {
-            "status": "running",
-            "started_at": _timestamp(),
-            "phase": "initializing",
-            "progress_pages": 0,
-            "progress_total": None,
-            "progress_images": 0,
-            "error": None,
-        }
-    )
-    _write_state(job_id, state)
-    job_dir = _job_dir(job_id)
-    try:
-        # Importing here keeps web-server startup fast and avoids loading OCR
-        # frameworks until the user actually starts a job.
-        # Keep the historical OCR runner behind a runtime compatibility
-        # boundary.  The backend package must not create a static dependency
-        # on the legacy/model-runtime namespace during import-time analysis.
-        legacy_pipeline = importlib.import_module("extracted.parse_pdf_2_md")
-        check_gpu = legacy_pipeline.check_gpu
-        create_source_coordinate_pipeline = legacy_pipeline.create_source_coordinate_pipeline
-        pdf_page_count = legacy_pipeline.pdf_page_count
-        save_one_pdf = legacy_pipeline.save_one_pdf
-
-        with EXTRACTION_LOCK:
-            check_gpu(str(state["device"]))
-            total_pages = pdf_page_count(job_dir / "source.pdf")
-            pipeline = create_source_coordinate_pipeline(
-                lang=str(state["language"]), device=str(state["device"])
-            )
-            try:
-                state = _load_state(job_id)
-                state.update({"phase": "extracting", "progress_total": total_pages})
-                _write_state(job_id, state)
-
-                def report_progress(page: int, total: int | None, images: int) -> None:
-                    current_state = _load_state(job_id)
-                    current_state.update(
-                        {
-                            "phase": "extracting",
-                            "progress_pages": page,
-                            "progress_total": total,
-                            "progress_images": images,
-                        }
-                    )
-                    _write_state(job_id, current_state)
-
-                save_one_pdf(
-                    pipeline,
-                    job_dir / "source.pdf",
-                    job_dir / "extraction",
-                    on_progress=report_progress,
-                )
-            finally:
-                pipeline.close()
-            state = _load_state(job_id)
-            state.update({"phase": "rendering"})
-            _write_state(job_id, state)
-            page_images = _render_pages(job_dir / "source.pdf", job_dir / "pages")
-
-        state = _load_state(job_id)
-        state.update(
-            {
-                "status": "completed",
-                "finished_at": _timestamp(),
-                "page_count": len(page_images),
-                "phase": "completed",
-                "progress_pages": len(page_images),
-                "progress_total": len(page_images),
-                "error": None,
-            }
-        )
-        _write_state(job_id, state)
-    except Exception as exc:  # pragma: no cover - OCR runtime is environment-specific
-        state = _load_state(job_id)
-        state.update(
-            {
-                "status": "failed",
-                "finished_at": _timestamp(),
-                "phase": "failed",
-                "error": f"{type(exc).__name__}: {exc}",
-                "traceback": traceback.format_exc(limit=12),
-            }
-        )
-        _write_state(job_id, state)
-
-
 @app.get("/", response_class=HTMLResponse)
 def home() -> HTMLResponse:
     # The viewer is a single inline HTML/JS asset; never leave an old client
@@ -324,7 +232,18 @@ def start_extraction(job_id: str, device: str = "cpu", language: str = "vi") -> 
         }
     )
     _write_state(job_id, state)
-    threading.Thread(target=_run_extraction, args=(job_id,), daemon=True).start()
+    threading.Thread(
+        target=run_extraction,
+        args=(job_id,),
+        kwargs={
+            "job_dir": _job_dir,
+            "load_state": _load_state,
+            "write_state": _write_state,
+            "render_pages": _render_pages,
+            "extraction_lock": EXTRACTION_LOCK,
+        },
+        daemon=True,
+    ).start()
     return _public_state(state)
 
 
