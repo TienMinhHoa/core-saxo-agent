@@ -22,6 +22,7 @@ from saxophone.extraction.persistence import RepositoryExtractionArtifactPayload
 from saxophone.ingestion.adapters import FileEmbeddingReuseStore, RemoteEmbeddingProvider
 from saxophone.ingestion.adapters import ChromaVectorIndex
 from saxophone.platform.knowledge import JsonKnowledgeRepository
+from saxophone.platform.chroma import create_chroma_vector_index
 from saxophone.tagging.persistence import (
     JsonTagCatalogRepository,
     JsonTaggedParagraphRepository,
@@ -320,6 +321,35 @@ def test_default_composition_rejects_existing_chroma_dimension_mismatch(monkeypa
 
     with pytest.raises(ValueError, match="embedding dimension"):
         create_app(settings)
+
+
+def test_chroma_client_is_closed_when_collection_metadata_validation_fails(monkeypatch) -> None:
+    class FakeCollection:
+        metadata = {"embedding_dimension": 768, "schema_version": "saxo-chunk-v1"}
+
+    clients: list[object] = []
+
+    class FakeClient:
+        def __init__(self, *, path: str) -> None:
+            self.closed = False
+            clients.append(self)
+
+        def get_or_create_collection(self, *, name: str, metadata: dict[str, object]):
+            return FakeCollection()
+
+        def close(self) -> None:
+            self.closed = True
+
+    class FakeChroma:
+        PersistentClient = FakeClient
+
+    monkeypatch.setitem(__import__("sys").modules, "chromadb", FakeChroma)
+
+    with pytest.raises(ValueError, match="embedding dimension"):
+        create_chroma_vector_index(AppSettings.from_environment(VALID_ENVIRONMENT))
+
+    assert len(clients) == 1
+    assert clients[0].closed is True
 
 
 def test_default_composition_rejects_non_mapping_chroma_metadata(monkeypatch) -> None:
