@@ -12,7 +12,6 @@ from dotenv import load_dotenv
 
 from music_rag.chroma_chunks import DEFAULT_CHROMA_DIR, DEFAULT_COLLECTION
 from music_rag.chroma_service import ChromaChunkService
-from music_rag.ui_assets import approved_asset_paths
 from music_rag.ui_rendering import (
     chroma_asset_paths as chroma_asset_paths,
     format_answer_cost as _format_answer_cost,

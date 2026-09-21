@@ -58,7 +58,7 @@ def test_root_entrypoint_has_no_dead_legacy_ui_aliases() -> None:
     }
 
     assert imported_names.isdisjoint(
-        {"MusicMaterialService", "_display_status", "_render_source_bundle"}
+        {"MusicMaterialService", "approved_asset_paths", "_display_status", "_render_source_bundle"}
     )
 
 
