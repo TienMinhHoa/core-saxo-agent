@@ -5,7 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 from saxophone.documents.ports import ImageArtifactResolver
-from saxophone.retrieval.models import EvidenceBundle
+from saxophone.retrieval import EvidenceBundle
 
 from .models import GeneratedAnswer
 

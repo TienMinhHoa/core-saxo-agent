@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from saxophone.retrieval.models import EvidenceBundle
-from saxophone.retrieval.use_cases import RetrieveEvidence
+from saxophone.retrieval import EvidenceBundle, RetrieveEvidence
 
 from .models import ChatResult, ChatStatus, evidence_reference
 from .ports import AnswerGenerator, ImageArtifactGate

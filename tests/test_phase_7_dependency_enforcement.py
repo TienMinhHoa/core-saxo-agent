@@ -297,6 +297,17 @@ def test_retrieval_and_chat_remain_separate_application_boundaries() -> None:
     assert violations == {}
 
 
+def test_chat_consumes_retrieval_public_facade() -> None:
+    """Chat must not couple to retrieval implementation modules."""
+
+    chat_service = SOURCE_ROOT / "chat" / "service.py"
+    imports = _saxophone_imports(chat_service)
+
+    assert "saxophone.retrieval" in imports
+    assert "saxophone.retrieval.use_cases" not in imports
+    assert "saxophone.retrieval.ports" not in imports
+
+
 def test_ingestion_does_not_depend_on_inbound_framework_or_schemas() -> None:
     """Keep ingestion application code independent from HTTP presentation details."""
 
