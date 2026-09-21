@@ -114,7 +114,10 @@ def start_extraction(job_id: str, device: str = "cpu", language: str = "vi") -> 
 
 @app.get("/api/jobs/{job_id}")
 def job_status(job_id: str) -> dict[str, Any]:
-    return JOB_STORE.public_state(_load_state(job_id))
+    try:
+        return JOB_STORE.load_public_state(job_id)
+    except PdfLayoutJobNotFound as exc:
+        raise HTTPException(status_code=404, detail="Job khong ton tai") from exc
 
 
 @app.get("/api/jobs/{job_id}/layout")

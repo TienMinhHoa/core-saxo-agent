@@ -97,6 +97,10 @@ class PdfLayoutJobStore:
         except (OSError, ValueError, TypeError) as exc:
             raise PdfLayoutJobNotFound(job_id) from exc
 
+    def load_public_state(self, job_id: str) -> dict[str, Any]:
+        """Load one job and apply the store-owned browser projection."""
+        return self.public_state(self.load_state(job_id))
+
     def create_uploaded_job(
         self,
         original_filename: str,
