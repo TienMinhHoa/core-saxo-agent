@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import hashlib
 
-from saxophone.documents.models import ArtifactKind
-from saxophone.documents.ports import ArtifactRepository
+from saxophone.documents import ArtifactKind, ArtifactRepository
 from saxophone.extraction import (
     ExtractionArtifactPayloadProvider,
     PdfExtractionRequest,

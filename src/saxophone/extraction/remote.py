@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from saxophone.documents.models import ArtifactKind, ArtifactRef
+from saxophone.documents import ArtifactKind, ArtifactRef
 from saxophone.platform.model_client import (
     ModelClient,
     ModelRequest,

@@ -471,6 +471,67 @@ def test_tagging_exposes_a_public_application_facade() -> None:
     assert all(hasattr(tagging, name) for name in expected)
 
 
+def test_documents_consumers_use_the_public_facade() -> None:
+    """Consumers should not couple to document implementation modules."""
+
+    consumer_files = (
+        SOURCE_ROOT / "app" / "factory.py",
+        SOURCE_ROOT / "chat" / "ports.py",
+        SOURCE_ROOT / "extraction" / "models.py",
+        SOURCE_ROOT / "extraction" / "persistence.py",
+        SOURCE_ROOT / "extraction" / "remote.py",
+        SOURCE_ROOT / "ingestion" / "use_cases.py",
+        SOURCE_ROOT / "interfaces" / "api.py",
+        SOURCE_ROOT / "platform" / "artifacts.py",
+        SOURCE_ROOT / "workflows" / "ingest_extracted_document.py",
+        SOURCE_ROOT / "workflows" / "process_document.py",
+    )
+    implementation_prefixes = (
+        "saxophone.documents.knowledge",
+        "saxophone.documents.models",
+        "saxophone.documents.policies",
+        "saxophone.documents.ports",
+    )
+    violations = {
+        str(path.relative_to(SOURCE_ROOT)): sorted(
+            imported
+            for imported in _saxophone_imports(path)
+            if imported.startswith(implementation_prefixes)
+        )
+        for path in consumer_files
+        if any(
+            imported.startswith(implementation_prefixes)
+            for imported in _saxophone_imports(path)
+        )
+    }
+
+    assert violations == {}
+
+
+def test_documents_exposes_a_public_application_facade() -> None:
+    """Consumers should receive document contracts from one stable module."""
+
+    from saxophone import documents
+
+    expected = {
+        "ArtifactKind",
+        "ArtifactRef",
+        "ArtifactRepository",
+        "ImageArtifactResolver",
+        "KnowledgeChunk",
+        "KnowledgeRepository",
+        "VectorIndex",
+        "is_image_media_type",
+        "is_safe_artifact_reference",
+        "is_safe_document_reference",
+        "is_safe_media_type",
+        "is_safe_relative_image_reference",
+    }
+
+    assert set(documents.__all__) == expected
+    assert all(hasattr(documents, name) for name in expected)
+
+
 def test_ingestion_does_not_depend_on_inbound_framework_or_schemas() -> None:
     """Keep ingestion application code independent from HTTP presentation details."""
 

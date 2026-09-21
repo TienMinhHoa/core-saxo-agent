@@ -17,7 +17,7 @@ from fastapi.responses import Response
 from saxophone.app.settings import AppSettings
 from saxophone.chat.service import AnswerQuestion
 from saxophone.chat.ports import AnswerGenerator, ImageArtifactGate
-from saxophone.documents.ports import ArtifactRepository, ImageArtifactResolver, KnowledgeRepository
+from saxophone.documents import ArtifactRepository, ImageArtifactResolver, KnowledgeRepository
 from saxophone.extraction.persistence import RepositoryExtractionArtifactPayloadProvider
 from saxophone.extraction.ports import PdfExtractor
 from saxophone.extraction.remote import RemotePdfExtractor

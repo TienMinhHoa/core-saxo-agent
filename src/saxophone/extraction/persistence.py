@@ -5,8 +5,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Mapping
 
-from saxophone.documents.models import ArtifactRef
-from saxophone.documents.ports import ArtifactRepository
+from saxophone.documents import ArtifactRef, ArtifactRepository
 
 from .models import PdfExtractionResult
 

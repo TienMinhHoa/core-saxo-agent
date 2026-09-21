@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from saxophone.documents.ports import ArtifactRepository
+from saxophone.documents import ArtifactRepository
 from saxophone.extraction import PdfExtractionResult
 from saxophone.ingestion.chunking import build_source_chunks
 from saxophone.ingestion.models import IndexInputRecord, IngestionCommand

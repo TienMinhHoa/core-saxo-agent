@@ -5,8 +5,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Mapping, Sequence
 
-from saxophone.documents.knowledge import KnowledgeChunk
-from saxophone.documents.ports import KnowledgeRepository
+from saxophone.documents import KnowledgeChunk, KnowledgeRepository
 from saxophone.tagging import ParagraphBlock, TagAndPersistParagraph, TaggedParagraph
 
 from .models import (

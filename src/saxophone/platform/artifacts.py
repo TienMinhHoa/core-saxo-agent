@@ -10,12 +10,14 @@ from pathlib import Path
 
 import anyio
 
-from saxophone.documents.models import ArtifactKind, ArtifactRef
-from saxophone.documents.policies import (
+from saxophone.documents import (
+    ArtifactKind,
+    ArtifactRef,
+    ArtifactRepository,
+    ImageArtifactResolver,
     is_image_media_type,
     is_safe_relative_image_reference,
 )
-from saxophone.documents.ports import ArtifactRepository, ImageArtifactResolver
 from saxophone.platform.concurrency import create_blocking_io_limiter
 
 

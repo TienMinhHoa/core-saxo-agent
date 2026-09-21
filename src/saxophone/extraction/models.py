@@ -7,8 +7,7 @@ import unicodedata
 from dataclasses import dataclass
 from enum import StrEnum
 
-from saxophone.documents.models import ArtifactKind, ArtifactRef
-from saxophone.documents.policies import is_safe_document_reference
+from saxophone.documents import ArtifactKind, ArtifactRef, is_safe_document_reference
 
 
 class CoordinateSpace(StrEnum):

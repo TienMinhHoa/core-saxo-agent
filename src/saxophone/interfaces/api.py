@@ -11,13 +11,15 @@ from pydantic import BaseModel, Field
 
 from saxophone.chat.models import ChatResult
 from saxophone.chat.ports import ImageArtifactGate
-from saxophone.documents.models import ArtifactKind, ArtifactRef
-from saxophone.documents.policies import (
+from saxophone.documents import (
+    ArtifactKind,
+    ArtifactRef,
+    ArtifactRepository,
+    ImageArtifactResolver,
     is_image_media_type,
     is_safe_document_reference,
     is_safe_relative_image_reference,
 )
-from saxophone.documents.ports import ArtifactRepository, ImageArtifactResolver
 from saxophone.extraction import PdfExtractionRequest, PdfExtractionResult
 from saxophone.ingestion.models import IndexInputRecord, IngestionCommand, IngestionReport
 from saxophone.ingestion.use_cases import IndexDocument
