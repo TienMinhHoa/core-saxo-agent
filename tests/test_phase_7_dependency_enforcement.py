@@ -399,6 +399,7 @@ def test_ingestion_exposes_a_public_application_facade() -> None:
     expected = {
         "ChunkIndexRecord",
         "EmbeddingProvider",
+        "EmbeddingReuseStore",
         "IngestDocument",
         "IndexDocument",
         "IndexInputRecord",

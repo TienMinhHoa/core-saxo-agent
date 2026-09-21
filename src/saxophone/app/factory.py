@@ -23,8 +23,13 @@ from saxophone.extraction import (
     RepositoryExtractionArtifactPayloadProvider,
 )
 from saxophone.ingestion.adapters import FileEmbeddingReuseStore, RemoteEmbeddingProvider
-from saxophone.ingestion import EmbeddingProvider, IngestDocument, IndexDocument, VectorIndex
-from saxophone.ingestion.ports import EmbeddingReuseStore
+from saxophone.ingestion import (
+    EmbeddingProvider,
+    EmbeddingReuseStore,
+    IngestDocument,
+    IndexDocument,
+    VectorIndex,
+)
 from saxophone.platform.artifacts import (
     LocalArtifactRepository,
     RepositoryBackedImageArtifactGate,

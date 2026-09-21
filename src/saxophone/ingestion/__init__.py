@@ -8,11 +8,12 @@ from .models import (
     IngestionReport,
     IngestionSourceChunk,
 )
-from .ports import EmbeddingProvider, VectorIndex
+from .ports import EmbeddingProvider, EmbeddingReuseStore, VectorIndex
 
 __all__ = [
     "ChunkIndexRecord",
     "EmbeddingProvider",
+    "EmbeddingReuseStore",
     "IngestDocument",
     "IndexDocument",
     "IndexInputRecord",
