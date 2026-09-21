@@ -370,6 +370,14 @@ async def test_chroma_aclose_runs_blocking_client_close_through_shared_limiter(
     assert calls == [{"limiter": limiter}]
 
 
+def test_chroma_rejects_owned_client_without_callable_close() -> None:
+    class _ClientWithoutClose:
+        close = None
+
+    with pytest.raises(TypeError, match="callable close"):
+        ChromaVectorIndex(object(), client=_ClientWithoutClose())
+
+
 @pytest.mark.anyio
 async def test_chroma_close_is_idempotent_across_sync_and_async_cleanup() -> None:
     class _Client:

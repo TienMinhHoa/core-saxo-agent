@@ -317,6 +317,8 @@ class ChromaVectorIndex(VectorIndex):
         io_limiter: Any | None = None,
         embedding_dimension: int | None = None,
     ) -> None:
+        if client is not None and not callable(getattr(client, "close", None)):
+            raise TypeError("client must expose a callable close method")
         self._collection = collection
         self._client = client
         self._closed = False
