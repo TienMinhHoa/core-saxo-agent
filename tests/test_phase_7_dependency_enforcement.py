@@ -340,6 +340,27 @@ def test_chat_consumes_retrieval_public_facade() -> None:
     assert violations == {}
 
 
+def test_ingestion_exposes_a_public_application_facade() -> None:
+    """Consumers should not need to import ingestion implementation modules."""
+
+    from saxophone import ingestion
+
+    expected = {
+        "ChunkIndexRecord",
+        "EmbeddingProvider",
+        "IndexDocument",
+        "IndexInputRecord",
+        "IngestionCommand",
+        "IngestionReport",
+        "IngestionSourceChunk",
+        "VectorIndex",
+        "build_source_chunks",
+    }
+
+    assert set(ingestion.__all__) == expected
+    assert all(hasattr(ingestion, name) for name in expected)
+
+
 def test_ingestion_does_not_depend_on_inbound_framework_or_schemas() -> None:
     """Keep ingestion application code independent from HTTP presentation details."""
 
