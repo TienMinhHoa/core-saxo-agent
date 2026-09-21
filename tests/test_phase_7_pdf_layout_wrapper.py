@@ -101,6 +101,52 @@ def test_pdf_layout_interface_delegates_layout_reading_to_extraction_policy() ->
     assert "def _normalise_blocks" not in source
 
 
+def test_pdf_layout_interface_delegates_completed_layout_response_to_workflow() -> None:
+    source = (
+        SOURCE_ROOT / "src" / "saxophone" / "interfaces" / "pdf_layout_web.py"
+    ).read_text(encoding="utf-8")
+
+    assert "from saxophone.workflows import" in source
+    assert "load_layout_pages(" in source
+    assert '"pages": read_layout_pages(' not in source
+
+
+def test_layout_workflow_composes_state_and_pages_through_injected_policies() -> None:
+    from pathlib import Path
+
+    from saxophone.workflows import load_layout_pages
+
+    calls: list[object] = []
+
+    def load_completed(job_id: str) -> dict[str, object]:
+        calls.append(("state", job_id))
+        return {"id": job_id, "status": "completed", "private": "hidden"}
+
+    def public_state(state: dict[str, object]) -> dict[str, object]:
+        calls.append(("public", state))
+        return {"id": state["id"], "status": state["status"]}
+
+    def read_pages(path: Path, page_url) -> list[dict[str, object]]:
+        calls.append(("pages", path, page_url(2)))
+        return [{"page": 2}]
+
+    result = load_layout_pages(
+        "job-id",
+        load_completed_state=load_completed,
+        public_state=public_state,
+        layout_path=lambda job_id: Path("layout") / job_id,
+        read_pages=read_pages,
+        page_url=lambda page: f"/pages/{page}",
+    )
+
+    assert result == {"job": {"id": "job-id", "status": "completed"}, "pages": [{"page": 2}]}
+    assert calls == [
+        ("state", "job-id"),
+        ("public", {"id": "job-id", "status": "completed", "private": "hidden"}),
+        ("pages", Path("layout") / "job-id", "/pages/2"),
+    ]
+
+
 def test_pdf_layout_interface_does_not_keep_local_pdf_raster_implementation() -> None:
     source = (
         SOURCE_ROOT / "src" / "saxophone" / "interfaces" / "pdf_layout_web.py"
@@ -127,7 +173,7 @@ def test_pdf_layout_interface_delegates_layout_readiness_to_job_store() -> None:
         SOURCE_ROOT / "src" / "saxophone" / "interfaces" / "pdf_layout_web.py"
     ).read_text(encoding="utf-8")
 
-    assert "JOB_STORE.load_completed_state(job_id)" in source
+    assert "load_completed_state=JOB_STORE.load_completed_state" in source
     assert 'state.get("status") != "completed"' not in source
 
 
@@ -250,7 +296,7 @@ def test_pdf_layout_routes_delegate_artifact_paths_to_job_store() -> None:
     assert "JOB_STORE.artifact_paths(" in source
     assert "JOB_STORE.save_uploaded_pdf" in source
     assert "JOB_STORE.page_image_path(job_id, page_number)" in source
-    assert "artifact_paths(job_id).layout" in source
+    assert "artifact_paths(current_job_id).layout" in source
 
 
 def test_pdf_page_route_delegates_rendered_page_path_policy_to_job_store() -> None:

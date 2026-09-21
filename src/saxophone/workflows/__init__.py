@@ -7,7 +7,7 @@ from .pdf_layout_jobs import (
     PdfLayoutJobRequestError,
     PdfLayoutJobStore,
 )
-from .pdf_layout_extraction import run_extraction
+from .pdf_layout_extraction import load_layout_pages, run_extraction
 from .process_document import ProcessAndPersistDocument, ProcessDocument
 
 __all__ = [
@@ -19,4 +19,5 @@ __all__ = [
     "PdfLayoutJobStore",
     "PdfLayoutArtifactPaths",
     "run_extraction",
+    "load_layout_pages",
 ]

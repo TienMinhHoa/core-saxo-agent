@@ -25,6 +25,7 @@ from saxophone.workflows import (
     PdfLayoutJobNotFound,
     PdfLayoutJobRequestError,
     PdfLayoutJobStore,
+    load_layout_pages,
 )
 from saxophone.workflows import run_extraction
 
@@ -114,18 +115,18 @@ def job_status(job_id: str) -> dict[str, Any]:
 @app.get("/api/jobs/{job_id}/layout")
 def job_layout(job_id: str) -> dict[str, Any]:
     try:
-        state = JOB_STORE.load_completed_state(job_id)
+        return load_layout_pages(
+            job_id,
+            load_completed_state=JOB_STORE.load_completed_state,
+            public_state=getattr(JOB_STORE, "public_state", PdfLayoutJobStore.public_state),
+            layout_path=lambda current_job_id: JOB_STORE.artifact_paths(current_job_id).layout,
+            read_pages=read_layout_pages,
+            page_url=lambda page: f"/api/jobs/{job_id}/pages/{page}",
+        )
     except PdfLayoutJobNotFound as exc:
         raise HTTPException(status_code=404, detail="Job khong ton tai") from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail="Ket qua chua san sang") from exc
-    layout_dir = JOB_STORE.artifact_paths(job_id).layout
-    return {
-        "job": JOB_STORE.public_state(state),
-        "pages": read_layout_pages(
-            layout_dir, lambda page: f"/api/jobs/{job_id}/pages/{page}"
-        ),
-    }
 
 
 @app.get("/api/jobs/{job_id}/pages/{page_number}")

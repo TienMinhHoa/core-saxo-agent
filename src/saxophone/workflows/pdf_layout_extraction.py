@@ -12,6 +12,23 @@ from typing import Any
 from saxophone.workflows import PdfLayoutArtifactPaths
 
 
+def load_layout_pages(
+    job_id: str,
+    *,
+    load_completed_state: Callable[[str], dict[str, Any]],
+    public_state: Callable[[dict[str, Any]], dict[str, Any]],
+    layout_path: Callable[[str], Path],
+    read_pages: Callable[[Path, Callable[[int], str]], list[dict[str, Any]]],
+    page_url: Callable[[int], str],
+) -> dict[str, Any]:
+    """Build the completed-layout response through workflow-owned policies."""
+    state = load_completed_state(job_id)
+    return {
+        "job": public_state(state),
+        "pages": read_pages(layout_path(job_id), page_url),
+    }
+
+
 def run_extraction(
     job_id: str,
     *,
