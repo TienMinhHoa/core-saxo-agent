@@ -107,11 +107,16 @@ Test gồm parser/asset validation, review state, dependency/version/scope, rend
 
 ## PDF layout extractor
 
+Backend ch盻・cung c蘯･p m盻冢t web entrypoint `saxophone-api`. OCR/PP-StructureV3
+ch蘯｡y trﾃｪn model service remote; backend khﾃｴng cﾃi Paddle, CUDA ho蘯ｷc
+model weight local. Tham s盻・`device` trong workflow ch盻・lﾃ profile tﾆｰﾆ｡ng
+thﾃｭch, khﾃｴng ph蘯｣i b蘯ｱng ch盻ｩng backend cﾃｳ GPU local.
+
 Viewer cục bộ cho luồng **tải PDF → chạy PP-StructureV3 → đối chiếu bounding
 box với text/ảnh trích xuất**. Khởi động bằng virtual environment của project:
 
 ```bash
-uv run pdf-layout-web --host 127.0.0.1 --port 8000
+uv run saxophone-api --host 127.0.0.1 --port 8000
 ```
 
 Mở `http://127.0.0.1:8000`, chọn PDF, bấm **Thêm tài liệu**, rồi bấm **Chạy
