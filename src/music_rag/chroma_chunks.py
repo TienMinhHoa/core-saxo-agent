@@ -244,16 +244,30 @@ def _metadata(record: dict[str, Any]) -> dict[str, Any]:
 
 
 def _write_json(path: Path, value: Any) -> None:
+    _validate_json_path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    _validate_json_path(path)
     fd, temporary = tempfile.mkstemp(prefix=f"{path.stem}-", suffix=".tmp", dir=path.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             json.dump(value, handle, ensure_ascii=False, indent=2)
             handle.write("\n")
+        _validate_json_path(path)
         os.replace(temporary, path)
     except BaseException:
         Path(temporary).unlink(missing_ok=True)
         raise
+
+
+def _validate_json_path(path: Path) -> None:
+    """Reject path components that could redirect sidecar persistence."""
+
+    absolute_path = path.absolute()
+    current = Path(absolute_path.anchor)
+    for component in absolute_path.parts[1:]:
+        current /= component
+        if current.is_symlink():
+            raise ValueError("JSON sidecar path must not contain a symbolic link")
 
 
 def _price_per_million(model: str) -> float:
