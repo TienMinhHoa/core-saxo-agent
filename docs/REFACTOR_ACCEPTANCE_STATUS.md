@@ -17,6 +17,9 @@ khi có feature parity và quyết định migration riêng.
 - Chưa được phép kết luận production-ready: checkout không có remote
   model-service endpoint/credential để chạy live smoke thật. Trạng thái này
   được tách riêng tại `LIVE_MODEL_SERVICE_SMOKE_STATUS.md`.
+- Iteration 345 đã build wheel backend thành công bằng `uv build`; artifact và
+  entry-point metadata được kiểm tra offline tại
+  `docs/ITERATION_345_PHASE7_PACKAGE_BUILD.md`.
 
 ### Iteration 156 — canonical contract của `ModelResponse`
 
