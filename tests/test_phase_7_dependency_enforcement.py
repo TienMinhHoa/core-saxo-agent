@@ -189,6 +189,17 @@ def test_project_declares_one_backend_asgi_entrypoint() -> None:
     assert backend_scripts == {"saxophone-api": "saxophone.main:main"}
 
 
+def test_project_does_not_advertise_legacy_pdf_web_script() -> None:
+    """Keep the compatibility module importable without a second web CLI."""
+
+    project_root = SOURCE_ROOT.parents[1]
+    scripts = tomllib.loads(
+        (project_root / "pyproject.toml").read_text(encoding="utf-8")
+    )["project"]["scripts"]
+
+    assert "pdf-layout-web" not in scripts
+
+
 def test_backend_asgi_module_is_only_a_bootstrap_boundary() -> None:
     """Keep ASGI import/bootstrap separate from route and adapter wiring."""
 
