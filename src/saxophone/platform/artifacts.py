@@ -78,13 +78,17 @@ class LocalArtifactRepository:
 
     async def put(self, artifact: ArtifactRef, payload: bytes) -> None:
         _require_artifact_ref(artifact)
-        self._validate_payload(artifact, payload)
         await anyio.to_thread.run_sync(
-            self._write_atomically,
+            self._write_artifact,
             artifact,
             payload,
             limiter=self._io_limiter,
         )
+
+    def _write_artifact(self, artifact: ArtifactRef, payload: bytes) -> None:
+        """Validate and persist the artifact without filesystem work on the event loop."""
+        self._validate_payload(artifact, payload)
+        self._write_atomically(artifact, payload)
 
     async def get(self, artifact: ArtifactRef) -> bytes:
         _require_artifact_ref(artifact)

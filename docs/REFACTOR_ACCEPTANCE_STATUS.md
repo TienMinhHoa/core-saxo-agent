@@ -300,6 +300,17 @@ deployment production.
 
 ### Iteration 211 - recheck parent artifact sau `mkdir`
 
+### Iteration 213 - payload validation của artifact không chạy trên event loop
+
+- `LocalArtifactRepository.put()` đưa payload size/SHA-256 validation và atomic
+  write vào `_write_artifact()` chạy qua bounded `CapacityLimiter`; boundary
+  vẫn reject `ArtifactRef` sai loại trước khi submit.
+- Contract test chứng minh `_validate_payload()` chạy trên worker thread:
+  targeted **35 passed, 1 skipped**. Chi tiết tại
+  `docs/ITERATION_213_ARTIFACT_PUT_IO_BOUNDARY.md`.
+- Live model-service smoke và production parity vẫn chưa xác minh vì checkout
+  thiếu endpoint, credential và production catalog được phê duyệt.
+
 - `LocalArtifactRepository` gọi lại `_path_for()` sau khi tạo parent directory,
   tránh tiếp tục ghi nếu parent path bị biến thành symbolic link sau lần kiểm
   tra ban đầu.

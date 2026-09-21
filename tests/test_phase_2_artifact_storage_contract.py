@@ -245,6 +245,27 @@ def test_get_performs_artifact_path_validation_inside_blocking_io_worker(
     assert observed_threads == [thread_id for thread_id in observed_threads if thread_id != caller_thread]
 
 
+def test_put_performs_payload_validation_inside_blocking_io_worker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = LocalArtifactRepository(tmp_path)
+    artifact = _artifact()
+    caller_thread = threading.get_ident()
+    observed_threads: list[int] = []
+    real_validate_payload = repository._validate_payload
+
+    def observe_validate_payload(artifact_ref: ArtifactRef, payload: bytes) -> None:
+        observed_threads.append(threading.get_ident())
+        real_validate_payload(artifact_ref, payload)
+
+    monkeypatch.setattr(repository, "_validate_payload", observe_validate_payload)
+
+    asyncio.run(repository.put(artifact, b"1234567"))
+
+    assert observed_threads
+    assert observed_threads == [thread_id for thread_id in observed_threads if thread_id != caller_thread]
+
+
 def test_repository_rejects_symbolic_link_at_artifact_identity(
     tmp_path: Path,
 ) -> None:
