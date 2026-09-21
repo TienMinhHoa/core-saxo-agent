@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-import hashlib
 import re
+from collections import Counter
 from dataclasses import dataclass
 from typing import Mapping
 
 from saxophone.ingestion import IngestionSourceChunk
 
 from .models import ParagraphBlock
+from .paragraph_identity import paragraph_reference, normalized_identity
 
 _PAGE_MARKER = re.compile(r"^##\s+Page\s+\d+\s*$", re.IGNORECASE)
 _HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
@@ -78,7 +79,15 @@ def parse_chunk_paragraphs(
 
     if pending_images and blocks:
         blocks[-1].image_refs.extend(pending_images)
-    return tuple(_to_paragraph(chunk.chunk_id, ordinal, block, metadata) for ordinal, block in enumerate(blocks))
+    occurrences: Counter[str] = Counter()
+    paragraphs: list[ParagraphBlock] = []
+    for ordinal, block in enumerate(blocks):
+        identity = normalized_identity("\n".join(block.lines))
+        occurrences[identity] += 1
+        paragraphs.append(
+            _to_paragraph(chunk.chunk_id, ordinal, block, metadata, occurrences[identity])
+        )
+    return tuple(paragraphs)
 
 
 def _to_paragraph(
@@ -86,6 +95,7 @@ def _to_paragraph(
     ordinal: int,
     block: _Block,
     image_metadata: Mapping[str, Mapping[str, object]],
+    duplicate_occurrence: int,
 ) -> ParagraphBlock:
     refs = tuple(dict.fromkeys(block.image_refs))
     captions = {
@@ -94,9 +104,8 @@ def _to_paragraph(
         if ref in image_metadata and isinstance(image_metadata[ref].get("caption"), str)
         and str(image_metadata[ref]["caption"]).strip()
     }
-    digest = hashlib.sha256(f"{chunk_id}:{ordinal}".encode()).hexdigest()[:12]
     return ParagraphBlock(
-        paragraph_id=f"{chunk_id}:p{ordinal:04d}-{digest}",
+        paragraph_id=paragraph_reference(chunk_id, "\n".join(block.lines), duplicate_occurrence),
         chunk_id=chunk_id,
         ordinal=ordinal,
         text="\n".join(block.lines),
