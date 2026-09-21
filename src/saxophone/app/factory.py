@@ -9,6 +9,7 @@ from typing import AsyncIterator
 from uuid import uuid4
 
 import httpx
+import anyio
 from fastapi import FastAPI
 from fastapi import Request
 from fastapi.responses import Response
@@ -315,7 +316,7 @@ def create_app(
                     else:
                         close = getattr(vector_index, "close", None)
                         if callable(close):
-                            close()
+                            await anyio.to_thread.run_sync(close, limiter=io_limiter)
             finally:
                 if http_client is not None:
                     await http_client.aclose()

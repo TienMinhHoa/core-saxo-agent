@@ -456,6 +456,36 @@ def test_lifespan_closes_shared_http_client_when_vector_cleanup_fails(monkeypatc
     assert client.is_closed is True
 
 
+def test_lifespan_offloads_sync_vector_cleanup_to_bounded_worker(monkeypatch) -> None:
+    calls: list[tuple[object, object]] = []
+
+    async def tracked_run_sync(callable_, *, limiter):
+        calls.append((callable_, limiter))
+        callable_()
+
+    monkeypatch.setattr("saxophone.app.factory.anyio.to_thread.run_sync", tracked_run_sync)
+
+    class SyncVectorIndex:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    vector_index = SyncVectorIndex()
+    app = create_app(
+        build_settings(),
+        overrides=AppOverrides(vector_index=vector_index),
+    )
+
+    with TestClient(app):
+        pass
+
+    assert vector_index.closed is True
+    assert len(calls) == 1
+    assert calls[0][0].__self__ is vector_index
+
+
 def test_indexing_composition_uses_durable_reuse_store_by_default() -> None:
     vector_index = object()
     app = create_app(
