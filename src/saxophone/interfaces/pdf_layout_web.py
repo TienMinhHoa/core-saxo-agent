@@ -24,7 +24,7 @@ from typing import Any
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 
-from saxophone.extraction import read_layout_pages
+from saxophone.extraction import read_layout_pages, render_pdf_pages
 from saxophone.workflows import run_extraction
 from saxophone.workflows.pdf_layout_jobs import PdfLayoutJobNotFound, PdfLayoutJobStore
 
@@ -136,7 +136,7 @@ def start_extraction(job_id: str, device: str = "cpu", language: str = "vi") -> 
         kwargs={
             "artifact_paths": JOB_STORE.artifact_paths,
             "update_state": JOB_STORE.update_state,
-            "render_pages": _render_pages,
+            "render_pages": render_pdf_pages,
             "extraction_lock": EXTRACTION_LOCK,
         },
         daemon=True,

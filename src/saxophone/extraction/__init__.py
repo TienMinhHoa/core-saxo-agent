@@ -19,6 +19,7 @@ from .layout import (
     normalize_blocks,
 )
 from .layout_view import read_layout_pages
+from .pdf_pages import render_pdf_pages
 
 __all__ = [
     "CoordinateSpace",
@@ -35,4 +36,5 @@ __all__ = [
     "finite_number",
     "is_raw_pdf_raster_space",
     "read_layout_pages",
+    "render_pdf_pages",
 ]

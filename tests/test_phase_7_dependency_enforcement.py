@@ -677,9 +677,10 @@ def test_extraction_exposes_a_public_application_facade() -> None:
         "RAW_PDF_RASTER_SPACE",
         "finite_number",
         "is_raw_pdf_raster_space",
-            "normalize_blocks",
-            "read_layout_pages",
-        }
+                "normalize_blocks",
+                "read_layout_pages",
+                "render_pdf_pages",
+            }
 
     assert set(extraction.__all__) == expected
     assert all(hasattr(extraction, name) for name in expected)
