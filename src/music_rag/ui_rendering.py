@@ -23,6 +23,31 @@ def display_status(code: str) -> str:
     return messages.get(code, messages["system_error"])
 
 
+def format_answer_cost(result: dict[str, Any]) -> str:
+    """Format answer-model usage and cost for the compatibility UI."""
+    usage = result["usage"]
+    cost = result["cost"]
+    estimated = " (ước lượng)" if not usage.get("available", False) else ""
+    return "\n".join([
+        "### Chi phí riêng của lượt tổng hợp",
+        f"- Model: `{result['model']}` · thinking: enabled · effort: `{result['reasoning_effort']}`",
+        (
+            f"- Input: **{int(usage['input_tokens']):,}** token{estimated} "
+            f"(cache hit {int(usage['cache_hit_tokens']):,}, miss {int(usage['cache_miss_tokens']):,})"
+        ),
+        (
+            f"- Output: **{int(usage['output_tokens']):,}** token{estimated} "
+            f"(reasoning {int(usage.get('reasoning_tokens', 0)):,})"
+        ),
+        f"- Khung giá: `{cost['period']}` (UTC) · ảnh gửi kèm: {result.get('image_inputs', 0)}",
+        (
+            f"- **Tổng chi phí trả lời: `${cost['total_usd']:.8f}`** "
+            f"(input `${cost['input_usd']:.8f}`, output `${cost['output_usd']:.8f}`)"
+        ),
+        "> Chi phí này chỉ tính request tổng hợp DeepSeek, không tính embedding/retrieval.",
+    ])
+
+
 def _safe_image_path(record: dict[str, Any], image: dict[str, Any]) -> Path | None:
     image_path = image.get("image_path")
     extraction_dir = record.get("extraction_dir")
@@ -127,6 +152,7 @@ def render_chroma_results(hits: list[dict[str, Any]]) -> tuple[str, list[tuple[s
 __all__ = [
     "chroma_asset_paths",
     "display_status",
+    "format_answer_cost",
     "render_chroma_results",
     "render_source_bundle",
 ]

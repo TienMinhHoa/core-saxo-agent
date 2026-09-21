@@ -26,6 +26,7 @@ from music_rag.errors import MusicRagError
 # package namespace instead of being owned by the root entrypoint.
 from music_rag.ui_rendering import (
     chroma_asset_paths as chroma_asset_paths,
+    format_answer_cost as _format_answer_cost,
     render_chroma_results as _render_chroma_results,
 )
 
@@ -130,7 +131,7 @@ def create_app(
             if retrieval.status == "selected"
             else "Đang tổng hợp từ source chunk tốt nhất ở vòng retrieval cuối cùng."
         )
-        return status, answer_result["answer"], body, images, _answer_cost_markdown(answer_result)
+        return status, answer_result["answer"], body, images, _format_answer_cost(answer_result)
 
     css = """
     .source-item { border-top: 1px solid #ddd; margin-top: 1rem; padding-top: 1rem; }

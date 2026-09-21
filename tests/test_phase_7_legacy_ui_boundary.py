@@ -12,6 +12,7 @@ def test_ui_rendering_exposes_only_pure_policy_helpers() -> None:
     assert set(__all__) == {
         "chroma_asset_paths",
         "display_status",
+        "format_answer_cost",
         "render_chroma_results",
         "render_source_bundle",
     }
