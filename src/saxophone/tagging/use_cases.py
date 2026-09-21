@@ -55,6 +55,8 @@ class TagParagraph:
             raise ValueError("resolution profile does not match request")
         if resolution.generated_tags != generated.tags:
             raise ValueError("resolution generated tags do not match generation result")
+        if tuple(item.generated_tag for item in resolution.resolutions) != generated.tags:
+            raise ValueError("resolution order does not match generation result")
         return TaggedParagraph(
             paragraph_id=paragraph.paragraph_id,
             text=paragraph.text,

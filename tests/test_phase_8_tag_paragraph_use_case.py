@@ -146,6 +146,28 @@ async def test_tag_paragraph_rejects_missing_resolution_generated_tags() -> None
 
 
 @pytest.mark.anyio
+async def test_tag_paragraph_rejects_resolution_order_drift() -> None:
+    class _ReorderedResolver(_Resolver):
+        async def resolve(self, request):
+            result = await super().resolve(request)
+            return TagConflictResolution(
+                paragraph_id=result.paragraph_id,
+                resolutions=tuple(reversed(result.resolutions)),
+                resolution_profile=result.resolution_profile,
+                generated_tags=result.generated_tags,
+                existing_tags=("Harmony definition",),
+            )
+
+    with pytest.raises(ValueError, match="resolution order"):
+        await TagParagraph(_Generator(), _ReorderedResolver()).execute(
+            _paragraph(),
+            tagging_profile="topic-tags-v1",
+            resolution_profile="tag-conflicts-v1",
+            existing_tags=(ExistingTagCandidate("Harmony definition"),),
+        )
+
+
+@pytest.mark.anyio
 async def test_tag_paragraph_does_not_silently_fallback_when_generation_fails() -> None:
     class _FailingGenerator:
         async def generate(self, request):
