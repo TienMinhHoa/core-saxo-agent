@@ -79,10 +79,6 @@ class TagConflictResolution:
         )
         generated = tuple(tag.strip() for tag in self.generated_tags)
         existing = tuple(tag.strip() for tag in self.existing_tags)
-        if generated and len({item.generated_tag for item in normalized}) != len(normalized):
-            raise ValueError("each generated tag must have exactly one resolution")
-        if generated and set(generated) != {item.generated_tag for item in normalized}:
-            raise ValueError("each generated tag must have exactly one resolution")
         candidates = set(existing)
         for item in normalized:
             if item.action == "reuse_existing" and item.resolved_tag not in candidates:
@@ -91,6 +87,10 @@ class TagConflictResolution:
                 raise ValueError("reuse_existing requires an existing tag candidate")
             if not candidates and item.action != "keep_new":
                 raise ValueError("empty candidate list only allows keep_new")
+        if len({item.generated_tag for item in normalized}) != len(normalized):
+            raise ValueError("each generated tag must have exactly one resolution")
+        if set(generated) != {item.generated_tag for item in normalized}:
+            raise ValueError("each generated tag must have exactly one resolution")
         object.__setattr__(self, "resolutions", normalized)
         object.__setattr__(self, "generated_tags", generated)
         object.__setattr__(self, "existing_tags", existing)
