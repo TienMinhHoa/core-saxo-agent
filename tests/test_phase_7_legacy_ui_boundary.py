@@ -19,7 +19,7 @@ def test_ui_rendering_exposes_only_pure_policy_helpers() -> None:
 
 
 def test_root_entrypoint_delegates_status_and_asset_policy() -> None:
-    tree = ast.parse(Path("app.py").read_text(encoding="utf-8"))
+    tree = ast.parse(Path("src/music_rag/ui_app.py").read_text(encoding="utf-8"))
     imports = {
         node.module
         for node in ast.walk(tree)
@@ -119,7 +119,7 @@ def test_root_entrypoint_does_not_retain_obsolete_callback_typing_import() -> No
 def test_root_entrypoint_callbacks_have_no_unreachable_legacy_body() -> None:
     """Delegating callbacks must not retain the pre-facade implementation."""
 
-    tree = ast.parse(Path("app.py").read_text(encoding="utf-8"))
+    tree = ast.parse(Path("src/music_rag/ui_app.py").read_text(encoding="utf-8"))
     create_app = next(
         node
         for node in tree.body
@@ -135,3 +135,15 @@ def test_root_entrypoint_callbacks_have_no_unreachable_legacy_body() -> None:
     for callback in (callbacks["ask_chroma"], callbacks["ask_answer"]):
         assert len(callback.body) == 1
         assert isinstance(callback.body[0], ast.Return)
+
+
+def test_root_entrypoint_is_only_a_compatibility_wrapper() -> None:
+    tree = ast.parse(Path("app.py").read_text(encoding="utf-8"))
+    imports = {
+        (node.module, tuple(alias.name for alias in node.names))
+        for node in tree.body
+        if isinstance(node, ast.ImportFrom)
+    }
+
+    assert imports == {("music_rag.ui_app", ("create_app", "main"))}
+    assert not any(isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) for node in tree.body)
