@@ -11,6 +11,9 @@ khi có feature parity và quyết định migration riêng.
   extraction, ingestion, retrieval, chat, tagging, workflow và API adapters.
 - Bằng chứng offline hiện tại: `uv run pytest -q` đạt **1062 passed, 18 skipped,
   1 warning**; `compileall` và `git diff --check` cũng đạt ở iteration 342.
+- Iteration 343 chạy lại contract Phase 7 đạt **81 passed** và full suite đạt
+  **1062 passed, 18 skipped, 1 warning**; chi tiết tại
+  `docs/ITERATION_343_PHASE7_ACCEPTANCE_RECHECK.md`.
 - Chưa được phép kết luận production-ready: checkout không có remote
   model-service endpoint/credential để chạy live smoke thật. Trạng thái này
   được tách riêng tại `LIVE_MODEL_SERVICE_SMOKE_STATUS.md`.
