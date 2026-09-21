@@ -9,8 +9,8 @@ khi có feature parity và quyết định migration riêng.
 
 - Các capability đích đã có trong package `src/saxophone`: composition root,
   extraction, ingestion, retrieval, chat, tagging, workflow và API adapters.
-- Bằng chứng offline hiện tại: `uv run pytest` đạt **425 passed, 2 skipped**;
-  `compileall` và `git diff --check` đã được chạy ở lát cắt gần nhất.
+- Bằng chứng offline hiện tại: `uv run pytest -q` đạt **973 passed, 18 skipped,
+  1 warning**; `compileall` và `git diff --check` cũng đạt ở iteration 293.
 - Chưa được phép kết luận production-ready: checkout không có remote
   model-service endpoint/credential để chạy live smoke thật. Trạng thái này
   được tách riêng tại `LIVE_MODEL_SERVICE_SMOKE_STATUS.md`.
@@ -23,6 +23,16 @@ khi có feature parity và quyết định migration riêng.
 - Regression tests cho 9 trường hợp không canonical; targeted adapter suite đạt
   **47 passed**. Chi tiết tại
   `docs/ITERATION_156_MODEL_RESPONSE_CANONICAL_CONTRACT.md`.
+
+### Iteration 293 — dọn formatter UI chết khỏi root entrypoint
+
+- Xóa `_answer_cost_markdown` và import `Any` không còn dùng khỏi `app.py`;
+  formatter đang dùng vẫn nằm sau facade `music_rag.ui_rendering`.
+- Thêm AST contract ngăn helper chết quay lại root entrypoint. Targeted đạt
+  **5 passed**; full suite đạt **973 passed, 18 skipped, 1 warning**.
+- Bằng chứng chi tiết tại `docs/ITERATION_293_PHASE7_UI_DEAD_FORMATTER.md`.
+- Live model-service smoke và production golden parity vẫn chưa xác minh do
+  checkout thiếu endpoint, credential và production catalog thật.
 
 ## Đối chiếu tiêu chí bắt buộc
 

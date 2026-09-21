@@ -9,7 +9,6 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
-from typing import Any
 
 import gradio as gr
 from dotenv import load_dotenv
@@ -29,31 +28,6 @@ from music_rag.ui_rendering import (
     format_answer_cost as _format_answer_cost,
     render_chroma_results as _render_chroma_results,
 )
-
-
-def _answer_cost_markdown(result: dict[str, Any]) -> str:
-    usage = result["usage"]
-    cost = result["cost"]
-    estimated = " (ước lượng)" if not usage.get("available", False) else ""
-    return "\n".join([
-        "### Chi phí riêng của lượt tổng hợp",
-        f"- Model: `{result['model']}` · thinking: enabled · effort: `{result['reasoning_effort']}`",
-        (
-            f"- Input: **{int(usage['input_tokens']):,}** token{estimated} "
-            f"(cache hit {int(usage['cache_hit_tokens']):,}, miss {int(usage['cache_miss_tokens']):,})"
-        ),
-        (
-            f"- Output: **{int(usage['output_tokens']):,}** token{estimated} "
-            f"(reasoning {int(usage.get('reasoning_tokens', 0)):,})"
-        ),
-        f"- Khung giá: `{cost['period']}` (UTC) · ảnh gửi kèm: {result.get('image_inputs', 0)}",
-        (
-            f"- **Tổng chi phí trả lời: `${cost['total_usd']:.8f}`** "
-            f"(input `${cost['input_usd']:.8f}`, output `${cost['output_usd']:.8f}`)"
-        ),
-        "> Chi phí này chỉ tính request tổng hợp DeepSeek, không tính embedding/retrieval.",
-    ])
-
 
 def create_app(
     catalog_path: str | Path,

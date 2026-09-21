@@ -60,3 +60,16 @@ def test_root_entrypoint_has_no_dead_legacy_ui_aliases() -> None:
     assert imported_names.isdisjoint(
         {"MusicMaterialService", "_display_status", "_render_source_bundle"}
     )
+
+
+def test_root_entrypoint_has_no_dead_answer_cost_formatter() -> None:
+    """The root UI must not retain an unused presentation formatter."""
+
+    tree = ast.parse(Path("app.py").read_text(encoding="utf-8"))
+    definitions = {
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+
+    assert "_answer_cost_markdown" not in definitions
