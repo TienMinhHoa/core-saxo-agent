@@ -101,3 +101,29 @@ def test_json_repository_rejects_symbolic_link_root(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="root must not be a symbolic link"):
         JsonKnowledgeRepository(link)
+
+
+@pytest.mark.parametrize("operation", ["get", "delete"])
+def test_json_repository_rechecks_root_before_read_or_delete(
+    tmp_path: Path,
+    operation: str,
+) -> None:
+    repository = JsonKnowledgeRepository(tmp_path / "root")
+    chunk = _chunk()
+    asyncio.run(repository.upsert(chunk))
+
+    target = tmp_path / "target"
+    target.mkdir()
+    link = tmp_path / "link"
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except (OSError, NotImplementedError) as error:
+        pytest.skip(f"symbolic links unavailable: {error}")
+
+    repository._root = link  # type: ignore[attr-defined]
+
+    with pytest.raises(ValueError, match="root must not be a symbolic link"):
+        if operation == "get":
+            asyncio.run(repository.get(chunk.chunk_id))
+        else:
+            asyncio.run(repository.delete(chunk.chunk_id))

@@ -89,6 +89,7 @@ class JsonKnowledgeRepository:
         return payload
 
     def _path_for(self, chunk_id: str) -> Path:
+        _reject_symbolic_link_in_path(self._root)
         if not isinstance(chunk_id, str) or not chunk_id.strip():
             raise ValueError("chunk_id must not be blank")
         digest = hashlib.sha256(chunk_id.encode("utf-8")).hexdigest()
