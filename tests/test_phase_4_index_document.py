@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 
 import anyio
 import pytest
@@ -348,3 +349,54 @@ async def test_file_embedding_reuse_store_passes_shared_limiter_to_blocking_io(
     await store.save((_record(),))
 
     assert calls == [limiter, limiter]
+
+
+def test_file_embedding_reuse_store_rejects_symbolic_link_path(tmp_path) -> None:
+    target = tmp_path / "real.json"
+    link = tmp_path / "embedding-reuse.json"
+    try:
+        link.symlink_to(target)
+    except (OSError, NotImplementedError) as error:
+        pytest.skip(f"symbolic links unavailable: {error}")
+
+    with pytest.raises(ValueError, match="symbolic link"):
+        FileEmbeddingReuseStore(link)
+
+
+def test_file_embedding_reuse_store_rejects_symbolic_link_parent(tmp_path) -> None:
+    real_parent = tmp_path / "real-parent"
+    real_parent.mkdir()
+    redirected_parent = tmp_path / "redirected-parent"
+    try:
+        redirected_parent.symlink_to(real_parent, target_is_directory=True)
+    except (OSError, NotImplementedError) as error:
+        pytest.skip(f"symbolic links unavailable: {error}")
+
+    with pytest.raises(ValueError, match="symbolic link"):
+        FileEmbeddingReuseStore(redirected_parent / "embedding-reuse.json")
+
+
+@pytest.mark.anyio
+async def test_file_embedding_reuse_store_rechecks_parent_after_creation(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "nested" / "embedding-reuse.json"
+    store = FileEmbeddingReuseStore(path)
+    original_mkdir = Path.mkdir
+    switched = False
+
+    def mkdir_and_redirect(self, *args, **kwargs):
+        nonlocal switched
+        result = original_mkdir(self, *args, **kwargs)
+        if self == path.parent and not switched:
+            switched = True
+            redirected = tmp_path / "redirected"
+            redirected.mkdir()
+            self.rmdir()
+            try:
+                self.symlink_to(redirected, target_is_directory=True)
+            except (OSError, NotImplementedError) as error:
+                pytest.skip(f"symbolic links unavailable: {error}")
+        return result
+
+    monkeypatch.setattr(Path, "mkdir", mkdir_and_redirect)
+    with pytest.raises(ValueError, match="symbolic link"):
+        await store.save((_record(),))

@@ -71,6 +71,7 @@ class FileEmbeddingReuseStore(EmbeddingReuseStore):
         self._path = Path(path)
         if self._path.name in {"", ".", ".."}:
             raise ValueError("embedding reuse store path must name a file")
+        _reject_symbolic_link_in_path(self._path)
         self._lock_path = self._path.with_name(f".{self._path.name}.lock")
         self._io_limiter = io_limiter or create_blocking_io_limiter()
 
@@ -102,6 +103,7 @@ class FileEmbeddingReuseStore(EmbeddingReuseStore):
             return self._read_unlocked()
 
     def _read_unlocked(self) -> dict[tuple[str, str, str, str], ChunkIndexRecord]:
+        _reject_symbolic_link_in_path(self._path)
         if not self._path.exists():
             return {}
         try:
@@ -115,6 +117,7 @@ class FileEmbeddingReuseStore(EmbeddingReuseStore):
 
     def _save(self, records: Sequence[ChunkIndexRecord]) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
+        _reject_symbolic_link_in_path(self._path)
         with self._file_lock():
             merged = self._read_unlocked()
             for record in records:
@@ -144,6 +147,7 @@ class FileEmbeddingReuseStore(EmbeddingReuseStore):
     def _file_lock(self) -> Iterator[None]:
         """Serialize read-modify-write cycles across processes."""
         self._lock_path.parent.mkdir(parents=True, exist_ok=True)
+        _reject_symbolic_link_in_path(self._lock_path)
         with self._lock_path.open("a+b") as lock_file:
             lock_file.seek(0)
             lock_file.write(b"0")
@@ -207,6 +211,19 @@ class FileEmbeddingReuseStore(EmbeddingReuseStore):
             access_scope=item["access_scope"],
             metadata=metadata,
         )
+
+
+def _reject_symbolic_link_in_path(path: Path) -> None:
+    """Reject a cache path whose existing components redirect persistence."""
+
+    absolute_path = path.absolute()
+    current = Path(absolute_path.anchor)
+    for component in absolute_path.parts[1:]:
+        current /= component
+        if current.is_symlink():
+            if current == absolute_path:
+                raise ValueError("embedding reuse store path must not be a symbolic link")
+            raise ValueError("embedding reuse store path must not contain a symbolic link")
 
 
 class RemoteEmbeddingProvider(EmbeddingProvider):
