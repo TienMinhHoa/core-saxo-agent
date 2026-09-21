@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Mapping
 
+from .paragraph_identity import exact_content_hash, normalized_identity_hash
+
 
 @dataclass(frozen=True, slots=True)
 class ExistingTagCandidate:
@@ -149,6 +151,8 @@ class ParagraphBlock:
     heading_path: tuple[str, ...] = ()
     image_refs: tuple[str, ...] = ()
     image_captions: Mapping[str, str] = MappingProxyType({})
+    exact_content_hash: str = ""
+    normalized_identity_hash: str = ""
 
     def __post_init__(self) -> None:
         for name in ("paragraph_id", "chunk_id", "text"):
@@ -170,6 +174,14 @@ class ParagraphBlock:
         object.__setattr__(self, "heading_path", tuple(self.heading_path))
         object.__setattr__(self, "image_refs", tuple(self.image_refs))
         object.__setattr__(self, "image_captions", MappingProxyType(dict(self.image_captions)))
+        exact_hash = exact_content_hash(self.text)
+        normalized_hash = normalized_identity_hash(self.text)
+        if self.exact_content_hash and self.exact_content_hash != exact_hash:
+            raise ValueError("exact_content_hash does not match paragraph text")
+        if self.normalized_identity_hash and self.normalized_identity_hash != normalized_hash:
+            raise ValueError("normalized_identity_hash does not match paragraph text")
+        object.__setattr__(self, "exact_content_hash", exact_hash)
+        object.__setattr__(self, "normalized_identity_hash", normalized_hash)
 
 
 @dataclass(frozen=True, slots=True)
@@ -218,6 +230,8 @@ class TaggedParagraph:
     heading_path: tuple[str, ...] = ()
     image_refs: tuple[str, ...] = ()
     image_captions: Mapping[str, str] = MappingProxyType({})
+    exact_content_hash: str = ""
+    normalized_identity_hash: str = ""
 
     def __post_init__(self) -> None:
         _require_non_blank("paragraph_id", self.paragraph_id)
@@ -248,6 +262,14 @@ class TaggedParagraph:
         object.__setattr__(self, "heading_path", tuple(self.heading_path))
         object.__setattr__(self, "image_refs", tuple(self.image_refs))
         object.__setattr__(self, "image_captions", MappingProxyType(dict(self.image_captions)))
+        exact_hash = exact_content_hash(self.text)
+        normalized_hash = normalized_identity_hash(self.text)
+        if self.exact_content_hash and self.exact_content_hash != exact_hash:
+            raise ValueError("exact_content_hash does not match paragraph text")
+        if self.normalized_identity_hash and self.normalized_identity_hash != normalized_hash:
+            raise ValueError("normalized_identity_hash does not match paragraph text")
+        object.__setattr__(self, "exact_content_hash", exact_hash)
+        object.__setattr__(self, "normalized_identity_hash", normalized_hash)
 
 
 def _require_non_blank(name: str, value: str) -> None:

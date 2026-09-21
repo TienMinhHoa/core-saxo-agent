@@ -25,6 +25,18 @@ def identity_digest(text: str, *, length: int = 12) -> str:
     return hashlib.sha256(normalized_identity(text).encode("utf-8")).hexdigest()[:length]
 
 
+def exact_content_hash(text: str) -> str:
+    """Hash the paragraph bytes exactly as extracted, without normalization."""
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError("text must not be blank")
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def normalized_identity_hash(text: str) -> str:
+    """Hash the canonical identity form used to derive stable references."""
+    return hashlib.sha256(normalized_identity(text).encode("utf-8")).hexdigest()
+
+
 def paragraph_reference(chunk_id: str, text: str, duplicate_occurrence: int) -> str:
     """Build a reference from chunk identity, normalized content, and occurrence."""
     if not isinstance(chunk_id, str) or not chunk_id.strip():

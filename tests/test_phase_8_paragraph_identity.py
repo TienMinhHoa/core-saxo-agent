@@ -3,7 +3,12 @@ from __future__ import annotations
 import pytest
 
 from saxophone.ingestion.models import IngestionSourceChunk
-from saxophone.tagging.paragraph_identity import identity_digest, paragraph_reference
+from saxophone.tagging.paragraph_identity import (
+    exact_content_hash,
+    identity_digest,
+    normalized_identity_hash,
+    paragraph_reference,
+)
 from saxophone.tagging.parser import parse_chunk_paragraphs
 
 
@@ -31,6 +36,24 @@ def test_reference_is_not_renumbered_when_another_paragraph_is_inserted() -> Non
     changed = parse_chunk_paragraphs(_chunk("Inserted.\n\nFirst.\n\nTarget."))[2].paragraph_id
 
     assert changed == original
+
+
+def test_parser_exposes_exact_and_normalized_identity_hashes() -> None:
+    paragraph = parse_chunk_paragraphs(_chunk("Same  text."))[0]
+
+    assert paragraph.exact_content_hash == exact_content_hash(paragraph.text)
+    assert paragraph.normalized_identity_hash == normalized_identity_hash(paragraph.text)
+
+
+def test_paragraph_rejects_hashes_that_do_not_match_source_text() -> None:
+    with pytest.raises(ValueError, match="exact_content_hash"):
+        parse_chunk_paragraphs(_chunk("Text"))[0].__class__(
+            paragraph_id="p-1",
+            chunk_id="chunk-1",
+            ordinal=0,
+            text="Text",
+            exact_content_hash="wrong",
+        )
 
 
 @pytest.mark.parametrize("occurrence", [0, -1])

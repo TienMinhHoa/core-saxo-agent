@@ -80,6 +80,8 @@ class JsonTaggedParagraphRepository:
             "heading_path": list(paragraph.heading_path),
             "image_refs": list(paragraph.image_refs),
             "image_captions": dict(paragraph.image_captions),
+            "exact_content_hash": paragraph.exact_content_hash,
+            "normalized_identity_hash": paragraph.normalized_identity_hash,
         }
         _write_json_atomically(self._path_for(paragraph.paragraph_id), payload)
 
