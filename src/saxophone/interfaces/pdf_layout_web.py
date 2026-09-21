@@ -11,14 +11,13 @@ text/image blocks.  All files remain local under ``runtime/pdf-layout-jobs``.
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
 import shutil
 import subprocess
 import threading
-import time
 import uuid
+import time
 from pathlib import Path
 from typing import Any
 
@@ -27,12 +26,14 @@ from fastapi.responses import FileResponse, HTMLResponse
 
 from saxophone.extraction import read_layout_pages
 from saxophone.workflows import run_extraction
+from saxophone.workflows.pdf_layout_jobs import PdfLayoutJobStore
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[3]
 JOBS_DIR = PROJECT_DIR / "runtime" / "pdf-layout-jobs"
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 EXTRACTION_LOCK = threading.Lock()
+JOB_STORE = PdfLayoutJobStore(JOBS_DIR)
 
 app = FastAPI(title="PDF Layout Extractor", docs_url=None, redoc_url=None)
 
@@ -43,26 +44,21 @@ def _job_dir(job_id: str) -> Path:
         uuid.UUID(job_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Job không tồn tại") from exc
-    return JOBS_DIR / job_id
-
-
-def _state_path(job_id: str) -> Path:
-    return _job_dir(job_id) / "job.json"
+    return JOB_STORE.job_dir(job_id)
 
 
 def _load_state(job_id: str) -> dict[str, Any]:
     try:
-        return json.loads(_state_path(job_id).read_text(encoding="utf-8"))
+        return JOB_STORE.load_state(job_id)
+    except PdfLayoutJobNotFound as exc:
+        raise HTTPException(status_code=404, detail="Job khﾃｴng t盻渡 t蘯｡i") from exc
     except (OSError, ValueError, TypeError) as exc:
         raise HTTPException(status_code=404, detail="Job không tồn tại") from exc
 
 
 def _write_state(job_id: str, state: dict[str, Any]) -> None:
     """Atomically update job state so polling never reads partial JSON."""
-    target = _state_path(job_id)
-    temporary = target.with_suffix(".tmp")
-    temporary.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
-    temporary.replace(target)
+    JOB_STORE.write_state(job_id, state)
 
 
 def _public_state(state: dict[str, Any]) -> dict[str, Any]:
