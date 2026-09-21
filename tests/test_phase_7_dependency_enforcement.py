@@ -480,6 +480,36 @@ def test_api_consumes_application_public_facades() -> None:
     assert violations == []
 
 
+def test_api_uses_public_facades_for_all_application_contracts() -> None:
+    """Keep every API application contract import behind its package facade."""
+
+    api_file = SOURCE_ROOT / "interfaces" / "api.py"
+    implementation_prefixes = (
+        "saxophone.documents.knowledge",
+        "saxophone.documents.models",
+        "saxophone.documents.policies",
+        "saxophone.documents.ports",
+        "saxophone.extraction.layout",
+        "saxophone.extraction.models",
+        "saxophone.extraction.persistence",
+        "saxophone.extraction.ports",
+        "saxophone.extraction.remote",
+        "saxophone.tagging.models",
+        "saxophone.tagging.parser",
+        "saxophone.tagging.persistence",
+        "saxophone.tagging.ports",
+        "saxophone.tagging.use_cases",
+    )
+
+    violations = sorted(
+        imported
+        for imported in _saxophone_imports(api_file)
+        if imported.startswith(implementation_prefixes)
+    )
+
+    assert violations == []
+
+
 def test_composition_root_consumes_retrieval_public_facade() -> None:
     """The composition root should wire retrieval through its stable facade."""
 
