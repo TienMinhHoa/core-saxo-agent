@@ -188,8 +188,9 @@ class ChromaChunkService:
             raise NotFound("asset_not_in_chroma_chunk") from exc
         sidecar = self.persist_dir / "chunk-records.json"
         try:
+            _validate_sidecar_path(sidecar)
             records = json.loads(sidecar.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
             raise NotFound("chroma_sidecar_missing") from exc
         record = records.get(item_id) if isinstance(records, dict) else None
         images = record.get("images", []) if isinstance(record, dict) else []
@@ -209,3 +210,14 @@ class ChromaChunkService:
         if not path.is_file():
             raise NotFound("asset_missing")
         return path
+
+
+def _validate_sidecar_path(path: Path) -> None:
+    """Reject symlink components before reading the Chroma sidecar."""
+
+    absolute_path = path.absolute()
+    current = Path(absolute_path.anchor)
+    for component in absolute_path.parts[1:]:
+        current /= component
+        if current.is_symlink():
+            raise ValueError("Chroma sidecar path must not contain a symbolic link")
