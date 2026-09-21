@@ -378,6 +378,40 @@ def test_chroma_client_is_closed_when_collection_creation_fails(monkeypatch) -> 
     assert clients[0].closed is True
 
 
+def test_chroma_client_is_closed_when_vector_index_construction_fails(monkeypatch) -> None:
+    class FakeCollection:
+        metadata = {"embedding_dimension": 1536, "schema_version": "saxo-chunk-v1"}
+
+    clients: list[object] = []
+
+    class FakeClient:
+        def __init__(self, *, path: str) -> None:
+            self.closed = False
+            clients.append(self)
+
+        def get_or_create_collection(self, *, name: str, metadata: dict[str, object]):
+            return FakeCollection()
+
+        def close(self) -> None:
+            self.closed = True
+
+    class FakeChroma:
+        PersistentClient = FakeClient
+
+    class FailingVectorIndex:
+        def __init__(self, *args, **kwargs) -> None:
+            raise RuntimeError("vector index construction failed")
+
+    monkeypatch.setitem(__import__("sys").modules, "chromadb", FakeChroma)
+    monkeypatch.setattr("saxophone.platform.chroma.ChromaVectorIndex", FailingVectorIndex)
+
+    with pytest.raises(RuntimeError, match="vector index construction failed"):
+        create_chroma_vector_index(AppSettings.from_environment(VALID_ENVIRONMENT))
+
+    assert len(clients) == 1
+    assert clients[0].closed is True
+
+
 def test_default_composition_rejects_non_mapping_chroma_metadata(monkeypatch) -> None:
     class FakeCollection:
         metadata = ["not-a-metadata-mapping"]

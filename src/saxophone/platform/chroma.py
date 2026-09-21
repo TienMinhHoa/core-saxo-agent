@@ -54,15 +54,15 @@ def create_chroma_vector_index(
             raise ValueError(
                 "Chroma collection schema version does not match configured schema version"
             )
+        return ChromaVectorIndex(
+            collection,
+            client=client,
+            io_limiter=io_limiter,
+            embedding_dimension=settings.embedding_dimension,
+        )
     except BaseException:
         close = getattr(client, "close", None)
         if callable(close):
             with suppress(Exception):
                 close()
         raise
-    return ChromaVectorIndex(
-        collection,
-        client=client,
-        io_limiter=io_limiter,
-        embedding_dimension=settings.embedding_dimension,
-    )
