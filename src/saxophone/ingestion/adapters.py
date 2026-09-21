@@ -319,6 +319,7 @@ class ChromaVectorIndex(VectorIndex):
     ) -> None:
         self._collection = collection
         self._client = client
+        self._closed = False
         if embedding_dimension is not None and (
             isinstance(embedding_dimension, bool)
             or not isinstance(embedding_dimension, int)
@@ -330,10 +331,12 @@ class ChromaVectorIndex(VectorIndex):
 
     def close(self) -> None:
         """Release the Chroma client owned by the composition root, when present."""
-        if self._client is not None:
-            close = getattr(self._client, "close", None)
-            if callable(close):
-                close()
+        if self._closed or self._client is None:
+            return
+        close = getattr(self._client, "close", None)
+        if callable(close):
+            close()
+        self._closed = True
 
     async def aclose(self) -> None:
         """Close the Chroma client without blocking the application event loop."""

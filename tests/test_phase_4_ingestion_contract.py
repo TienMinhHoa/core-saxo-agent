@@ -371,6 +371,25 @@ async def test_chroma_aclose_runs_blocking_client_close_through_shared_limiter(
 
 
 @pytest.mark.anyio
+async def test_chroma_close_is_idempotent_across_sync_and_async_cleanup() -> None:
+    class _Client:
+        def __init__(self) -> None:
+            self.close_calls = 0
+
+        def close(self) -> None:
+            self.close_calls += 1
+
+    client = _Client()
+    index = ChromaVectorIndex(object(), client=client)
+
+    index.close()
+    index.close()
+    await index.aclose()
+
+    assert client.close_calls == 1
+
+
+@pytest.mark.anyio
 async def test_chroma_upsert_rejects_duplicate_chunk_ids_before_provider_io() -> None:
     class _CollectionThatMustNotBeCalled:
         def upsert(self, **kwargs):
