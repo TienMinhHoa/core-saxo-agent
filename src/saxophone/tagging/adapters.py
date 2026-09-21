@@ -107,20 +107,30 @@ class RemoteTagConflictResolver(TagConflictResolver):
         for item in raw_resolutions:
             if not isinstance(item, Mapping):
                 raise ModelValidationError("tag resolution item must be a mapping")
-            resolutions.append(
-                TagResolution(
-                    _required_text(item, "generated_tag"),
-                    _required_text(item, "action"),
-                    _required_text(item, "resolved_tag"),
+            try:
+                resolutions.append(
+                    TagResolution(
+                        _required_text(item, "generated_tag"),
+                        _required_text(item, "action"),
+                        _required_text(item, "resolved_tag"),
+                    )
                 )
+            except ModelValidationError:
+                raise
+            except ValueError as exc:
+                raise ModelValidationError(str(exc)) from exc
+        try:
+            return TagConflictResolution(
+                paragraph_id=paragraph_id,
+                resolutions=tuple(resolutions),
+                resolution_profile=request.resolution_profile,
+                generated_tags=request.generated_tags,
+                existing_tags=tuple(candidate.tag for candidate in request.existing_tags),
             )
-        return TagConflictResolution(
-            paragraph_id=paragraph_id,
-            resolutions=tuple(resolutions),
-            resolution_profile=request.resolution_profile,
-            generated_tags=request.generated_tags,
-            existing_tags=tuple(candidate.tag for candidate in request.existing_tags),
-        )
+        except ModelValidationError:
+            raise
+        except ValueError as exc:
+            raise ModelValidationError(str(exc)) from exc
 
 
 def _validate_response(task: ModelTask, schema: str, expected_task: ModelTask, expected_schema: str) -> None:

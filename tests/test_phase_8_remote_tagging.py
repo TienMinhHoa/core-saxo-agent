@@ -46,3 +46,30 @@ async def test_remote_tagging_rejects_wrong_task_before_mapping() -> None:
     response = ModelResponse(ModelTask.EMBED, "tagger", "paragraph-tags-v1", {"paragraph_id": "p-1", "tags": []}, "v1")
     with pytest.raises(ModelValidationError, match="task"):
         await RemoteParagraphTagger(FakeModelClient(response), model="tagger").generate(TagGenerationRequest(_paragraph(), "tags-v1"))
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("resolution", "message"),
+    [
+        ({"generated_tag": "Harmony", "action": "unknown", "resolved_tag": "Harmony"}, "action"),
+        ({"generated_tag": "", "action": "keep_new", "resolved_tag": "Harmony"}, "generated_tag"),
+        ({"generated_tag": "Harmony", "action": "keep_new", "resolved_tag": ""}, "resolved_tag"),
+    ],
+)
+async def test_remote_conflict_resolver_wraps_invalid_resolution_as_model_validation_error(
+    resolution: dict[str, str], message: str
+) -> None:
+    response = ModelResponse(
+        ModelTask.TAG_RESOLVE,
+        "resolver",
+        "tag-resolution-v1",
+        {"paragraph_id": "p-1", "resolutions": [resolution]},
+        "v1",
+    )
+    request = TagConflictResolutionRequest(
+        "p-1", ("Harmony",), (ExistingTagCandidate("Harmony definition"),), "resolve-v1"
+    )
+
+    with pytest.raises(ModelValidationError, match=message):
+        await RemoteTagConflictResolver(FakeModelClient(response), model="resolver").resolve(request)
