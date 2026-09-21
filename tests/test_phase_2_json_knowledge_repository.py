@@ -127,3 +127,29 @@ def test_json_repository_rechecks_root_before_read_or_delete(
             asyncio.run(repository.get(chunk.chunk_id))
         else:
             asyncio.run(repository.delete(chunk.chunk_id))
+
+
+def test_json_repository_rechecks_root_after_directory_creation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = JsonKnowledgeRepository(tmp_path / "root")
+    target = tmp_path / "target"
+    target.mkdir()
+    link = tmp_path / "link"
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except (OSError, NotImplementedError) as error:
+        pytest.skip(f"symbolic links unavailable: {error}")
+
+    original_mkdir = Path.mkdir
+
+    def mkdir_and_redirect(path: Path, *args: object, **kwargs: object) -> None:
+        original_mkdir(path, *args, **kwargs)
+        if path == repository._root:  # type: ignore[attr-defined]
+            repository._root = link  # type: ignore[attr-defined]
+
+    monkeypatch.setattr(Path, "mkdir", mkdir_and_redirect)
+
+    with pytest.raises(ValueError, match="root path must not contain a symbolic link"):
+        asyncio.run(repository.upsert(_chunk()))

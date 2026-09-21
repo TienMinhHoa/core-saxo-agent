@@ -97,7 +97,9 @@ class JsonKnowledgeRepository:
 
 
 def _write_json_atomically(path: Path, payload: object) -> None:
+    _reject_symbolic_link_in_path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    _reject_symbolic_link_in_path(path)
     fd, temporary_name = tempfile.mkstemp(
         prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
     )
@@ -106,6 +108,7 @@ def _write_json_atomically(path: Path, payload: object) -> None:
             json.dump(payload, temporary, ensure_ascii=False, sort_keys=True)
             temporary.flush()
             os.fsync(temporary.fileno())
+        _reject_symbolic_link_in_path(path)
         os.replace(temporary_name, path)
     except BaseException:
         Path(temporary_name).unlink(missing_ok=True)
