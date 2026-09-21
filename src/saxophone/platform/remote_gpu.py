@@ -16,10 +16,14 @@ from typing import Literal, Protocol
 
 import httpx
 
-from saxophone.app.settings import AppSettings
-
-
 RemoteGpuStatus = Literal["ready", "degraded", "unavailable"]
+
+
+class RemoteGpuSettings(Protocol):
+    """Configuration shape required by the remote health adapter."""
+
+    remote_gpu_base_url: str
+    remote_gpu_bearer_token: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,7 +117,7 @@ class HttpRemoteGpuGateway:
 
     def __init__(
         self,
-        settings: AppSettings,
+        settings: RemoteGpuSettings,
         *,
         http_client: httpx.AsyncClient,
         timeout_seconds: float,

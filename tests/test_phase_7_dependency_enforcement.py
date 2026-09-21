@@ -309,6 +309,26 @@ def test_composition_root_owns_concrete_adapter_wiring() -> None:
     assert violations == {}
 
 
+def test_platform_adapters_do_not_depend_on_composition_settings() -> None:
+    """Infrastructure adapters must accept structural configuration, not app internals."""
+
+    platform_files = (
+        SOURCE_ROOT / "platform" / "chroma.py",
+        SOURCE_ROOT / "platform" / "remote_gpu.py",
+    )
+    violations = {
+        str(path.relative_to(SOURCE_ROOT)): sorted(
+            imported
+            for imported in _saxophone_imports(path)
+            if imported == "saxophone.app.settings"
+        )
+        for path in platform_files
+        if "saxophone.app.settings" in _saxophone_imports(path)
+    }
+
+    assert violations == {}
+
+
 def test_concrete_adapters_are_imported_only_by_the_composition_root() -> None:
     """Prevent feature modules from bypassing the central adapter assembly."""
 

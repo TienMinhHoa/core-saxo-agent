@@ -4,17 +4,24 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from contextlib import suppress
-from typing import Any
+from typing import Any, Protocol
 
-from saxophone.app.settings import AppSettings
 from saxophone.ingestion.adapters import ChromaVectorIndex
 
 
 _CHROMA_SCHEMA_VERSION = "saxo-chunk-v1"
 
 
+class ChromaSettings(Protocol):
+    """Configuration shape required by the Chroma infrastructure adapter."""
+
+    chroma_persist_directory: Any
+    chroma_collection_name: str
+    embedding_dimension: int
+
+
 def create_chroma_vector_index(
-    settings: AppSettings,
+    settings: ChromaSettings,
     *,
     io_limiter: Any | None = None,
 ) -> ChromaVectorIndex:
