@@ -284,5 +284,16 @@ deployment production.
 - Regression TDD đạt **35 passed** trong API route tests; toàn bộ suite đạt
   **886 passed, 3 skipped, 1 warning**. Chi tiết tại
   `docs/ITERATION_203_UPLOAD_LIMIT_COMPOSITION_CONTRACT.md`.
+
+### Iteration 208 - parent path symbolic link của artifact root
+
+- `LocalArtifactRepository` fail-closed khi bất kỳ component nào trong path của
+  artifact root là symbolic link, trước khi gọi `resolve()`; regression test
+  parent symlink đã được bổ sung.
+- Targeted artifact contract: **30 passed, 1 skipped**; full suite:
+  **896 passed, 3 skipped, 1 warning**. `compileall` và `git diff --check`
+  đều đạt. Chi tiết tại `docs/ITERATION_208_ARTIFACT_REPOSITORY_ROOT_PARENT_SYMLINK.md`.
+- Live model-service smoke và production parity vẫn chưa xác minh vì checkout
+  thiếu endpoint, credential và production catalog thật.
 - Live model-service smoke và production parity vẫn chưa xác minh do checkout
   chưa có endpoint, credential và catalog production thật.

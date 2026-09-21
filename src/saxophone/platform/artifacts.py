@@ -68,8 +68,7 @@ class LocalArtifactRepository:
             raise ValueError("root must be a Path")
         if io_limiter is not None and not isinstance(io_limiter, anyio.CapacityLimiter):
             raise ValueError("io_limiter must be a CapacityLimiter")
-        if root.is_symlink():
-            raise ValueError("root must not be a symbolic link")
+        _reject_symbolic_link_in_path(root)
         resolved_root = root.resolve()
         if resolved_root.exists() and not resolved_root.is_dir():
             raise ValueError("root must be a directory")
@@ -170,3 +169,15 @@ def _validate_payload(artifact: ArtifactRef, payload: bytes) -> None:
 def _require_artifact_ref(artifact: object) -> None:
     if not isinstance(artifact, ArtifactRef):
         raise ValueError("artifact must be an ArtifactRef")
+
+
+def _reject_symbolic_link_in_path(path: Path) -> None:
+    """Reject a root whose explicit path crosses a symbolic-link component."""
+    absolute_path = path.absolute()
+    current = Path(absolute_path.anchor)
+    for component in absolute_path.parts[1:]:
+        current /= component
+        if current.is_symlink():
+            if current == absolute_path:
+                raise ValueError("root must not be a symbolic link")
+            raise ValueError("root path must not contain a symbolic link")
