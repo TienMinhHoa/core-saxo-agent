@@ -7,6 +7,7 @@ import threading
 import time
 from pathlib import Path
 
+import anyio
 import pytest
 
 from saxophone.documents.models import ArtifactKind, ArtifactRef
@@ -51,6 +52,22 @@ def test_local_repository_rejects_existing_file_as_root(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="root must be a directory"):
         LocalArtifactRepository(root_file)
+
+
+@pytest.mark.parametrize("io_limiter", [object(), False, 1])
+def test_local_repository_rejects_invalid_io_limiter_before_storage_setup(
+    tmp_path: Path, io_limiter: object
+) -> None:
+    with pytest.raises(ValueError, match="io_limiter must be a CapacityLimiter"):
+        LocalArtifactRepository(tmp_path, io_limiter=io_limiter)  # type: ignore[arg-type]
+
+
+def test_local_repository_accepts_explicit_capacity_limiter(tmp_path: Path) -> None:
+    limiter = anyio.CapacityLimiter(1)
+
+    repository = LocalArtifactRepository(tmp_path, io_limiter=limiter)
+
+    assert repository._io_limiter is limiter
 
 
 def test_put_rejects_payload_that_does_not_match_declared_size_or_digest(
