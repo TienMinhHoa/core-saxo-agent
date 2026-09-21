@@ -381,6 +381,7 @@ def test_ingestion_exposes_a_public_application_facade() -> None:
     expected = {
         "ChunkIndexRecord",
         "EmbeddingProvider",
+        "IngestDocument",
         "IndexDocument",
         "IndexInputRecord",
         "IngestionCommand",
@@ -486,6 +487,33 @@ def test_composition_root_consumes_workflow_public_facade() -> None:
     implementation_prefixes = (
         "saxophone.workflows.ingest_extracted_document",
         "saxophone.workflows.process_document",
+    )
+
+    violations = sorted(
+        imported
+        for imported in _saxophone_imports(factory_file)
+        if imported.startswith(implementation_prefixes)
+    )
+
+    assert violations == []
+
+
+def test_composition_root_consumes_extraction_and_tagging_public_facades() -> None:
+    """Composition wiring should use stable facades for application contracts."""
+
+    factory_file = SOURCE_ROOT / "app" / "factory.py"
+    implementation_prefixes = (
+        "saxophone.extraction.models",
+        "saxophone.extraction.persistence",
+        "saxophone.extraction.ports",
+        "saxophone.extraction.remote",
+        "saxophone.ingestion.models",
+        "saxophone.ingestion.use_cases",
+        "saxophone.tagging.models",
+        "saxophone.tagging.parser",
+        "saxophone.tagging.persistence",
+        "saxophone.tagging.ports",
+        "saxophone.tagging.use_cases",
     )
 
     violations = sorted(

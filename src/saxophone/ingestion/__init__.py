@@ -13,6 +13,7 @@ from .ports import EmbeddingProvider, VectorIndex
 __all__ = [
     "ChunkIndexRecord",
     "EmbeddingProvider",
+    "IngestDocument",
     "IndexDocument",
     "IndexInputRecord",
     "IngestionCommand",
@@ -26,8 +27,8 @@ __all__ = [
 def __getattr__(name: str) -> object:
     """Load the use case lazily to avoid a domain-port import cycle."""
 
-    if name == "IndexDocument":
-        from .use_cases import IndexDocument
+    if name in {"IndexDocument", "IngestDocument"}:
+        from .use_cases import IndexDocument, IngestDocument
 
-        return IndexDocument
+        return {"IndexDocument": IndexDocument, "IngestDocument": IngestDocument}[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -18,12 +18,14 @@ from saxophone.app.settings import AppSettings
 from saxophone.chat.service import AnswerQuestion
 from saxophone.chat.ports import AnswerGenerator, ImageArtifactGate
 from saxophone.documents import ArtifactRepository, ImageArtifactResolver, KnowledgeRepository
-from saxophone.extraction.persistence import RepositoryExtractionArtifactPayloadProvider
-from saxophone.extraction.ports import PdfExtractor
-from saxophone.extraction.remote import RemotePdfExtractor
+from saxophone.extraction import (
+    PdfExtractor,
+    RemotePdfExtractor,
+    RepositoryExtractionArtifactPayloadProvider,
+)
 from saxophone.ingestion.adapters import FileEmbeddingReuseStore, RemoteEmbeddingProvider
-from saxophone.ingestion.ports import EmbeddingProvider, EmbeddingReuseStore, VectorIndex
-from saxophone.ingestion.use_cases import IngestDocument, IndexDocument
+from saxophone.ingestion import EmbeddingProvider, IngestDocument, IndexDocument, VectorIndex
+from saxophone.ingestion.ports import EmbeddingReuseStore
 from saxophone.platform.artifacts import (
     LocalArtifactRepository,
     RepositoryBackedImageArtifactGate,
@@ -39,10 +41,18 @@ from saxophone.platform.remote_gpu import (
     RemoteGpuGateway,
 )
 from saxophone.retrieval import ChunkRetriever, RetrieveEvidence
-from saxophone.tagging.persistence import JsonTagCatalogRepository, JsonTaggedParagraphRepository
-from saxophone.tagging.adapters import RemoteParagraphTagger, RemoteTagConflictResolver
-from saxophone.tagging.ports import TagCatalogRepository, TagConflictResolver, TagGenerator, TaggedParagraphRepository
-from saxophone.tagging.use_cases import TagAndPersistParagraph, TagParagraph
+from saxophone.tagging import (
+    JsonTagCatalogRepository,
+    JsonTaggedParagraphRepository,
+    RemoteParagraphTagger,
+    RemoteTagConflictResolver,
+    TagAndPersistParagraph,
+    TagCatalogRepository,
+    TagConflictResolver,
+    TagGenerator,
+    TagParagraph,
+    TaggedParagraphRepository,
+)
 from saxophone.interfaces.api import build_capability_router
 from saxophone.workflows import (
     IngestExtractedDocument,
