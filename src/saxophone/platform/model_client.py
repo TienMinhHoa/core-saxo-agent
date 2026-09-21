@@ -33,6 +33,7 @@ class ModelTask(StrEnum):
     EMBED = "embed"
     PARAGRAPH_TAG = "paragraph_tag"
     TAG_RESOLVE = "tag_resolve"
+    CHUNK_TAGGING = "chunk_tagging"
     RETRIEVAL_SELECT = "retrieval_select"
     ANSWER_GENERATE = "answer_generate"
 

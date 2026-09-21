@@ -13,7 +13,13 @@ from .models import (
     TagGenerationResult,
     TagResolution,
 )
-from .ports import TagConflictResolver, TagGenerator
+from .chunk_models import (
+    ChunkParagraphTaggingResult,
+    ChunkTaggingLabel,
+    ChunkTaggingRequest,
+    ChunkTaggingResult,
+)
+from .ports import ChunkTagger, TagConflictResolver, TagGenerator
 
 
 class RemoteParagraphTagger(TagGenerator):
@@ -129,6 +135,87 @@ class RemoteTagConflictResolver(TagConflictResolver):
             )
         except ModelValidationError:
             raise
+        except ValueError as exc:
+            raise ModelValidationError(str(exc)) from exc
+
+
+class RemoteChunkTagger(ChunkTagger):
+    """Map one chunk request to one model call and validate all references."""
+
+    def __init__(self, client: ModelClient, *, model: str, response_schema: str = "chunk-tagging-v1") -> None:
+        if not model.strip():
+            raise ValueError("model must not be blank")
+        if not response_schema.strip():
+            raise ValueError("response_schema must not be blank")
+        self._client = client
+        self._model = model.strip()
+        self._response_schema = response_schema.strip()
+
+    async def tag(self, request: ChunkTaggingRequest) -> ChunkTaggingResult:
+        response = await self._client.invoke(
+            ModelRequest(
+                model=self._model,
+                task=ModelTask.CHUNK_TAGGING,
+                input={
+                    "chunk_id": request.chunk_id,
+                    "paragraphs": [
+                        {
+                            "paragraph_ref": item.paragraph.paragraph_id,
+                            "text": item.paragraph.text,
+                            "existing_candidates": list(item.existing_candidates),
+                            "previous_context": item.previous_context,
+                            "next_context": item.next_context,
+                            "image_context": list(item.image_context),
+                        }
+                        for item in request.paragraphs
+                    ],
+                },
+                metadata={"tagging_profile": "chunk"},
+                response_schema=self._response_schema,
+                idempotency_key=f"chunk-tag-{request.chunk_id}",
+            ),
+        )
+        _validate_response(response.task, response.response_schema, ModelTask.CHUNK_TAGGING, self._response_schema)
+        output = response.output
+        chunk_id = _required_text(output, "chunk_id")
+        raw_new = output.get("chunk_new_concepts")
+        raw_paragraphs = output.get("paragraphs")
+        if not isinstance(raw_new, list) or any(not isinstance(item, str) for item in raw_new):
+            raise ModelValidationError("chunk_new_concepts must be a list of strings")
+        if not isinstance(raw_paragraphs, list):
+            raise ModelValidationError("paragraphs must be a list")
+        paragraphs = []
+        for item in raw_paragraphs:
+            if not isinstance(item, Mapping):
+                raise ModelValidationError("paragraph result must be a mapping")
+            ref = _required_text(item, "paragraph_ref")
+            raw_labels = item.get("labels")
+            if not isinstance(raw_labels, list):
+                raise ModelValidationError("labels must be a list")
+            labels = []
+            for label in raw_labels:
+                if not isinstance(label, Mapping):
+                    raise ModelValidationError("label must be a mapping")
+                raw_roles = label.get("roles")
+                if not isinstance(raw_roles, list) or any(not isinstance(role, str) for role in raw_roles):
+                    raise ModelValidationError("roles must be a list of strings")
+                try:
+                    labels.append(ChunkTaggingLabel(
+                        _required_text(label, "generated_concept"),
+                        _required_text(label, "action"),
+                        _required_text(label, "resolved_concept"),
+                        tuple(raw_roles),
+                    ))
+                except ValueError as exc:
+                    raise ModelValidationError(str(exc)) from exc
+            try:
+                paragraphs.append(ChunkParagraphTaggingResult(ref, tuple(labels)))
+            except ValueError as exc:
+                raise ModelValidationError(str(exc)) from exc
+        try:
+            result = ChunkTaggingResult(chunk_id, tuple(raw_new), tuple(paragraphs))
+            result.validate_against(request)
+            return result
         except ValueError as exc:
             raise ModelValidationError(str(exc)) from exc
 

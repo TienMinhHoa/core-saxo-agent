@@ -9,6 +9,10 @@ from saxophone.tagging.chunk_models import (
     ChunkTaggingRequest,
     ChunkTaggingResult,
 )
+import asyncio
+
+from saxophone.platform.model_client import ModelResponse, ModelTask
+from saxophone.tagging.adapters import RemoteChunkTagger
 from saxophone.tagging.models import ContentRole, ParagraphBlock
 
 
@@ -104,3 +108,56 @@ def test_chunk_tagging_label_requires_at_least_one_valid_role() -> None:
 
     with pytest.raises(ValueError, match="roles"):
         ChunkTaggingLabel("Major chord", "reuse_existing", "Major triad", ("Unknown",))
+
+
+class _FakeClient:
+    def __init__(self, response: ModelResponse) -> None:
+        self.response = response
+        self.requests = []
+
+    async def invoke(self, request):
+        self.requests.append(request)
+        return self.response
+
+
+def test_remote_chunk_tagger_maps_one_validated_chunk_call() -> None:
+    request = _request()
+    response = ModelResponse(
+        task=ModelTask.CHUNK_TAGGING,
+        model="deepseek-test",
+        response_schema="chunk-tagging-v1",
+        source_version="fixture",
+        output={
+            "chunk_id": "chunk-1",
+            "chunk_new_concepts": ["Chord construction"],
+            "paragraphs": [
+                {"paragraph_ref": "p-1", "labels": [{"generated_concept": "Major chord", "action": "reuse_existing", "resolved_concept": "Major triad", "roles": ["Definition"]}]},
+                {"paragraph_ref": "p-2", "labels": [{"generated_concept": "Building a chord", "action": "create_new", "resolved_concept": "Chord construction", "roles": ["Procedure"]}]},
+            ],
+        },
+    )
+    client = _FakeClient(response)
+    result = asyncio.run(RemoteChunkTagger(client, model="deepseek-test").tag(request))
+
+    result.validate_against(request)
+    assert client.requests[0].task is ModelTask.CHUNK_TAGGING
+    assert client.requests[0].input["chunk_id"] == "chunk-1"
+
+
+def test_remote_chunk_tagger_rejects_foreign_response_refs() -> None:
+    request = _request()
+    response = ModelResponse(
+        task=ModelTask.CHUNK_TAGGING,
+        model="deepseek-test",
+        response_schema="chunk-tagging-v1",
+        source_version="fixture",
+        output={
+            "chunk_id": "chunk-1",
+            "chunk_new_concepts": [],
+            "paragraphs": [{"paragraph_ref": "p-foreign", "labels": []}, {"paragraph_ref": "p-2", "labels": []}],
+        },
+    )
+    client = _FakeClient(response)
+
+    with pytest.raises(ValueError, match="paragraph refs"):
+        asyncio.run(RemoteChunkTagger(client, model="deepseek-test").tag(request))

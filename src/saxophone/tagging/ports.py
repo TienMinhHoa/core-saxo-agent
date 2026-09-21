@@ -13,6 +13,7 @@ from .models import (
     TaggedParagraph,
 )
 from .concepts import ConceptCandidate
+from .chunk_models import ChunkTaggingRequest, ChunkTaggingResult
 
 
 class ConceptCandidateRetriever(Protocol):
@@ -62,4 +63,12 @@ class TagConflictResolver(ABC):
     async def resolve(
         self, request: TagConflictResolutionRequest
     ) -> TagConflictResolution:
+        raise NotImplementedError
+
+
+class ChunkTagger(ABC):
+    """Async port for one structured tagging/conflict call per chunk."""
+
+    @abstractmethod
+    async def tag(self, request: ChunkTaggingRequest) -> ChunkTaggingResult:
         raise NotImplementedError
