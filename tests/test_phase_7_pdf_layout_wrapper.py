@@ -111,7 +111,7 @@ def test_pdf_layout_routes_delegate_artifact_paths_to_job_store() -> None:
     assert "JOB_STORE.layout_dir(" in source
 
 
-def test_pdf_extraction_workflow_accepts_explicit_artifact_path_policies() -> None:
+def test_pdf_extraction_workflow_accepts_typed_artifact_path_policy() -> None:
     workflow_source = (
         SOURCE_ROOT / "src" / "saxophone" / "workflows" / "pdf_layout_extraction.py"
     ).read_text(encoding="utf-8")
@@ -120,12 +120,23 @@ def test_pdf_extraction_workflow_accepts_explicit_artifact_path_policies() -> No
     ).read_text(encoding="utf-8")
 
     assert "job_dir:" not in workflow_source
-    assert "source_pdf_path:" in workflow_source
-    assert "extraction_dir:" in workflow_source
-    assert "pages_dir:" in workflow_source
-    assert '"source_pdf_path": JOB_STORE.source_pdf_path' in interface_source
-    assert '"extraction_dir": JOB_STORE.extraction_dir' in interface_source
-    assert '"pages_dir": JOB_STORE.pages_dir' in interface_source
+    assert "artifact_paths:" in workflow_source
+    assert '"artifact_paths": JOB_STORE.artifact_paths' in interface_source
+
+
+def test_pdf_extraction_workflow_consumes_one_artifact_path_policy() -> None:
+    workflow_source = (
+        SOURCE_ROOT / "src" / "saxophone" / "workflows" / "pdf_layout_extraction.py"
+    ).read_text(encoding="utf-8")
+    interface_source = (
+        SOURCE_ROOT / "src" / "saxophone" / "interfaces" / "pdf_layout_web.py"
+    ).read_text(encoding="utf-8")
+
+    assert "artifact_paths:" in workflow_source
+    assert "source_pdf_path:" not in workflow_source
+    assert "extraction_dir:" not in workflow_source
+    assert "pages_dir:" not in workflow_source
+    assert '"artifact_paths": JOB_STORE.artifact_paths' in interface_source
 
 
 def test_layout_route_uses_job_store_projection_at_runtime(monkeypatch, tmp_path) -> None:

@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from saxophone.workflows.pdf_layout_jobs import PdfLayoutJobNotFound, PdfLayoutJobStore
+from saxophone.workflows.pdf_layout_jobs import (
+    PdfLayoutArtifactPaths,
+    PdfLayoutJobNotFound,
+    PdfLayoutJobStore,
+)
 
 
 def test_job_store_round_trips_state_atomically(tmp_path) -> None:
@@ -120,3 +124,16 @@ def test_job_store_owns_pdf_artifact_paths(tmp_path) -> None:
     assert store.extraction_dir(job_id) == job_dir / "extraction"
     assert store.pages_dir(job_id) == job_dir / "pages"
     assert store.layout_dir(job_id) == job_dir / "extraction" / "source" / "layout"
+
+
+def test_job_store_exposes_one_typed_artifact_path_policy(tmp_path) -> None:
+    store = PdfLayoutJobStore(tmp_path)
+    job_id = "12345678-1234-5678-1234-567812345678"
+    job_dir = store.job_dir(job_id)
+
+    paths = store.artifact_paths(job_id)
+
+    assert isinstance(paths, PdfLayoutArtifactPaths)
+    assert paths.source_pdf == job_dir / "source.pdf"
+    assert paths.extraction == job_dir / "extraction"
+    assert paths.pages == job_dir / "pages"

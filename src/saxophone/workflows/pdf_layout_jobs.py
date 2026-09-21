@@ -5,12 +5,22 @@ from __future__ import annotations
 import json
 import shutil
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 
 class PdfLayoutJobNotFound(FileNotFoundError):
     """Raised when a job identifier or its persisted state is unavailable."""
+
+
+@dataclass(frozen=True, slots=True)
+class PdfLayoutArtifactPaths:
+    """Backend-owned paths required by the PDF extraction workflow."""
+
+    source_pdf: Path
+    extraction: Path
+    pages: Path
 
 
 class PdfLayoutJobStore:
@@ -47,6 +57,14 @@ class PdfLayoutJobStore:
     def extraction_dir(self, job_id: str) -> Path:
         """Return the canonical extraction artifact directory for a validated job."""
         return self.job_dir(job_id) / "extraction"
+
+    def artifact_paths(self, job_id: str) -> PdfLayoutArtifactPaths:
+        """Expose the complete artifact policy without leaking directory layout."""
+        return PdfLayoutArtifactPaths(
+            source_pdf=self.source_pdf_path(job_id),
+            extraction=self.extraction_dir(job_id),
+            pages=self.pages_dir(job_id),
+        )
 
     def load_state(self, job_id: str) -> dict[str, Any]:
         try:

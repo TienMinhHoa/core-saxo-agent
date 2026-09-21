@@ -149,9 +149,7 @@ def start_extraction(job_id: str, device: str = "cpu", language: str = "vi") -> 
         target=run_extraction,
         args=(job_id,),
         kwargs={
-            "source_pdf_path": JOB_STORE.source_pdf_path,
-            "extraction_dir": JOB_STORE.extraction_dir,
-            "pages_dir": JOB_STORE.pages_dir,
+            "artifact_paths": JOB_STORE.artifact_paths,
             "load_state": _load_state,
             "write_state": _write_state,
             "render_pages": _render_pages,

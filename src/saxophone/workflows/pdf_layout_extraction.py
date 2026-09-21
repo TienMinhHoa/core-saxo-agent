@@ -9,13 +9,13 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from saxophone.workflows.pdf_layout_jobs import PdfLayoutArtifactPaths
+
 
 def run_extraction(
     job_id: str,
     *,
-    source_pdf_path: Callable[[str], Path],
-    extraction_dir: Callable[[str], Path],
-    pages_dir: Callable[[str], Path],
+    artifact_paths: Callable[[str], PdfLayoutArtifactPaths],
     load_state: Callable[[str], dict[str, Any]],
     write_state: Callable[[str, dict[str, Any]], None],
     render_pages: Callable[[Path, Path], list[str]],
@@ -35,9 +35,10 @@ def run_extraction(
         }
     )
     write_state(job_id, state)
-    source_pdf = source_pdf_path(job_id)
-    extraction_root = extraction_dir(job_id)
-    rendered_pages = pages_dir(job_id)
+    paths = artifact_paths(job_id)
+    source_pdf = paths.source_pdf
+    extraction_root = paths.extraction
+    rendered_pages = paths.pages
     try:
         legacy_pipeline = importlib.import_module("extracted.parse_pdf_2_md")
         check_gpu = legacy_pipeline.check_gpu
