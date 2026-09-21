@@ -23,7 +23,10 @@ from saxophone.extraction.remote import RemotePdfExtractor
 from saxophone.ingestion.adapters import FileEmbeddingReuseStore, RemoteEmbeddingProvider
 from saxophone.ingestion.ports import EmbeddingProvider, EmbeddingReuseStore, VectorIndex
 from saxophone.ingestion.use_cases import IngestDocument, IndexDocument
-from saxophone.platform.artifacts import LocalArtifactRepository
+from saxophone.platform.artifacts import (
+    LocalArtifactRepository,
+    RepositoryBackedImageArtifactGate,
+)
 from saxophone.platform.chroma import create_chroma_vector_index
 from saxophone.platform.concurrency import create_blocking_io_limiter
 from saxophone.platform.knowledge import JsonKnowledgeRepository
@@ -83,6 +86,7 @@ class AppContainer:
     vector_index: VectorIndex | None = None
     artifact_repository: ArtifactRepository | None = None
     image_artifact_resolver: ImageArtifactResolver | None = None
+    image_artifact_gate: ImageArtifactGate | None = None
     process_document: ProcessDocument | None = None
     process_and_persist_document: ProcessAndPersistDocument | None = None
     index_document: IndexDocument | None = None
@@ -188,6 +192,13 @@ def create_app(
             settings.data_root / "artifacts",
             io_limiter=io_limiter,
         )
+    image_artifact_gate = resolved_overrides.image_artifact_gate
+    if image_artifact_gate is None and resolved_overrides.image_artifact_resolver is not None:
+        image_artifact_gate = RepositoryBackedImageArtifactGate(
+            artifact_repository,
+            resolved_overrides.image_artifact_resolver,
+            io_limiter=io_limiter,
+        )
     tagged_paragraph_repository = resolved_overrides.tagged_paragraph_repository
     if tagged_paragraph_repository is None:
         tagged_paragraph_repository = JsonTaggedParagraphRepository(
@@ -279,6 +290,7 @@ def create_app(
         vector_index=vector_index,
         artifact_repository=artifact_repository,
         image_artifact_resolver=resolved_overrides.image_artifact_resolver,
+        image_artifact_gate=image_artifact_gate,
         process_document=process_document,
         process_and_persist_document=process_and_persist_document,
         index_document=index_document,
@@ -322,6 +334,7 @@ def create_app(
             process_and_persist_workflow=container.process_and_persist_document,
             artifact_repository=container.artifact_repository,
             image_artifact_resolver=container.image_artifact_resolver,
+            image_artifact_gate=container.image_artifact_gate,
             index_document=container.index_document,
             ingest_extracted_document=container.ingest_extracted_document,
             max_upload_bytes=settings.max_upload_bytes,

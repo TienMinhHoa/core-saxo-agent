@@ -10,6 +10,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from saxophone.chat.models import ChatResult
+from saxophone.chat.ports import ImageArtifactGate
 from saxophone.documents.models import ArtifactKind, ArtifactRef
 from saxophone.documents.policies import (
     is_image_media_type,
@@ -87,6 +88,7 @@ def build_capability_router(
     process_and_persist_workflow: ProcessAndPersistDocument | None = None,
     artifact_repository: ArtifactRepository | None = None,
     image_artifact_resolver: ImageArtifactResolver | None = None,
+    image_artifact_gate: ImageArtifactGate | None = None,
     index_document: IndexDocument | None = None,
     ingest_extracted_document: IngestExtractedDocument | None = None,
     max_upload_bytes: int = 200 * 1024 * 1024,
@@ -184,7 +186,11 @@ def build_capability_router(
 
     @router.get("/assets/{asset_ref:path}")
     async def get_asset(asset_ref: str) -> Response:
-        if image_artifact_resolver is None or artifact_repository is None:
+        if (
+            image_artifact_resolver is None
+            or artifact_repository is None
+            or image_artifact_gate is None
+        ):
             raise HTTPException(
                 status_code=503,
                 detail="asset resolution capability is not configured",
@@ -193,6 +199,7 @@ def build_capability_router(
         if not is_safe_relative_image_reference(normalized_ref):
             raise HTTPException(status_code=422, detail="unsafe image reference")
         try:
+            await image_artifact_gate.validate((normalized_ref,))
             artifact = await image_artifact_resolver.resolve(normalized_ref)
             if artifact.kind is not ArtifactKind.IMAGE:
                 raise ValueError("resolved artifact kind must be IMAGE")

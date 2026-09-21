@@ -1022,7 +1022,39 @@ def test_asset_route_resolves_verifies_and_returns_image_bytes() -> None:
     assert response.status_code == 200
     assert response.content == payload
     assert response.headers["content-type"] == "image/png"
-    assert resolver.calls == ["doc-1/images/page-1.png"]
+    assert resolver.calls == [
+        "doc-1/images/page-1.png",
+        "doc-1/images/page-1.png",
+    ]
+
+
+def test_asset_route_rejects_repository_payload_with_invalid_checksum() -> None:
+    payload = b"png-bytes"
+    artifact = ArtifactRef(
+        artifact_id="doc-1/images/page-1.png",
+        version="image-v1",
+        kind=ArtifactKind.IMAGE,
+        media_type="image/png",
+        sha256=hashlib.sha256(payload).hexdigest(),
+        size_bytes=len(payload),
+    )
+    resolver = FakeImageArtifactResolver(artifact, [])
+    app = create_app(
+        settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=FakeRemoteGpuGateway(),
+            model_client=FakeModelClient(),
+            artifact_repository=FakeArtifacts(b"tampered"),
+            image_artifact_resolver=resolver,
+        ),
+    )
+
+    response = TestClient(app).get("/api/v1/assets/doc-1/images/page-1.png")
+
+    assert response.status_code == 422
+    assert response.json() == {
+        "detail": "payload size_bytes does not match artifact metadata"
+    }
 
 
 def test_asset_route_is_explicitly_unavailable_without_resolver() -> None:
