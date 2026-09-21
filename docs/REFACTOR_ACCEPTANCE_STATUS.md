@@ -311,6 +311,17 @@ deployment production.
 - Live model-service smoke và production parity vẫn chưa xác minh vì checkout
   thiếu endpoint, credential và production catalog thật.
 
+### Iteration 217 - asset route map lỗi quyền truy cập
+
+- Asset route hiện map `PermissionError` từ artifact repository thành HTTP 403
+  với thông báo ổn định `asset access denied`, thay vì để lỗi filesystem thành
+  HTTP 500; các mapping 404/422 hiện có vẫn được giữ nguyên.
+- Regression targeted cho toàn bộ asset route đạt **8 passed, 1 warning**.
+  Chi tiết tại `docs/ITERATION_217_ASSET_PERMISSION_ERROR_CONTRACT.md`.
+- Full suite, `compileall` và `git diff --check` được xác minh sau thay đổi.
+- Live model-service smoke và production parity vẫn chưa xác minh vì checkout
+  thiếu endpoint, credential và production catalog thật.
+
 ### Iteration 213 - payload validation của artifact không chạy trên event loop
 
 - `LocalArtifactRepository.put()` đưa payload size/SHA-256 validation và atomic

@@ -208,6 +208,8 @@ def build_capability_router(
             payload = await artifact_repository.get(artifact)
         except FileNotFoundError as error:
             raise HTTPException(status_code=404, detail="asset not found") from error
+        except PermissionError as error:
+            raise HTTPException(status_code=403, detail="asset access denied") from error
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         return Response(content=payload, media_type=artifact.media_type)

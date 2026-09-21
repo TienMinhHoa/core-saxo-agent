@@ -1057,6 +1057,37 @@ def test_asset_route_rejects_repository_payload_with_invalid_checksum() -> None:
     }
 
 
+def test_asset_route_maps_repository_permission_error_to_forbidden() -> None:
+    payload = b"png-bytes"
+    artifact = ArtifactRef(
+        artifact_id="doc-1/images/page-1.png",
+        version="image-v1",
+        kind=ArtifactKind.IMAGE,
+        media_type="image/png",
+        sha256=hashlib.sha256(payload).hexdigest(),
+        size_bytes=len(payload),
+    )
+
+    class PermissionDeniedArtifacts(FakeArtifacts):
+        async def get(self, artifact: ArtifactRef) -> bytes:
+            raise PermissionError("artifact access denied")
+
+    app = create_app(
+        settings(),
+        overrides=AppOverrides(
+            remote_gpu_gateway=FakeRemoteGpuGateway(),
+            model_client=FakeModelClient(),
+            artifact_repository=PermissionDeniedArtifacts(payload),
+            image_artifact_resolver=FakeImageArtifactResolver(artifact, []),
+        ),
+    )
+
+    response = TestClient(app).get("/api/v1/assets/doc-1/images/page-1.png")
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "asset access denied"}
+
+
 def test_asset_route_is_explicitly_unavailable_without_resolver() -> None:
     app = create_app(
         settings(),
