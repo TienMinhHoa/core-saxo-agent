@@ -109,3 +109,13 @@ def test_queue_extraction_rejects_non_restartable_status(tmp_path) -> None:
 
     with pytest.raises(ValueError, match="cannot be queued"):
         store.queue_extraction(job_id, device="cpu", language="vi")
+
+
+def test_job_store_owns_pdf_artifact_paths(tmp_path) -> None:
+    store = PdfLayoutJobStore(tmp_path)
+    job_id = "12345678-1234-5678-1234-567812345678"
+    job_dir = store.job_dir(job_id)
+
+    assert store.source_pdf_path(job_id) == job_dir / "source.pdf"
+    assert store.pages_dir(job_id) == job_dir / "pages"
+    assert store.layout_dir(job_id) == job_dir / "extraction" / "source" / "layout"

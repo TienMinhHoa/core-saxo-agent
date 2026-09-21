@@ -98,6 +98,19 @@ def test_pdf_extract_route_delegates_queue_transition_to_job_store() -> None:
     assert "state.update(" not in extract_source
 
 
+def test_pdf_layout_routes_delegate_artifact_paths_to_job_store() -> None:
+    source = (
+        SOURCE_ROOT / "src" / "saxophone" / "interfaces" / "pdf_layout_web.py"
+    ).read_text(encoding="utf-8")
+
+    assert ' / "source.pdf"' not in source
+    assert ' / "pages"' not in source
+    assert ' / "extraction" / "source" / "layout"' not in source
+    assert "JOB_STORE.source_pdf_path(" in source
+    assert "JOB_STORE.pages_dir(" in source
+    assert "JOB_STORE.layout_dir(" in source
+
+
 def test_layout_route_uses_job_store_projection_at_runtime(monkeypatch, tmp_path) -> None:
     from saxophone.interfaces import pdf_layout_web
 
@@ -110,6 +123,10 @@ def test_layout_route_uses_job_store_projection_at_runtime(monkeypatch, tmp_path
             return state
 
         def job_dir(self, job_id: str):
+            assert job_id == expected_job_id
+            return tmp_path
+
+        def layout_dir(self, job_id: str):
             assert job_id == expected_job_id
             return tmp_path
 

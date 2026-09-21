@@ -32,6 +32,18 @@ class PdfLayoutJobStore:
             raise PdfLayoutJobNotFound(job_id) from exc
         return self._root / job_id
 
+    def source_pdf_path(self, job_id: str) -> Path:
+        """Return the canonical uploaded PDF path for a validated job."""
+        return self.job_dir(job_id) / "source.pdf"
+
+    def pages_dir(self, job_id: str) -> Path:
+        """Return the canonical rendered-page directory for a validated job."""
+        return self.job_dir(job_id) / "pages"
+
+    def layout_dir(self, job_id: str) -> Path:
+        """Return the canonical normalized-layout directory for a validated job."""
+        return self.job_dir(job_id) / "extraction" / "source" / "layout"
+
     def load_state(self, job_id: str) -> dict[str, Any]:
         try:
             state = json.loads(
