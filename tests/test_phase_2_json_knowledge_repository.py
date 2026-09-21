@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import threading
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -153,3 +154,27 @@ def test_json_repository_rechecks_root_after_directory_creation(
 
     with pytest.raises(ValueError, match="root path must not contain a symbolic link"):
         asyncio.run(repository.upsert(_chunk()))
+
+
+def test_json_repository_delete_resolves_path_inside_bounded_worker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = JsonKnowledgeRepository(tmp_path)
+    chunk = _chunk()
+    asyncio.run(repository.upsert(chunk))
+
+    caller_thread = threading.get_ident()
+    observed_threads: list[int] = []
+    real_path_for = repository._path_for
+
+    def observe_path_for(chunk_id: str) -> Path:
+        observed_threads.append(threading.get_ident())
+        return real_path_for(chunk_id)
+
+    monkeypatch.setattr(repository, "_path_for", observe_path_for)
+
+    asyncio.run(repository.delete(chunk.chunk_id))
+
+    assert observed_threads
+    assert all(thread_id != caller_thread for thread_id in observed_threads)

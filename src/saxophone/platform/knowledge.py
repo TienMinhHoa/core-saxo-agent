@@ -52,7 +52,8 @@ class JsonKnowledgeRepository:
 
     async def delete(self, chunk_id: str) -> None:
         await anyio.to_thread.run_sync(
-            self._path_for(chunk_id).unlink,
+            self._delete,
+            chunk_id,
             limiter=self._io_limiter,
         )
 
@@ -87,6 +88,9 @@ class JsonKnowledgeRepository:
                 raise ValueError(f"knowledge sidecar field {field_name} must be a JSON array")
             payload[field_name] = tuple(values)
         return payload
+
+    def _delete(self, chunk_id: str) -> None:
+        self._path_for(chunk_id).unlink()
 
     def _path_for(self, chunk_id: str) -> Path:
         _reject_symbolic_link_in_path(self._root)
