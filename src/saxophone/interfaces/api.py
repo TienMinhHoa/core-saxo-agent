@@ -210,6 +210,8 @@ def build_capability_router(
             raise HTTPException(status_code=404, detail="asset not found") from error
         except FileExistsError as error:
             raise HTTPException(status_code=404, detail="asset not found") from error
+        except IsADirectoryError as error:
+            raise HTTPException(status_code=404, detail="asset not found") from error
         except PermissionError as error:
             raise HTTPException(status_code=403, detail="asset access denied") from error
         except ValueError as error:
