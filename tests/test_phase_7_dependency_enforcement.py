@@ -646,7 +646,6 @@ def test_documents_exposes_a_public_application_facade() -> None:
         "ImageArtifactResolver",
         "KnowledgeChunk",
         "KnowledgeRepository",
-        "VectorIndex",
         "is_image_media_type",
         "is_safe_artifact_reference",
         "is_safe_document_reference",
@@ -656,6 +655,15 @@ def test_documents_exposes_a_public_application_facade() -> None:
 
     assert set(documents.__all__) == expected
     assert all(hasattr(documents, name) for name in expected)
+
+
+def test_documents_facade_does_not_reexport_ingestion_vector_index() -> None:
+    """Vector indexing belongs to ingestion, not the document facade."""
+
+    from saxophone import documents
+
+    assert not hasattr(documents, "VectorIndex")
+    assert "VectorIndex" not in documents.__all__
 
 
 def test_ingestion_does_not_depend_on_inbound_framework_or_schemas() -> None:

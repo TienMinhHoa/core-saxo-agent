@@ -11,7 +11,6 @@ _EXPORTS = {
     "ImageArtifactResolver": ("saxophone.documents.ports", "ImageArtifactResolver"),
     "KnowledgeChunk": ("saxophone.documents.knowledge", "KnowledgeChunk"),
     "KnowledgeRepository": ("saxophone.documents.ports", "KnowledgeRepository"),
-    "VectorIndex": ("saxophone.documents.ports", "VectorIndex"),
     "is_image_media_type": ("saxophone.documents.policies", "is_image_media_type"),
     "is_safe_artifact_reference": (
         "saxophone.documents.policies",

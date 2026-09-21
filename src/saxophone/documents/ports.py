@@ -7,7 +7,6 @@ from typing import Protocol
 
 from saxophone.documents.knowledge import KnowledgeChunk
 from saxophone.documents.models import ArtifactRef
-from saxophone.ingestion.models import EmbeddingRecord
 
 
 class ArtifactRepository(Protocol):
@@ -39,13 +38,3 @@ class KnowledgeRepository(Protocol):
 
     async def delete(self, chunk_id: str) -> None:
         """Delete a chunk or raise FileNotFoundError."""
-
-
-class VectorIndex(Protocol):
-    """Index vectors without exposing Chroma or another SDK to use cases."""
-
-    async def upsert(self, records: tuple[EmbeddingRecord, ...]) -> None:
-        """Atomically upsert one validated embedding batch."""
-
-    async def delete(self, chunk_ids: tuple[str, ...]) -> None:
-        """Remove indexed chunks by stable identity."""
