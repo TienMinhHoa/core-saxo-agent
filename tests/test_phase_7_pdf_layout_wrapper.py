@@ -67,6 +67,22 @@ def test_pdf_layout_interface_uses_the_workflows_public_job_store_facade() -> No
     assert "from saxophone.workflows.pdf_layout_jobs import" not in source
 
 
+def test_pdf_layout_artifact_paths_are_exported_by_the_workflows_facade() -> None:
+    from saxophone import workflows
+
+    assert "PdfLayoutArtifactPaths" in workflows.__all__
+    assert workflows.__all__.count("PdfLayoutArtifactPaths") == 1
+
+
+def test_pdf_extraction_workflow_uses_public_artifact_paths_facade() -> None:
+    source = (
+        SOURCE_ROOT / "src" / "saxophone" / "workflows" / "pdf_layout_extraction.py"
+    ).read_text(encoding="utf-8")
+
+    assert "from saxophone.workflows import PdfLayoutArtifactPaths" in source
+    assert "from saxophone.workflows.pdf_layout_jobs import" not in source
+
+
 def test_pdf_extraction_workflow_is_declared_in_public_workflows_exports() -> None:
     from saxophone import workflows
 

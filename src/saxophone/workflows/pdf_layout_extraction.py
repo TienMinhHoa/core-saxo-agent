@@ -9,7 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from saxophone.workflows.pdf_layout_jobs import PdfLayoutArtifactPaths
+from saxophone.workflows import PdfLayoutArtifactPaths
 
 
 def run_extraction(

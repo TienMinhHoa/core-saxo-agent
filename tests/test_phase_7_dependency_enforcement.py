@@ -652,6 +652,7 @@ def test_workflows_exposes_a_public_application_facade() -> None:
         "IngestExtractedDocument",
         "ProcessAndPersistDocument",
         "ProcessDocument",
+        "PdfLayoutArtifactPaths",
         "PdfLayoutJobNotFound",
         "PdfLayoutJobStore",
         "run_extraction",
