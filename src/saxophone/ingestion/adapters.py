@@ -335,6 +335,15 @@ class ChromaVectorIndex(VectorIndex):
             if callable(close):
                 close()
 
+    async def aclose(self) -> None:
+        """Close the Chroma client without blocking the application event loop."""
+
+        if self._client is not None:
+            await anyio.to_thread.run_sync(
+                self.close,
+                limiter=self._io_limiter,
+            )
+
     async def list_chunk_ids(self, *, document_ref: str) -> tuple[str, ...]:
         validated_document_ref = _validated_document_ref(document_ref)
         result = await anyio.to_thread.run_sync(

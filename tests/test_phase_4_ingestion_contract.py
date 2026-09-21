@@ -343,6 +343,34 @@ async def test_chroma_adapter_runs_upsert_delete_and_search_through_async_port()
 
 
 @pytest.mark.anyio
+async def test_chroma_aclose_runs_blocking_client_close_through_shared_limiter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Client:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    client = _Client()
+    limiter = object()
+    calls = []
+
+    async def run_sync(function, *args, **kwargs):
+        calls.append(kwargs)
+        return function(*args)
+
+    import saxophone.ingestion.adapters as adapters
+
+    monkeypatch.setattr(adapters.anyio.to_thread, "run_sync", run_sync)
+    await ChromaVectorIndex(object(), client=client, io_limiter=limiter).aclose()
+
+    assert client.closed is True
+    assert calls == [{"limiter": limiter}]
+
+
+@pytest.mark.anyio
 async def test_chroma_upsert_rejects_duplicate_chunk_ids_before_provider_io() -> None:
     class _CollectionThatMustNotBeCalled:
         def upsert(self, **kwargs):
