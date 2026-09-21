@@ -392,8 +392,6 @@ def test_default_composition_closes_persistent_chroma_client_on_shutdown(monkeyp
         metadata = {"embedding_dimension": 1536, "schema_version": "saxo-chunk-v1"}
 
     class FakeClient:
-        closed = False
-
         def __init__(self, *, path: str) -> None:
             pass
 
@@ -401,7 +399,7 @@ def test_default_composition_closes_persistent_chroma_client_on_shutdown(monkeyp
             return FakeCollection()
 
         def close(self) -> None:
-            self.closed = True
+            raise AssertionError("synchronous Chroma close must not run on the event loop")
 
     class FakeChroma:
         PersistentClient = FakeClient
@@ -409,11 +407,18 @@ def test_default_composition_closes_persistent_chroma_client_on_shutdown(monkeyp
     monkeypatch.setitem(__import__("sys").modules, "chromadb", FakeChroma)
     app = create_app(build_settings())
     client = app.state.container.vector_index._client
+    aclose_calls: list[object] = []
+
+    async def tracked_aclose(index) -> None:
+        aclose_calls.append(index)
+
+    monkeypatch.setattr(ChromaVectorIndex, "aclose", tracked_aclose)
 
     with TestClient(app):
-        assert client.closed is False
+        assert aclose_calls == []
 
-    assert client.closed is True
+    assert aclose_calls == [app.state.container.vector_index]
+    assert client is app.state.container.vector_index._client
 
 
 def test_indexing_composition_uses_durable_reuse_store_by_default() -> None:
