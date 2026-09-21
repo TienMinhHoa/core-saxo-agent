@@ -29,7 +29,7 @@ from music_rag.ui_rendering import (
     format_answer_cost as _format_answer_cost,
     render_chroma_results as _render_chroma_results,
 )
-from music_rag.ui_workflows import select_answer_records
+from music_rag.ui_workflows import select_answer_records, select_chroma_records
 
 def create_app(
     catalog_path: str | Path,
@@ -57,7 +57,7 @@ def create_app(
         response = result.response
         if response is None:
             return "Không tìm thấy header chunk phù hợp.", "", []
-        records = [item["record"] for item in response.get("items", []) if isinstance(item.get("record"), dict)]
+        records = select_chroma_records(response)
         if not records:
             return "Không tìm thấy header chunk phù hợp.", "", []
         body, images = _render_chroma_results(records)

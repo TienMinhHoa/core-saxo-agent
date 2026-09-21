@@ -40,3 +40,36 @@ def test_select_answer_records_rejects_invalid_response_shape() -> None:
     from music_rag.ui_workflows import select_answer_records
 
     assert select_answer_records(None, [{"chunk_id": "final"}]) == []
+
+
+def test_select_chroma_records_extracts_only_mapping_records() -> None:
+    from music_rag.ui_workflows import select_chroma_records
+
+    response = {
+        "items": [
+            {"record": {"chunk_id": "first"}},
+            {"record": ["not a record"]},
+            None,
+            {"record": {"chunk_id": "second"}},
+        ]
+    }
+
+    assert select_chroma_records(response) == [
+        {"chunk_id": "first"},
+        {"chunk_id": "second"},
+    ]
+
+
+def test_select_chroma_records_returns_empty_for_invalid_response_or_items() -> None:
+    from music_rag.ui_workflows import select_chroma_records
+
+    assert select_chroma_records(None) == []
+    assert select_chroma_records({"items": "not a list"}) == []
+
+
+def test_select_chroma_records_preserves_duplicate_records_for_rendering() -> None:
+    from music_rag.ui_workflows import select_chroma_records
+
+    record = {"chunk_id": "same"}
+
+    assert select_chroma_records({"items": [{"record": record}, {"record": record}]}) == [record, record]

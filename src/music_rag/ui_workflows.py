@@ -5,6 +5,21 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 
+def select_chroma_records(response: object) -> list[dict[str, object]]:
+    """Extract mapping records from a validated Chroma response shape."""
+    if not isinstance(response, Mapping):
+        return []
+    items = response.get("items")
+    if not isinstance(items, Sequence) or isinstance(items, (str, bytes, bytearray)):
+        return []
+    return [
+        record
+        for item in items
+        if isinstance(item, Mapping)
+        and isinstance(record := item.get("record"), dict)
+    ]
+
+
 def select_answer_records(
     response: object,
     final_hits: Sequence[object],
@@ -38,4 +53,3 @@ def select_answer_records(
                 records.append(record)
                 seen_ids.add(chunk_id)
     return records
-
