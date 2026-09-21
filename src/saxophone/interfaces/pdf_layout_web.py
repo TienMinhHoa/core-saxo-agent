@@ -117,14 +117,13 @@ async def create_job(file: UploadFile = File(...)) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="Chỉ nhận file PDF")
     job_id = str(uuid.uuid4())
     job_dir = _job_dir(job_id)
-    job_dir.mkdir(parents=True, exist_ok=False)
+    state = JOB_STORE.create_uploaded_job(
+        job_id, original_filename=supplied_name, created_at=_timestamp()
+    )
     try:
         size = await _save_upload(file, job_dir / "source.pdf")
         if size == 0:
             raise HTTPException(status_code=400, detail="PDF rỗng")
-        state = JOB_STORE.create_uploaded_job(
-            job_id, original_filename=supplied_name, created_at=_timestamp()
-        )
         return JOB_STORE.public_state(state)
     except Exception:
         shutil.rmtree(job_dir, ignore_errors=True)

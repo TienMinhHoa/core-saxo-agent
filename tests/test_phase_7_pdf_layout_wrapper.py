@@ -82,6 +82,7 @@ def test_pdf_upload_route_delegates_initial_state_creation_to_job_store() -> Non
     create_job_source = source.split("@app.post(\"/api/jobs/{job_id}/extract\")", 1)[0]
 
     assert "JOB_STORE.create_uploaded_job(" in create_job_source
+    assert "job_dir.mkdir(" not in create_job_source
     assert '"progress_pages": 0' not in create_job_source
     assert '"original_filename": supplied_name' not in create_job_source
 

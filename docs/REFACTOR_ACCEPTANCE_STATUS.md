@@ -392,6 +392,19 @@ deployment production.
 - Live model-service smoke va production parity van chua xac minh do thieu
   endpoint, credential va production catalog.
 
+### Iteration 315 - ranh gioi so huu thu muc upload PDF
+
+- Route `POST /api/jobs` khong con tu goi `job_dir.mkdir(...)`;
+  `PdfLayoutJobStore.create_uploaded_job()` tao thu muc va state ban dau
+  truoc khi route ghi `source.pdf`.
+- Them regression contract de ngan xung dot voi `exist_ok=False` cua store;
+  cleanup van bao phu loi upload sau khi store da tao job.
+- Targeted: **22 passed**; full offline: **1007 passed, 18 skipped, 1
+  warning**; `compileall` va `git diff --check` dat.
+- Chi tiet tai `docs/ITERATION_315_PHASE7_PDF_UPLOAD_DIRECTORY_OWNERSHIP.md`.
+- Live model-service smoke va production parity van chua xac minh do thieu
+  endpoint, credential va production catalog.
+
 ### Iteration 313 - ranh gioi tao PDF job
 
 - `PdfLayoutJobStore.create_uploaded_job()` nay so huu directory va state ban dau;
