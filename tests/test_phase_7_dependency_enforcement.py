@@ -423,6 +423,20 @@ def test_extraction_consumers_use_the_public_facade() -> None:
     assert violations == {}
 
 
+def test_legacy_layout_route_uses_extraction_boundary() -> None:
+    """The compatibility route must not import layout constants from legacy code."""
+
+    route = SOURCE_ROOT.parents[1] / "src" / "pdf_layout_web.py"
+    tree = ast.parse(route.read_text(encoding="utf-8"), filename=str(route))
+    legacy_imports = {
+        node.module
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module == "extracted.layout_geometry"
+    }
+
+    assert legacy_imports == set()
+
+
 def test_api_consumes_application_public_facades() -> None:
     """The inbound adapter should depend on stable module facades only."""
 
