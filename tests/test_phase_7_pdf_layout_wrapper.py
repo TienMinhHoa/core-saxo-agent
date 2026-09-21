@@ -200,6 +200,28 @@ def test_pdf_page_route_delegates_rendered_page_path_policy_to_job_store() -> No
     assert 'f"page-{page_number}.png"' not in source
 
 
+def test_pdf_page_route_maps_missing_job_to_http_404(monkeypatch) -> None:
+    from fastapi import HTTPException
+
+    from saxophone.interfaces import pdf_layout_web
+    from saxophone.workflows.pdf_layout_jobs import PdfLayoutJobNotFound
+
+    class MissingJobStore:
+        def page_image_path(self, job_id: str, page_number: int):
+            raise PdfLayoutJobNotFound(job_id)
+
+    monkeypatch.setattr(pdf_layout_web, "JOB_STORE", MissingJobStore())
+
+    try:
+        pdf_layout_web.page_image(
+            "12345678-1234-5678-1234-567812345678", 1
+        )
+    except HTTPException as exc:
+        assert exc.status_code == 404
+    else:
+        raise AssertionError("missing PDF jobs must map to HTTP 404")
+
+
 def test_pdf_job_store_keeps_one_public_artifact_path_policy() -> None:
     source = (
         SOURCE_ROOT / "src" / "saxophone" / "workflows" / "pdf_layout_jobs.py"

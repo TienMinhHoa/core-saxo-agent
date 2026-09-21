@@ -141,7 +141,7 @@ def page_image(job_id: str, page_number: int) -> FileResponse:
         raise HTTPException(status_code=404, detail="Trang không tồn tại")
     try:
         candidate = JOB_STORE.page_image_path(job_id, page_number)
-    except ValueError as exc:
+    except (PdfLayoutJobNotFound, ValueError) as exc:
         raise HTTPException(status_code=404, detail="invalid rendered page") from exc
     if not candidate.is_file():
         raise HTTPException(status_code=404, detail="Trang không tồn tại")
