@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 
 import anyio
 import pytest
@@ -104,6 +105,30 @@ def test_json_tagged_paragraph_repository_rejects_tampered_identity(tmp_path) ->
 
     with pytest.raises(ValueError, match="paragraph ID"):
         asyncio.run(repository.get(paragraph.paragraph_id))
+
+
+def test_json_tagged_paragraph_repository_delete_resolves_path_in_worker(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = JsonTaggedParagraphRepository(tmp_path / "paragraphs")
+    paragraph = _paragraph()
+    asyncio.run(repository.upsert(paragraph))
+
+    caller_thread = threading.get_ident()
+    observed_threads: list[int] = []
+    real_path_for = repository._path_for
+
+    def observe_path_for(paragraph_id: str):
+        observed_threads.append(threading.get_ident())
+        return real_path_for(paragraph_id)
+
+    monkeypatch.setattr(repository, "_path_for", observe_path_for)
+
+    asyncio.run(repository.delete(paragraph.paragraph_id))
+
+    assert observed_threads
+    assert all(thread_id != caller_thread for thread_id in observed_threads)
 
 
 def test_json_tag_catalog_is_atomic_and_deterministic(tmp_path) -> None:

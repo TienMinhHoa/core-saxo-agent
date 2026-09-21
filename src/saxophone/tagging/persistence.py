@@ -56,8 +56,14 @@ class JsonTaggedParagraphRepository:
         return paragraph
 
     async def delete(self, paragraph_id: str) -> None:
-        path = self._path_for(paragraph_id)
-        await anyio.to_thread.run_sync(path.unlink, limiter=self._io_limiter)
+        await anyio.to_thread.run_sync(
+            self._delete,
+            paragraph_id,
+            limiter=self._io_limiter,
+        )
+
+    def _delete(self, paragraph_id: str) -> None:
+        self._path_for(paragraph_id).unlink()
 
     def _write(self, paragraph: TaggedParagraph) -> None:
         _reject_symbolic_link_in_path(self._root)
