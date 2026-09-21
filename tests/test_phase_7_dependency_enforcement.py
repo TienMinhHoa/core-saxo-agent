@@ -276,6 +276,39 @@ def test_composition_root_owns_concrete_adapter_wiring() -> None:
     assert violations == {}
 
 
+def test_concrete_adapters_are_imported_only_by_the_composition_root() -> None:
+    """Prevent feature modules from bypassing the central adapter assembly."""
+
+    concrete_adapter_modules = frozenset(
+        {
+            "saxophone.extraction.remote",
+            "saxophone.ingestion.adapters",
+            "saxophone.platform.artifacts",
+            "saxophone.platform.chroma",
+            "saxophone.platform.knowledge",
+            "saxophone.platform.remote_gpu",
+            "saxophone.tagging.adapters",
+            "saxophone.tagging.persistence",
+        }
+    )
+    allowed_importers = {
+        SOURCE_ROOT / "app" / "factory.py",
+        SOURCE_ROOT / "platform" / "chroma.py",
+    }
+    violations = {
+        str(path.relative_to(SOURCE_ROOT)): sorted(
+            imported
+            for imported in _saxophone_imports(path)
+            if imported in concrete_adapter_modules
+        )
+        for path in SOURCE_ROOT.rglob("*.py")
+        if path not in allowed_importers
+        and _saxophone_imports(path) & concrete_adapter_modules
+    }
+
+    assert violations == {}
+
+
 def test_retrieval_and_chat_remain_separate_application_boundaries() -> None:
     """Retrieval supplies evidence; chat consumes its public contract only."""
 
