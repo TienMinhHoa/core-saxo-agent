@@ -1,6 +1,12 @@
 """Public application facade for paragraph tagging."""
 
 from .adapters import RemoteParagraphTagger, RemoteTagConflictResolver
+from .concepts import (
+    ConceptCandidate,
+    ConceptCandidateExample,
+    deduplicate_concept_candidates,
+    normalize_concept_label,
+)
 from .models import (
     ExistingTagCandidate,
     ParagraphBlock,
@@ -21,6 +27,8 @@ from .ports import (
 
 __all__ = [
     "ExistingTagCandidate",
+    "ConceptCandidate",
+    "ConceptCandidateExample",
     "JsonTagCatalogRepository",
     "JsonTaggedParagraphRepository",
     "ParagraphBlock",
@@ -38,6 +46,8 @@ __all__ = [
     "TagResolution",
     "TaggedParagraph",
     "TaggedParagraphRepository",
+    "deduplicate_concept_candidates",
+    "normalize_concept_label",
     "parse_chunk_paragraphs",
 ]
 
