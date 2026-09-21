@@ -120,6 +120,32 @@ async def test_tag_paragraph_rejects_resolution_profile_drift() -> None:
 
 
 @pytest.mark.anyio
+async def test_tag_paragraph_rejects_missing_resolution_generated_tags() -> None:
+    class _MissingGeneratedTagsResolver:
+        async def resolve(self, request):
+            return type(
+                "ResolutionWithoutGenerationContract",
+                (),
+                {
+                    "paragraph_id": request.paragraph_id,
+                    "resolution_profile": request.resolution_profile,
+                    "generated_tags": (),
+                    "resolutions": tuple(
+                        type("Resolution", (), {"resolved_tag": tag})
+                        for tag in request.generated_tags
+                    ),
+                },
+            )()
+
+    with pytest.raises(ValueError, match="generated tags"):
+        await TagParagraph(_Generator(), _MissingGeneratedTagsResolver()).execute(
+            _paragraph(),
+            tagging_profile="topic-tags-v1",
+            resolution_profile="tag-conflicts-v1",
+        )
+
+
+@pytest.mark.anyio
 async def test_tag_paragraph_does_not_silently_fallback_when_generation_fails() -> None:
     class _FailingGenerator:
         async def generate(self, request):

@@ -53,7 +53,7 @@ class TagParagraph:
             raise ValueError("resolution paragraph ID does not match paragraph")
         if resolution.resolution_profile != resolution_profile:
             raise ValueError("resolution profile does not match request")
-        if resolution.generated_tags and resolution.generated_tags != generated.tags:
+        if resolution.generated_tags != generated.tags:
             raise ValueError("resolution generated tags do not match generation result")
         return TaggedParagraph(
             paragraph_id=paragraph.paragraph_id,
