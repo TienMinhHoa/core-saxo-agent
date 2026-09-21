@@ -191,6 +191,16 @@ def test_pdf_layout_routes_delegate_artifact_paths_to_job_store() -> None:
     assert "artifact_paths(job_id).layout" in source
 
 
+def test_pdf_job_store_keeps_one_public_artifact_path_policy() -> None:
+    source = (
+        SOURCE_ROOT / "src" / "saxophone" / "workflows" / "pdf_layout_jobs.py"
+    ).read_text(encoding="utf-8")
+
+    for helper in ("source_pdf_path", "pages_dir", "layout_dir", "extraction_dir"):
+        assert f"def {helper}(" not in source
+    assert "def artifact_paths(" in source
+
+
 def test_pdf_extraction_workflow_accepts_typed_artifact_path_policy() -> None:
     workflow_source = (
         SOURCE_ROOT / "src" / "saxophone" / "workflows" / "pdf_layout_extraction.py"

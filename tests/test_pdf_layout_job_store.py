@@ -100,7 +100,7 @@ def test_job_store_owns_discarding_a_failed_upload(tmp_path) -> None:
     store = PdfLayoutJobStore(tmp_path)
     job_id = "12345678-1234-5678-1234-567812345678"
     store.create_uploaded_job("source.pdf", job_id=job_id, created_at="2026-09-21T00:00:00Z")
-    store.source_pdf_path(job_id).write_bytes(b"partial upload")
+    store.artifact_paths(job_id).source_pdf.write_bytes(b"partial upload")
 
     store.discard_job(job_id)
 
@@ -149,17 +149,6 @@ def test_update_state_owns_atomic_workflow_state_patch(tmp_path) -> None:
     assert not (store.job_dir(job_id) / "job.json.tmp").exists()
 
 
-def test_job_store_owns_pdf_artifact_paths(tmp_path) -> None:
-    store = PdfLayoutJobStore(tmp_path)
-    job_id = "12345678-1234-5678-1234-567812345678"
-    job_dir = store.job_dir(job_id)
-
-    assert store.source_pdf_path(job_id) == job_dir / "source.pdf"
-    assert store.extraction_dir(job_id) == job_dir / "extraction"
-    assert store.pages_dir(job_id) == job_dir / "pages"
-    assert store.layout_dir(job_id) == job_dir / "extraction" / "source" / "layout"
-
-
 def test_job_store_exposes_one_typed_artifact_path_policy(tmp_path) -> None:
     store = PdfLayoutJobStore(tmp_path)
     job_id = "12345678-1234-5678-1234-567812345678"
@@ -182,7 +171,7 @@ def test_job_store_persists_uploaded_pdf_and_returns_byte_count(tmp_path) -> Non
     written = store.save_uploaded_pdf(job_id, BytesIO(b"pdf bytes"), max_bytes=32)
 
     assert written == 9
-    assert store.source_pdf_path(job_id).read_bytes() == b"pdf bytes"
+    assert store.artifact_paths(job_id).source_pdf.read_bytes() == b"pdf bytes"
 
 
 def test_job_store_rejects_upload_over_limit_without_leaving_partial_file(tmp_path) -> None:
@@ -193,4 +182,4 @@ def test_job_store_rejects_upload_over_limit_without_leaving_partial_file(tmp_pa
     with pytest.raises(ValueError, match="upload exceeds maximum"):
         store.save_uploaded_pdf(job_id, BytesIO(b"12345"), max_bytes=4)
 
-    assert not store.source_pdf_path(job_id).exists()
+    assert not store.artifact_paths(job_id).source_pdf.exists()

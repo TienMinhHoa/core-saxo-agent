@@ -44,29 +44,14 @@ class PdfLayoutJobStore:
             raise PdfLayoutJobNotFound(job_id) from exc
         return self._root / job_id
 
-    def source_pdf_path(self, job_id: str) -> Path:
-        """Return the canonical uploaded PDF path for a validated job."""
-        return self.job_dir(job_id) / "source.pdf"
-
-    def pages_dir(self, job_id: str) -> Path:
-        """Return the canonical rendered-page directory for a validated job."""
-        return self.job_dir(job_id) / "pages"
-
-    def layout_dir(self, job_id: str) -> Path:
-        """Return the canonical normalized-layout directory for a validated job."""
-        return self.job_dir(job_id) / "extraction" / "source" / "layout"
-
-    def extraction_dir(self, job_id: str) -> Path:
-        """Return the canonical extraction artifact directory for a validated job."""
-        return self.job_dir(job_id) / "extraction"
-
     def artifact_paths(self, job_id: str) -> PdfLayoutArtifactPaths:
         """Expose the complete artifact policy without leaking directory layout."""
+        job_dir = self.job_dir(job_id)
         return PdfLayoutArtifactPaths(
-            source_pdf=self.source_pdf_path(job_id),
-            extraction=self.extraction_dir(job_id),
-            pages=self.pages_dir(job_id),
-            layout=self.layout_dir(job_id),
+            source_pdf=job_dir / "source.pdf",
+            extraction=job_dir / "extraction",
+            pages=job_dir / "pages",
+            layout=job_dir / "extraction" / "source" / "layout",
         )
 
     def save_uploaded_pdf(
@@ -76,7 +61,7 @@ class PdfLayoutJobStore:
         if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes <= 0:
             raise ValueError("max_bytes must be a positive integer")
 
-        destination = self.source_pdf_path(job_id)
+        destination = self.artifact_paths(job_id).source_pdf
         written = 0
         try:
             with destination.open("wb") as handle:
