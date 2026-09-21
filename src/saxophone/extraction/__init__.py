@@ -7,7 +7,10 @@ from .models import (
     PdfExtractionResult,
 )
 from .ports import ExtractionArtifactPayloadProvider, PdfExtractor
-from .persistence import RepositoryExtractionArtifactPayloadProvider
+from .persistence import (
+    PersistExtractionArtifacts,
+    RepositoryExtractionArtifactPayloadProvider,
+)
 from .remote import RemotePdfExtractor
 
 __all__ = [
@@ -17,6 +20,7 @@ __all__ = [
     "PdfExtractionResult",
     "PdfExtractor",
     "ExtractionArtifactPayloadProvider",
+    "PersistExtractionArtifacts",
     "RemotePdfExtractor",
     "RepositoryExtractionArtifactPayloadProvider",
 ]

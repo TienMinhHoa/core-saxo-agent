@@ -6,9 +6,13 @@ import hashlib
 
 from saxophone.documents.models import ArtifactKind
 from saxophone.documents.ports import ArtifactRepository
-from saxophone.extraction.models import PdfExtractionRequest, PdfExtractionResult
-from saxophone.extraction.persistence import PersistExtractionArtifacts
-from saxophone.extraction.ports import ExtractionArtifactPayloadProvider, PdfExtractor
+from saxophone.extraction import (
+    ExtractionArtifactPayloadProvider,
+    PdfExtractionRequest,
+    PdfExtractionResult,
+    PdfExtractor,
+    PersistExtractionArtifacts,
+)
 
 
 class ProcessDocument:

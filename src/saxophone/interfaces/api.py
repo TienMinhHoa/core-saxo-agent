@@ -18,7 +18,7 @@ from saxophone.documents.policies import (
     is_safe_relative_image_reference,
 )
 from saxophone.documents.ports import ArtifactRepository, ImageArtifactResolver
-from saxophone.extraction.models import PdfExtractionRequest, PdfExtractionResult
+from saxophone.extraction import PdfExtractionRequest, PdfExtractionResult
 from saxophone.ingestion.models import IndexInputRecord, IngestionCommand, IngestionReport
 from saxophone.ingestion.use_cases import IndexDocument
 from saxophone.retrieval.models import EvidenceBundle

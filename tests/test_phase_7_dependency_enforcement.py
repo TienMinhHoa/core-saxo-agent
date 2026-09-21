@@ -361,6 +361,56 @@ def test_ingestion_exposes_a_public_application_facade() -> None:
     assert all(hasattr(ingestion, name) for name in expected)
 
 
+def test_extraction_consumers_use_the_public_facade() -> None:
+    """Workflows and HTTP adapters must not couple to extraction internals."""
+
+    consumer_files = (
+        SOURCE_ROOT / "interfaces" / "api.py",
+        SOURCE_ROOT / "workflows" / "process_document.py",
+        SOURCE_ROOT / "workflows" / "ingest_extracted_document.py",
+    )
+    implementation_prefixes = (
+        "saxophone.extraction.models",
+        "saxophone.extraction.persistence",
+        "saxophone.extraction.ports",
+    )
+    violations = {
+        str(path.relative_to(SOURCE_ROOT)): sorted(
+            imported
+            for imported in _saxophone_imports(path)
+            if imported.startswith(implementation_prefixes)
+        )
+        for path in consumer_files
+        if any(
+            imported.startswith(implementation_prefixes)
+            for imported in _saxophone_imports(path)
+        )
+    }
+
+    assert violations == {}
+
+
+def test_extraction_exposes_a_public_application_facade() -> None:
+    """Consumers should receive extraction contracts from one stable module."""
+
+    from saxophone import extraction
+
+    expected = {
+        "CoordinateSpace",
+        "ExtractionArtifactPayloadProvider",
+        "ExtractionCoordinate",
+        "PdfExtractionRequest",
+        "PdfExtractionResult",
+        "PdfExtractor",
+        "PersistExtractionArtifacts",
+        "RemotePdfExtractor",
+        "RepositoryExtractionArtifactPayloadProvider",
+    }
+
+    assert set(extraction.__all__) == expected
+    assert all(hasattr(extraction, name) for name in expected)
+
+
 def test_ingestion_does_not_depend_on_inbound_framework_or_schemas() -> None:
     """Keep ingestion application code independent from HTTP presentation details."""
 
