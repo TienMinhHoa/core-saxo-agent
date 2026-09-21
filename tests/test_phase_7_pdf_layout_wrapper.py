@@ -66,6 +66,26 @@ def test_pdf_layout_interface_delegates_layout_reading_to_extraction_policy() ->
     assert "def _normalise_blocks" not in source
 
 
+def test_pdf_layout_missing_job_maps_store_error_to_http_404(monkeypatch) -> None:
+    from fastapi import HTTPException
+
+    from saxophone.interfaces import pdf_layout_web
+    from saxophone.workflows.pdf_layout_jobs import PdfLayoutJobNotFound
+
+    class MissingJobStore:
+        def load_state(self, job_id: str):
+            raise PdfLayoutJobNotFound(job_id)
+
+    monkeypatch.setattr(pdf_layout_web, "JOB_STORE", MissingJobStore())
+
+    try:
+        pdf_layout_web._load_state("12345678-1234-5678-1234-567812345678")
+    except HTTPException as exc:
+        assert exc.status_code == 404
+    else:
+        raise AssertionError("missing PDF jobs must map to HTTP 404")
+
+
 def test_layout_reader_keeps_page_url_and_skips_invalid_layout_payloads(tmp_path) -> None:
     import json
 
