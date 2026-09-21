@@ -20,16 +20,13 @@ from music_rag.chroma_service import ChromaChunkService
 from music_rag.deepseek_answer import DeepSeekAnswerAgent
 from music_rag.embeddings import OpenAIEmbeddingProvider
 from music_rag.errors import MusicRagError
-from music_rag.service import MusicMaterialService
 
 
 # Compatibility names remain stable while pure policy helpers live in the
 # package namespace instead of being owned by the root entrypoint.
 from music_rag.ui_rendering import (
     chroma_asset_paths as chroma_asset_paths,
-    display_status as _display_status,
     render_chroma_results as _render_chroma_results,
-    render_source_bundle as _render_source_bundle,
 )
 
 

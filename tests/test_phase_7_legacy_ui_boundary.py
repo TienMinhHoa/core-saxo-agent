@@ -45,3 +45,17 @@ def test_root_entrypoint_does_not_redefine_ui_policy_helpers() -> None:
             "_chroma_image_path",
         }
     )
+
+
+def test_root_entrypoint_has_no_dead_legacy_ui_aliases() -> None:
+    tree = ast.parse(Path("app.py").read_text(encoding="utf-8"))
+    imported_names = {
+        alias.asname or alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        for alias in node.names
+    }
+
+    assert imported_names.isdisjoint(
+        {"MusicMaterialService", "_display_status", "_render_source_bundle"}
+    )
