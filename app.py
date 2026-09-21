@@ -1,40 +1,25 @@
 #!/usr/bin/env python3
-"""Public Gradio frontend plus source-only backend for the music RAG catalog.
+"""Public Gradio frontend for the music RAG catalog."""
 
-The app never imports a source document.  Run the reviewed import/publish
-workflow first, then point MUSIC_RAG_CATALOG at that writable catalog.
-"""
 from __future__ import annotations
 
 import argparse
 import os
 from pathlib import Path
-from typing import Any
 
 import gradio as gr
 from dotenv import load_dotenv
 
-from music_rag.agentic import AgenticRetriever, OpenAIRetrievalAgent
 from music_rag.chroma_chunks import DEFAULT_CHROMA_DIR, DEFAULT_COLLECTION
 from music_rag.chroma_service import ChromaChunkService
-from music_rag.deepseek_answer import DeepSeekAnswerAgent
-from music_rag.embeddings import OpenAIEmbeddingProvider
-from music_rag.errors import MusicRagError
-
-
-# Compatibility names remain stable while pure policy helpers live in the
-# package namespace instead of being owned by the root entrypoint.
+from music_rag.ui_assets import approved_asset_paths
 from music_rag.ui_rendering import (
     chroma_asset_paths as chroma_asset_paths,
     format_answer_cost as _format_answer_cost,
     render_chroma_results as _render_chroma_results,
 )
-from music_rag.ui_workflows import (
-    handle_answer_request,
-    handle_chroma_request,
-    select_answer_records,
-    select_chroma_records,
-)
+from music_rag.ui_workflows import handle_answer_request, handle_chroma_request
+
 
 def create_app(
     catalog_path: str | Path,
@@ -44,9 +29,12 @@ def create_app(
     chroma_limit: int = 10,
 ) -> gr.Blocks:
     """Create the Chroma/VLM source UI and the DeepSeek answer UI."""
+    del catalog_path
     chroma_path = Path(chroma_dir or os.environ.get("MUSIC_RAG_CHROMA_DIR", DEFAULT_CHROMA_DIR))
     chroma_name = chroma_collection or os.environ.get("MUSIC_RAG_CHROMA_COLLECTION", DEFAULT_COLLECTION)
-    chroma_service = ChromaChunkService(chroma_path, chroma_name, source_scope=access_scope, limit=chroma_limit)
+    chroma_service = ChromaChunkService(
+        chroma_path, chroma_name, source_scope=access_scope, limit=chroma_limit
+    )
 
     def ask_chroma(request: str) -> tuple[str, str, list[tuple[str, str]]]:
         return handle_chroma_request(
@@ -55,29 +43,6 @@ def create_app(
             access_scope=access_scope,
             render_results=_render_chroma_results,
         )
-        request = request.strip()
-        if not request:
-            return "Nhập câu hỏi để tìm trong header chunks.", "", []
-        try:
-            understood = chroma_service.understand_request(request)
-            provider = OpenAIEmbeddingProvider()
-            agent = OpenAIRetrievalAgent()
-            result = AgenticRetriever(chroma_service, provider, agent).run(understood["query"], access_scope)
-        except (MusicRagError, RuntimeError, ValueError):
-            return "Chroma RAG chưa sẵn sàng. Kiểm tra API key, collection và index.", "", []
-        response = result.response
-        if response is None:
-            return "Không tìm thấy header chunk phù hợp.", "", []
-        records = select_chroma_records(response)
-        if not records:
-            return "Không tìm thấy header chunk phù hợp.", "", []
-        body, images = _render_chroma_results(records)
-        status = (
-            "Đã chọn source chunk phù hợp; ảnh hợp lệ được hiển thị bên dưới."
-            if result.status == "selected"
-            else "Không có candidate đáp ứng đầy đủ; đang hiển thị source chunk tốt nhất ở vòng cuối cùng."
-        )
-        return status, body, images
 
     def ask_answer(request: str) -> tuple[str, str, str, list[tuple[str, str]], str]:
         return handle_answer_request(
@@ -87,31 +52,6 @@ def create_app(
             render_results=_render_chroma_results,
             format_cost=_format_answer_cost,
         )
-        request = request.strip()
-        if not request:
-            return "Nhập câu hỏi để tổng hợp câu trả lời.", "", "", [], ""
-        try:
-            understood = chroma_service.understand_request(request)
-            provider = OpenAIEmbeddingProvider()
-            selector = OpenAIRetrievalAgent()
-            retrieval = AgenticRetriever(chroma_service, provider, selector).run(understood["query"], access_scope)
-            response = retrieval.response
-            if response is None:
-                return "Không tìm thấy source chunk phù hợp để tổng hợp.", "", "", [], ""
-            # Include selected evidence first, then unique final-round hits.
-            records = select_answer_records(response, retrieval.final_hits)
-            if not records:
-                return "Không có source chunk hợp lệ để tổng hợp.", "", "", [], ""
-            answer_result = DeepSeekAnswerAgent().answer(request, records)
-        except (MusicRagError, RuntimeError, ValueError):
-            return "Answer RAG chưa sẵn sàng. Kiểm tra DEEPSEEK_API_KEY, OPENAI_API_KEY và Chroma index.", "", "", [], ""
-        body, images = _render_chroma_results(records)
-        status = (
-            "Đã tổng hợp từ source chunk được agent chọn và các candidate gần nhất."
-            if retrieval.status == "selected"
-            else "Đang tổng hợp từ source chunk tốt nhất ở vòng retrieval cuối cùng."
-        )
-        return status, answer_result["answer"], body, images, _format_answer_cost(answer_result)
 
     css = """
     .source-item { border-top: 1px solid #ddd; margin-top: 1rem; padding-top: 1rem; }
@@ -121,40 +61,30 @@ def create_app(
     .chroma-hit pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; max-height: 32rem; overflow: auto; }
     """
     with gr.Blocks(title="Music Source Library", css=css, analytics_enabled=False) as demo:
-        gr.Markdown("# Music Theory RAG\nChroma/VLM source RAG và Answer RAG tổng hợp bằng DeepSeek Flash.")
+        gr.Markdown("# Music Theory RAG\nChroma/VLM source RAG and DeepSeek answer RAG.")
         with gr.Tabs():
             with gr.Tab("Header Chroma/VLM RAG"):
-                gr.Markdown("Search theo agentic RAG: embedding Chroma → candidate → agent đánh giá → rewrite/retry tối đa 4 vòng. Nếu chunk có ảnh VLM hợp lệ, ảnh được lấy từ sidecar và hiển thị trong Gallery với figure/caption/summary.")
+                gr.Markdown("Search source chunks with Chroma and an agentic retrieval workflow.")
                 with gr.Row():
-                    chroma_request = gr.Textbox(label="Câu hỏi", placeholder="Ví dụ: What is an eighth-note beam?")
+                    chroma_request = gr.Textbox(label="Question")
                     chroma_button = gr.Button("Search Chroma", variant="primary")
-                chroma_status = gr.Markdown("Nhập câu hỏi để tìm trong header chunks.")
-                chroma_html = gr.HTML(label="Header chunks và nội dung")
-                chroma_images = gr.Gallery(label="Figures trong kết quả", columns=2, object_fit="contain", height="auto")
+                chroma_status = gr.Markdown("Enter a question to search header chunks.")
+                chroma_html = gr.HTML(label="Header chunks and content")
+                chroma_images = gr.Gallery(label="Figures", columns=2, object_fit="contain", height="auto")
                 chroma_button.click(ask_chroma, inputs=chroma_request, outputs=[chroma_status, chroma_html, chroma_images], api_name="ask_chroma_rag")
                 chroma_request.submit(ask_chroma, inputs=chroma_request, outputs=[chroma_status, chroma_html, chroma_images], api_name="ask_chroma_rag_submit")
-            with gr.Tab("Answer RAG · DeepSeek Flash"):
-                gr.Markdown("Giữ nguyên agentic retrieval trên Chroma, sau đó DeepSeek Flash đọc source chunks và tổng hợp câu trả lời. Thinking được bật; reasoning nội bộ không hiển thị.")
+            with gr.Tab("Answer RAG - DeepSeek Flash"):
+                gr.Markdown("Retrieve source chunks and synthesize an answer.")
                 with gr.Row():
-                    answer_request = gr.Textbox(label="Câu hỏi", placeholder="Ví dụ: Explain how eighth-note beams work.")
-                    answer_button = gr.Button("Tổng hợp câu trả lời", variant="primary")
-                answer_status = gr.Markdown("Nhập câu hỏi để tổng hợp câu trả lời.")
-                answer_markdown = gr.Markdown(label="Câu trả lời")
-                answer_sources = gr.HTML(label="Source chunks được dùng")
-                answer_images = gr.Gallery(label="Figures trong source", columns=2, object_fit="contain", height="auto")
-                answer_cost = gr.Markdown(label="Chi phí lượt trả lời")
-                answer_button.click(
-                    ask_answer,
-                    inputs=answer_request,
-                    outputs=[answer_status, answer_markdown, answer_sources, answer_images, answer_cost],
-                    api_name="ask_answer_rag",
-                )
-                answer_request.submit(
-                    ask_answer,
-                    inputs=answer_request,
-                    outputs=[answer_status, answer_markdown, answer_sources, answer_images, answer_cost],
-                    api_name="ask_answer_rag_submit",
-                )
+                    answer_request = gr.Textbox(label="Question")
+                    answer_button = gr.Button("Synthesize answer", variant="primary")
+                answer_status = gr.Markdown("Enter a question to synthesize an answer.")
+                answer_markdown = gr.Markdown(label="Answer")
+                answer_sources = gr.HTML(label="Source chunks")
+                answer_images = gr.Gallery(label="Source figures", columns=2, object_fit="contain", height="auto")
+                answer_cost = gr.Markdown(label="Answer cost")
+                answer_button.click(ask_answer, inputs=answer_request, outputs=[answer_status, answer_markdown, answer_sources, answer_images, answer_cost], api_name="ask_answer_rag")
+                answer_request.submit(ask_answer, inputs=answer_request, outputs=[answer_status, answer_markdown, answer_sources, answer_images, answer_cost], api_name="ask_answer_rag_submit")
     return demo.queue(default_concurrency_limit=4, max_size=20)
 
 
@@ -177,18 +107,7 @@ def main() -> None:
     if args.chroma_limit < 1:
         parser.error("--chroma-limit must be positive")
     demo = create_app(args.catalog, args.access_scope, args.chroma_dir, args.chroma_collection, args.chroma_limit)
-    # The UI now exposes only the Chroma/VLM source and answer tabs.  Catalog
-    # asset paths are intentionally not added to Gradio's allow-list.
-    allowed_paths = chroma_asset_paths(args.chroma_dir)
-    demo.launch(
-        server_name=args.host,
-        server_port=args.port,
-        share=args.share,
-        auth=(auth_user, auth_password) if auth_user else None,
-        allowed_paths=allowed_paths,
-        show_error=False,
-        strict_cors=True,
-    )
+    demo.launch(server_name=args.host, server_port=args.port, share=args.share, auth=(auth_user, auth_password) if auth_user else None, allowed_paths=chroma_asset_paths(args.chroma_dir), show_error=False, strict_cors=True)
 
 
 if __name__ == "__main__":

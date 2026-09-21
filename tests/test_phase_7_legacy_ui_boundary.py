@@ -75,7 +75,7 @@ def test_root_entrypoint_has_no_dead_answer_cost_formatter() -> None:
     assert "_answer_cost_markdown" not in definitions
 
 
-def test_root_entrypoint_delegates_chroma_record_selection() -> None:
+def test_root_entrypoint_does_not_select_chroma_records_itself() -> None:
     tree = ast.parse(Path("app.py").read_text(encoding="utf-8"))
     imported_names = {
         alias.asname or alias.name
@@ -84,11 +84,11 @@ def test_root_entrypoint_delegates_chroma_record_selection() -> None:
         for alias in node.names
     }
 
-    assert "select_chroma_records" in imported_names
+    assert "select_chroma_records" not in imported_names
 
 
-def test_root_entrypoint_imports_runtime_typing_names_used_by_callbacks() -> None:
-    """Callback-local annotations must not fail when the callback is invoked."""
+def test_root_entrypoint_does_not_retain_obsolete_callback_typing_import() -> None:
+    """Facade callbacks no longer need the old runtime typing import."""
 
     tree = ast.parse(Path("app.py").read_text(encoding="utf-8"))
     imported_names = {
@@ -98,4 +98,25 @@ def test_root_entrypoint_imports_runtime_typing_names_used_by_callbacks() -> Non
         for alias in node.names
     }
 
-    assert "Any" in imported_names
+    assert "Any" not in imported_names
+
+
+def test_root_entrypoint_callbacks_have_no_unreachable_legacy_body() -> None:
+    """Delegating callbacks must not retain the pre-facade implementation."""
+
+    tree = ast.parse(Path("app.py").read_text(encoding="utf-8"))
+    create_app = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "create_app"
+    )
+    callbacks = {
+        node.name: node
+        for node in create_app.body
+        if isinstance(node, ast.FunctionDef)
+    }
+
+    assert set(callbacks) >= {"ask_chroma", "ask_answer"}
+    for callback in (callbacks["ask_chroma"], callbacks["ask_answer"]):
+        assert len(callback.body) == 1
+        assert isinstance(callback.body[0], ast.Return)
