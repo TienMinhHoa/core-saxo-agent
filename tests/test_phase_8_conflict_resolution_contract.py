@@ -65,5 +65,15 @@ def test_every_generated_tag_has_exactly_one_resolution() -> None:
         )
 
 
+def test_empty_generation_cannot_return_conflict_resolutions() -> None:
+    with pytest.raises(ValueError, match="exactly one"):
+        TagConflictResolution(
+            paragraph_id="p-1",
+            resolutions=(("Unexpected", "keep_new", "Unexpected"),),
+            resolution_profile="tag-conflicts-v1",
+            generated_tags=(),
+        )
+
+
 def test_conflict_resolver_is_an_async_provider_port() -> None:
     assert hasattr(TagConflictResolver, "resolve")
