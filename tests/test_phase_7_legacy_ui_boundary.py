@@ -26,3 +26,22 @@ def test_root_entrypoint_delegates_status_and_asset_policy() -> None:
     }
 
     assert imports == {"music_rag.ui_rendering"}
+
+
+def test_root_entrypoint_does_not_redefine_ui_policy_helpers() -> None:
+    tree = ast.parse(Path("app.py").read_text(encoding="utf-8"))
+    definitions = {
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+
+    assert definitions.isdisjoint(
+        {
+            "display_status",
+            "chroma_asset_paths",
+            "render_chroma_results",
+            "render_source_bundle",
+            "_chroma_image_path",
+        }
+    )

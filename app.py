@@ -7,8 +7,6 @@ workflow first, then point MUSIC_RAG_CATALOG at that writable catalog.
 from __future__ import annotations
 
 import argparse
-import html
-import json
 import os
 from pathlib import Path
 from typing import Any
@@ -23,118 +21,6 @@ from music_rag.deepseek_answer import DeepSeekAnswerAgent
 from music_rag.embeddings import OpenAIEmbeddingProvider
 from music_rag.errors import MusicRagError
 from music_rag.service import MusicMaterialService
-from music_rag.ui_assets import approved_asset_paths
-from music_rag.util import require_within
-
-
-def _display_status(code: str) -> str:
-    """All user-facing status text is fixed UI text, never model output."""
-    messages = {
-        "ready": "Nhập yêu cầu để tìm trong các tài liệu đã được duyệt.",
-        "no_match": "Không tìm thấy tài liệu đã duyệt phù hợp trong phạm vi truy cập này.",
-        "semantic_unavailable": "Semantic retrieval chưa sẵn sàng. Cần OPENAI_API_KEY và semantic index đúng model.",
-        "no_match_best_effort": "Không tìm thấy tài liệu đáp ứng đầy đủ yêu cầu sau toàn bộ các vòng truy hồi. Dưới đây là tài liệu phù hợp nhất ở vòng cuối.",
-        "asset_invalid": "Một asset nguồn không còn hợp lệ; tài liệu không được hiển thị.",
-        "system_error": "Không thể lấy tài liệu do lỗi hệ thống. Hãy thử lại sau.",
-    }
-    return messages.get(code, messages["system_error"])
-
-
-def _render_source_bundle(service: MusicMaterialService, response: dict[str, Any], access_scope: str) -> tuple[str, list[tuple[str, str]]]:
-    """Turn an already-validated response into safe UI markup and image paths."""
-    article: list[str] = []
-    images: list[tuple[str, str]] = []
-    for item in response["items"]:
-        source = item["source"]
-        article.append(
-            "<section class='source-item'>"
-            f"<h2>{html.escape(str(item['item_type']))}</h2>"
-            f"<p class='source-meta'>{html.escape(str(source['title']))}"
-            f" · {html.escape(str(source.get('author') or 'Unknown author'))}</p>"
-        )
-        for block in item["blocks"]:
-            if block["kind"] == "asset":
-                path = service.asset_path(item["item_id"], item["item_version"], block["block_id"], access_scope)
-                images.append((str(path), f"Source block {block['block_id']}"))
-            else:
-                tag = "h3" if block["kind"] == "heading" else "pre"
-                article.append(f"<{tag}>{block['text']}</{tag}>")
-        article.append("</section>")
-    return "\n".join(article), images
-
-
-def _chroma_image_path(record: dict[str, Any], image: dict[str, Any]) -> Path | None:
-    """Validate a sidecar image path before handing it to Gradio."""
-    image_path = image.get("image_path")
-    extraction_dir = record.get("extraction_dir")
-    if not isinstance(image_path, str) or not isinstance(extraction_dir, str):
-        return None
-    try:
-        path = require_within(Path(extraction_dir), Path(image_path))
-    except ValueError:
-        return None
-    return path if path.is_file() else None
-
-
-def chroma_asset_paths(chroma_dir: str | Path) -> list[str]:
-    """Return only existing, sidecar-approved image files for Gradio's allow-list."""
-    sidecar = Path(chroma_dir) / "chunk-records.json"
-    if not sidecar.is_file():
-        return []
-    try:
-        payload = json.loads(sidecar.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return []
-    if not isinstance(payload, dict):
-        return []
-    paths: set[str] = set()
-    for record in payload.values():
-        if not isinstance(record, dict):
-            continue
-        for image in record.get("images", []):
-            if not isinstance(image, dict):
-                continue
-            path = _chroma_image_path(record, image)
-            if path is not None:
-                paths.add(str(path))
-    return sorted(paths)
-
-
-def _render_chroma_results(hits: list[dict[str, Any]]) -> tuple[str, list[tuple[str, str]]]:
-    """Render retrieved header chunks and return their verified images for Gallery."""
-    article: list[str] = []
-    images: list[tuple[str, str]] = []
-    seen_images: set[str] = set()
-    for rank, hit in enumerate(hits, start=1):
-        header = html.escape(str(hit.get("header") or "(no header)"))
-        page_start = html.escape(str(hit.get("page_start") or "?"))
-        page_end = html.escape(str(hit.get("page_end") or "?"))
-        score = hit.get("score")
-        score_text = f"{float(score):.3f}" if isinstance(score, (int, float)) else "?"
-        content = html.escape(str(hit.get("content") or ""), quote=False)
-        article.append(
-            "<section class='chroma-hit'>"
-            f"<h3>{rank}. {header}</h3>"
-            f"<p class='source-meta'>Trang {page_start}–{page_end} · score {score_text} · "
-            f"{len(hit.get('images') or [])} ảnh hợp lệ</p>"
-            f"<pre>{content}</pre>"
-        )
-        for image in hit.get("images", []):
-            if not isinstance(image, dict):
-                continue
-            path = _chroma_image_path(hit, image)
-            if path is None or str(path) in seen_images:
-                continue
-            seen_images.add(str(path))
-            figure_number = image.get("figure_number") or "figure"
-            figure_title = image.get("figure_title")
-            caption = image.get("caption") or image.get("summary") or "Không có caption"
-            label = f"{figure_number}"
-            if figure_title:
-                label += f" — {figure_title}"
-            images.append((str(path), f"{header} · {label}: {caption}"))
-        article.append("</section>")
-    return "\n".join(article), images
 
 
 # Compatibility names remain stable while pure policy helpers live in the
