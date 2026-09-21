@@ -286,6 +286,32 @@ def test_repository_rejects_symbolic_link_in_artifact_parent_path(
     assert list(tmp_path.rglob("*")) == []
 
 
+def test_repository_checks_artifact_components_before_resolving_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = LocalArtifactRepository(tmp_path)
+    artifact = _artifact()
+    parent = tmp_path / "document-123" / "manifest"
+    real_is_symlink = Path.is_symlink
+    real_resolve = Path.resolve
+
+    def pretend_symlink(path: Path) -> bool:
+        return path == parent or real_is_symlink(path)
+
+    def reject_resolution_of_artifact_path(path: Path, *args: object, **kwargs: object) -> Path:
+        if path != tmp_path:
+            raise AssertionError("artifact path was resolved before symlink validation")
+        return real_resolve(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "is_symlink", pretend_symlink)
+    monkeypatch.setattr(Path, "resolve", reject_resolution_of_artifact_path)
+
+    with pytest.raises(FileExistsError, match="symbolic link"):
+        asyncio.run(repository.put(artifact, b"1234567"))
+
+    assert list(tmp_path.rglob("*")) == []
+
+
 def test_atomic_commit_does_not_replace_file_created_after_existence_check(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
