@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from saxophone.retrieval import EvidenceBundle, RetrieveEvidence
+from saxophone.retrieval.question_retrieval import QuestionRequest
 
 from .models import ChatResult, ChatStatus, evidence_reference
 from .ports import AnswerGenerator, ImageArtifactGate
@@ -65,4 +66,22 @@ class AnswerQuestion:
             generated.model_version,
             generated.token_usage,
             generated.cost,
+        )
+
+
+class GroundedAnswerService:
+    """Typed service boundary for grounded answers without introducing HTTP DTOs."""
+
+    def __init__(self, answer_question: AnswerQuestion) -> None:
+        if not hasattr(answer_question, "execute"):
+            raise ValueError("answer_question must provide execute")
+        self._answer_question = answer_question
+
+    async def answer(self, request: QuestionRequest) -> ChatResult:
+        if not isinstance(request, QuestionRequest):
+            raise ValueError("request must be a QuestionRequest")
+        return await self._answer_question.execute(
+            request.question,
+            filters=request.filters,
+            limit=request.chunk_limit,
         )
