@@ -314,6 +314,11 @@ def test_default_composition_builds_persistent_chroma_vector_index(monkeypatch) 
             settings.chroma_collection_name,
             {"embedding_dimension": settings.embedding_dimension, "schema_version": "saxo-chunk-v1"},
         ),
+        (
+            "collection",
+            settings.chroma_concept_collection_name,
+            {"embedding_dimension": settings.embedding_dimension, "schema_version": "saxo-chunk-v1"},
+        ),
     ]
 
 

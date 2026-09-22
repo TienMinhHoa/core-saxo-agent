@@ -37,6 +37,7 @@ class AppSettings:
     litellm_structured_output_mode: str = "json_schema"
     chroma_persist_directory: Path = Path("runtime/saxophone/chroma")
     chroma_collection_name: str = "saxophone_chunks"
+    chroma_concept_collection_name: str = "concept_catalog"
     embedding_dimension: int = 1536
     max_upload_bytes: int = 200 * 1024 * 1024
 
@@ -64,6 +65,10 @@ class AppSettings:
             self.chroma_collection_name,
             "SAXO_CHROMA_COLLECTION_NAME",
         )
+        _validate_canonical_runtime_text(
+            self.chroma_concept_collection_name,
+            "SAXO_CHROMA_CONCEPT_COLLECTION_NAME",
+        )
         _parse_remote_gpu_base_url(self.remote_gpu_base_url)
         _parse_required_token(self.remote_gpu_bearer_token)
         _validate_optional_runtime_text(self.litellm_endpoint, "SAXO_LITELLM_ENDPOINT")
@@ -74,7 +79,16 @@ class AppSettings:
                 variable="SAXO_LITELLM_ENDPOINT",
             )
         _parse_required_text(self.litellm_model_profile, "SAXO_LITELLM_MODEL_PROFILE")
-        _parse_collection_name(self.chroma_collection_name)
+        _parse_collection_name(self.chroma_collection_name, "SAXO_CHROMA_COLLECTION_NAME")
+        _parse_collection_name(
+            self.chroma_concept_collection_name,
+            "SAXO_CHROMA_CONCEPT_COLLECTION_NAME",
+        )
+        if self.chroma_collection_name == self.chroma_concept_collection_name:
+            raise SettingsValidationError(
+                "SAXO_CHROMA_CONCEPT_COLLECTION_NAME must differ from "
+                "SAXO_CHROMA_COLLECTION_NAME"
+            )
         for field_name in (
             "remote_gpu_max_in_flight",
             "remote_gpu_retention_days",
@@ -148,6 +162,14 @@ class AppSettings:
         )
         collection_name = _parse_collection_name(
             environment.get("SAXO_CHROMA_COLLECTION_NAME", "saxophone_chunks"),
+            "SAXO_CHROMA_COLLECTION_NAME",
+        )
+        concept_collection_name = _parse_collection_name(
+            environment.get(
+                "SAXO_CHROMA_CONCEPT_COLLECTION_NAME",
+                "concept_catalog",
+            ),
+            "SAXO_CHROMA_CONCEPT_COLLECTION_NAME",
         )
         return cls(
             data_root=data_root,
@@ -211,6 +233,7 @@ class AppSettings:
             ),
             chroma_persist_directory=chroma_directory,
             chroma_collection_name=collection_name,
+            chroma_concept_collection_name=concept_collection_name,
             embedding_dimension=_parse_positive_integer(
                 environment.get("SAXO_EMBEDDING_DIMENSION", "1536"),
                 "SAXO_EMBEDDING_DIMENSION",
@@ -372,13 +395,16 @@ def _parse_structured_output_mode(value: object) -> str:
     return value
 
 
-def _parse_collection_name(value: str | None) -> str:
-    _validate_optional_runtime_text(value, "SAXO_CHROMA_COLLECTION_NAME")
+def _parse_collection_name(
+    value: str | None,
+    variable: str = "SAXO_CHROMA_COLLECTION_NAME",
+) -> str:
+    _validate_optional_runtime_text(value, variable)
     if value is None or not re.fullmatch(
         r"[A-Za-z0-9][A-Za-z0-9_-]{1,61}[A-Za-z0-9]", value.strip()
     ):
         raise SettingsValidationError(
-            "SAXO_CHROMA_COLLECTION_NAME must be 3-63 characters using letters, numbers, '_' or '-'",
+            f"{variable} must be 3-63 characters using letters, numbers, '_' or '-'",
         )
     return value.strip()
 
