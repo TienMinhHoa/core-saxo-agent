@@ -297,6 +297,72 @@ class RemoteEmbeddingProvider(EmbeddingProvider):
         return tuple(records)
 
 
+class FakeEmbeddingProvider(EmbeddingProvider):
+    """Deterministic embedding provider for service and integration tests."""
+
+    def __init__(
+        self,
+        vectors: Mapping[str, Sequence[float]],
+        *,
+        model: str = "fake-embedding",
+    ) -> None:
+        if not isinstance(model, str) or not model.strip():
+            raise ValueError("model must not be empty")
+        if not isinstance(vectors, Mapping):
+            raise ValueError("vectors must be a mapping")
+        normalized: dict[str, tuple[float, ...]] = {}
+        for chunk_id, vector in vectors.items():
+            if not isinstance(chunk_id, str) or not chunk_id.strip():
+                raise ValueError("vector chunk IDs must be non-blank strings")
+            if isinstance(vector, (str, bytes)) or not isinstance(vector, Sequence):
+                raise ValueError("vectors must contain finite numeric sequences")
+            values = tuple(vector)
+            if not values or any(
+                isinstance(item, bool)
+                or not isinstance(item, (int, float))
+                or not math.isfinite(item)
+                for item in values
+            ):
+                raise ValueError("vectors must contain finite numeric sequences")
+            normalized[chunk_id] = tuple(float(item) for item in values)
+        self._vectors = normalized
+        self._model = model.strip()
+
+    @property
+    def model(self) -> str:
+        return self._model
+
+    async def embed(
+        self,
+        chunks: Sequence[tuple[str, str]],
+        *,
+        source_version: str,
+    ) -> tuple[EmbeddingRecord, ...]:
+        if not isinstance(source_version, str) or not source_version.strip():
+            raise ValueError("source_version must not be empty")
+        if isinstance(chunks, (str, bytes)) or not isinstance(chunks, Sequence):
+            raise ValueError("chunks must be a sequence")
+        chunk_ids = [chunk_id for chunk_id, _ in chunks]
+        if any(not isinstance(chunk_id, str) or not chunk_id.strip() for chunk_id in chunk_ids):
+            raise ValueError("chunk IDs must be non-blank strings")
+        if len(chunk_ids) != len(set(chunk_ids)):
+            raise ValueError("chunk IDs must be unique")
+        records: list[EmbeddingRecord] = []
+        for chunk_id in chunk_ids:
+            vector = self._vectors.get(chunk_id)
+            if vector is None:
+                raise ValueError(f"missing vector for chunk {chunk_id}")
+            records.append(
+                EmbeddingRecord(
+                    chunk_id=chunk_id,
+                    source_version=source_version.strip(),
+                    model_profile=self._model,
+                    vector=vector,
+                )
+            )
+        return tuple(records)
+
+
 def _embedding_idempotency_key(
     chunks: Sequence[tuple[str, str]], source_version: str
 ) -> str:
