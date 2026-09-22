@@ -50,6 +50,40 @@ class SqliteIngestionTransactionRepository:
             tuple(outbox_events),
         )
 
+    async def commit_document(
+        self,
+        *,
+        document_ref: str,
+        source_version: str,
+        paragraph_ids: Sequence[str],
+        relations: Sequence[ParagraphConceptRole],
+        outbox_events: Sequence[VectorOutboxEvent],
+        previous_source_versions: Sequence[str] = (),
+    ) -> None:
+        """Replace one document version and enqueue vector changes atomically.
+
+        Delete events may refer to a previous source version because they target
+        stale vector identities, while upsert events must belong to the new one.
+        """
+
+        normalized_previous_versions = self._validate_document_inputs(
+            document_ref=document_ref,
+            source_version=source_version,
+            paragraph_ids=paragraph_ids,
+            relations=relations,
+            outbox_events=outbox_events,
+            previous_source_versions=previous_source_versions,
+        )
+        await asyncio.to_thread(
+            self._commit_document,
+            document_ref,
+            source_version,
+            normalized_previous_versions,
+            tuple(paragraph_ids),
+            tuple(relations),
+            tuple(outbox_events),
+        )
+
     def _commit_chunk(
         self,
         document_ref: str,
@@ -72,6 +106,53 @@ class SqliteIngestionTransactionRepository:
                 """,
                 (document_ref, source_version, *paragraph_ids),
             )
+            connection.executemany(
+                """
+                INSERT INTO paragraph_concept_roles
+                    (document_ref, source_version, paragraph_id, canonical_concept, content_role)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    (
+                        document_ref,
+                        source_version,
+                        relation.paragraph_id,
+                        relation.canonical_concept,
+                        relation.content_role.value,
+                    )
+                    for relation in relations
+                ),
+            )
+            for event in outbox_events:
+                self._enqueue_event(connection, event)
+
+    def _commit_document(
+        self,
+        document_ref: str,
+        source_version: str,
+        previous_source_versions: tuple[str, ...],
+        paragraph_ids: tuple[str, ...],
+        relations: tuple[ParagraphConceptRole, ...],
+        outbox_events: tuple[VectorOutboxEvent, ...],
+    ) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(self._path) as connection:
+            SqliteTaggingRepository._create_schema(connection)
+            SqliteVectorOutboxRepository._create_schema(connection)
+
+            connection.execute(
+                "DELETE FROM paragraph_concept_roles WHERE document_ref = ? AND source_version = ?",
+                (document_ref, source_version),
+            )
+            if previous_source_versions:
+                placeholders = ", ".join("?" for _ in previous_source_versions)
+                connection.execute(
+                    f"""
+                    DELETE FROM paragraph_concept_roles
+                    WHERE document_ref = ? AND source_version IN ({placeholders})
+                    """,
+                    (document_ref, *previous_source_versions),
+                )
             connection.executemany(
                 """
                 INSERT INTO paragraph_concept_roles
@@ -189,3 +270,76 @@ class SqliteIngestionTransactionRepository:
         ):
             raise ValueError("outbox events must match the commit scope")
         return normalized_paragraph_ids
+
+    @staticmethod
+    def _validate_document_inputs(
+        *,
+        document_ref: str,
+        source_version: str,
+        paragraph_ids: Sequence[str],
+        relations: Sequence[ParagraphConceptRole],
+        outbox_events: Sequence[VectorOutboxEvent],
+        previous_source_versions: Sequence[str],
+    ) -> tuple[str, ...]:
+        if not isinstance(document_ref, str) or not document_ref.strip():
+            raise ValueError("document_ref must not be blank")
+        if not is_safe_document_reference(document_ref):
+            raise ValueError("document_ref must be a safe document reference")
+        if not isinstance(source_version, str) or not source_version.strip():
+            raise ValueError("source_version must not be blank")
+        if (
+            isinstance(previous_source_versions, (str, bytes))
+            or not isinstance(previous_source_versions, Sequence)
+        ):
+            raise ValueError("previous_source_versions must contain non-blank strings")
+        normalized_previous_versions = tuple(previous_source_versions)
+        if any(not isinstance(item, str) or not item.strip() for item in normalized_previous_versions):
+            raise ValueError("previous_source_versions must contain non-blank strings")
+        if len(normalized_previous_versions) != len(set(normalized_previous_versions)):
+            raise ValueError("previous_source_versions must be unique")
+        if source_version in normalized_previous_versions:
+            raise ValueError("previous_source_versions must not contain the new source version")
+
+        normalized_paragraph_ids = SqliteIngestionTransactionRepository._validate_paragraph_ids(
+            paragraph_ids
+        )
+        normalized_relations = tuple(relations)
+        if any(not isinstance(item, ParagraphConceptRole) for item in normalized_relations):
+            raise ValueError("relations must contain ParagraphConceptRole values")
+        if any(item.paragraph_id not in normalized_paragraph_ids for item in normalized_relations):
+            raise ValueError("relations must belong to paragraph_ids")
+        relation_keys = tuple(
+            (item.paragraph_id, item.canonical_concept, item.content_role.value)
+            for item in normalized_relations
+        )
+        if len(relation_keys) != len(set(relation_keys)):
+            raise ValueError("relations must be unique")
+
+        normalized_events = tuple(outbox_events)
+        if any(not isinstance(item, VectorOutboxEvent) for item in normalized_events):
+            raise ValueError("outbox_events must contain VectorOutboxEvent values")
+        if len({item.event_id for item in normalized_events}) != len(normalized_events):
+            raise ValueError("outbox_events must not contain duplicate event IDs")
+        for event in normalized_events:
+            if event.document_ref != document_ref:
+                raise ValueError("outbox events must match the document scope")
+            if event.operation == "upsert" and event.source_version != source_version:
+                raise ValueError("upsert events must match the new source version")
+            if (
+                event.operation == "delete"
+                and event.source_version != source_version
+                and event.source_version not in normalized_previous_versions
+            ):
+                raise ValueError("delete events must target the new or previous source version")
+        return normalized_previous_versions
+
+    @staticmethod
+    def _validate_paragraph_ids(paragraph_ids: Sequence[str]) -> tuple[str, ...]:
+        if isinstance(paragraph_ids, (str, bytes)) or not isinstance(paragraph_ids, Sequence):
+            raise ValueError("paragraph_ids must contain non-blank strings")
+        normalized = tuple(paragraph_ids)
+        if not normalized or any(not isinstance(item, str) or not item.strip() for item in normalized):
+            raise ValueError("paragraph_ids must contain non-blank strings")
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("paragraph_ids must be unique")
+        return normalized
