@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Mapping
 from typing import Protocol
@@ -11,7 +10,7 @@ from saxophone.tagging.vector_outbox import SqliteVectorOutboxRepository, Vector
 
 from .concept_records import ConceptVectorRecord
 from .models import ChunkIndexRecord
-from .vector_state import VectorIndexState
+from .vector_state import VectorIndexState, build_chunk_vector_states
 
 
 class _VectorIndex(Protocol):
@@ -165,18 +164,10 @@ class VectorSyncService:
 
 
 def _chunk_state(event: VectorOutboxEvent, record: ChunkIndexRecord) -> VectorIndexState:
-    return VectorIndexState(
-        entity_type="chunk",
-        entity_key=record.chunk_id,
-        collection_name=event.collection,
-        chroma_record_id=record.chunk_id,
-        embedding_input_hash=hashlib.sha256(record.search_text.encode("utf-8")).hexdigest(),
-        embedding_model=record.embedding_profile,
-        embedding_dimensions=record.dimension,
-        index_version=_metadata_index_version(record.metadata, event.source_version),
-        document_ref=record.document_ref,
-        source_version=record.source_version,
+    index_version = event.index_version or _metadata_index_version(
+        record.metadata, event.source_version
     )
+    return build_chunk_vector_states((record,), index_version=index_version)[0]
 
 
 def _concept_state(event: VectorOutboxEvent, record: ConceptVectorRecord) -> VectorIndexState:

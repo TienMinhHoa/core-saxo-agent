@@ -14,6 +14,8 @@ from pathlib import Path
 from saxophone.documents.policies import is_safe_document_reference
 from saxophone.tagging.vector_outbox import VectorOutboxEvent
 
+from .models import ChunkIndexRecord
+
 
 class VectorSyncStatus(StrEnum):
     """State of one vector record in the configured collection."""
@@ -85,6 +87,46 @@ class VectorStateReconciliation:
         """Return changed and new records in stable entity-key order."""
 
         return tuple(sorted((*self.changed, *self.new), key=lambda item: item.entity_key))
+
+
+def build_chunk_vector_states(
+    records: Sequence[ChunkIndexRecord],
+    *,
+    index_version: str,
+) -> tuple[VectorIndexState, ...]:
+    """Build deterministic desired state for one document's chunk records."""
+
+    if isinstance(records, (str, bytes)) or not isinstance(records, Sequence):
+        raise ValueError("records must be a sequence of ChunkIndexRecord values")
+    _require_non_blank("index_version", index_version)
+    normalized = tuple(records)
+    if any(not isinstance(record, ChunkIndexRecord) for record in normalized):
+        raise ValueError("records must contain ChunkIndexRecord values")
+    chunk_ids = tuple(record.chunk_id for record in normalized)
+    if len(chunk_ids) != len(set(chunk_ids)):
+        raise ValueError("records must have unique chunk IDs")
+    if normalized:
+        document_refs = {record.document_ref for record in normalized}
+        if len(document_refs) != 1:
+            raise ValueError("records must use the same document")
+        source_versions = {record.source_version for record in normalized}
+        if len(source_versions) != 1:
+            raise ValueError("records must use the same source version")
+    return tuple(
+        VectorIndexState(
+            entity_type="chunk",
+            entity_key=record.chunk_id,
+            collection_name="document_chunks",
+            chroma_record_id=record.chunk_id,
+            embedding_input_hash=hashlib.sha256(record.search_text.encode("utf-8")).hexdigest(),
+            embedding_model=record.embedding_profile,
+            embedding_dimensions=record.dimension,
+            index_version=index_version.strip(),
+            document_ref=record.document_ref,
+            source_version=record.source_version,
+        )
+        for record in sorted(normalized, key=lambda item: item.chunk_id)
+    )
 
 
 def build_stale_delete_events(
