@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
@@ -21,6 +22,8 @@ from .models import (
     IngestionReport,
     IngestionSourceChunk,
 )
+from .concept_catalog import ConceptCatalogEntry, build_concept_catalog
+from .concept_embedding import ConceptVectorPreparation
 from .ports import EmbeddingProvider, EmbeddingReuseStore, VectorIndex
 from .vector_events import build_chunk_vector_upsert_events
 from .vector_state import (
@@ -57,6 +60,19 @@ class _VectorStatePlanner(Protocol):
         desired: Sequence[object],
         document_ref: str | None = None,
     ) -> VectorStateReconciliation: ...
+
+
+class _ConceptVectorPreparation(Protocol):
+    async def prepare(
+        self,
+        entries: Sequence[ConceptCatalogEntry],
+        *,
+        embedding_model: str,
+        catalog_ref: str,
+        catalog_version: str,
+        index_version: str,
+        ingestion_run_id: str | None = None,
+    ) -> ConceptVectorPreparation: ...
 
 
 class IndexDocument:
@@ -507,6 +523,7 @@ class IngestDocument:
         *,
         chunk_tagging: DocumentChunkTaggingService | None = None,
         vector_state: _VectorStatePlanner | None = None,
+        concept_vector_preparation: _ConceptVectorPreparation | None = None,
     ) -> None:
         if tag_and_persist is None and chunk_tagging is None:
             raise ValueError("a paragraph or chunk tagging workflow is required")
@@ -520,10 +537,17 @@ class IngestDocument:
             getattr(vector_state, "plan_reconciliation", None)
         ):
             raise TypeError("vector_state must provide plan_reconciliation")
+        if concept_vector_preparation is not None and not callable(
+            getattr(concept_vector_preparation, "prepare", None)
+        ):
+            raise TypeError("concept_vector_preparation must provide prepare")
+        if concept_vector_preparation is not None and chunk_tagging is None:
+            raise TypeError("concept vector preparation requires chunk tagging")
         self._tag_and_persist = tag_and_persist
         self._index_document = index_document
         self._chunk_tagging = chunk_tagging
         self._vector_state = vector_state
+        self._concept_vector_preparation = concept_vector_preparation
 
     async def execute(
         self,
@@ -550,6 +574,10 @@ class IngestDocument:
             concept_outbox_events,
             ingestion_run_id=ingestion_run_id,
         )
+        if self._concept_vector_preparation is not None and ingestion_run_id is None:
+            raise ValueError(
+                "concept vector preparation requires an ingestion_run_id"
+            )
 
         if self._chunk_tagging is not None:
             prepared_tagging = await self._chunk_tagging.prepare(
@@ -561,6 +589,24 @@ class IngestDocument:
             tagged = _tagged_paragraphs_from_chunk_runs(
                 normalized_paragraphs, prepared_tagging.runs
             )
+            if self._concept_vector_preparation is not None:
+                entries = build_concept_catalog(
+                    normalized_chunks,
+                    normalized_paragraphs,
+                    prepared_tagging.runs,
+                )
+                prepared_concepts = await self._concept_vector_preparation.prepare(
+                    entries,
+                    embedding_model=command.embedding_profile,
+                    catalog_ref="concept-catalog",
+                    catalog_version=_concept_catalog_version(entries),
+                    index_version=command.index_profile,
+                    ingestion_run_id=ingestion_run_id,
+                )
+                normalized_concept_events = _append_unique_events(
+                    normalized_concept_events,
+                    prepared_concepts.events,
+                )
             records = build_index_inputs(command, normalized_chunks, tagged)
             try:
                 prepared_index = await self._index_document.prepare(command, records)
@@ -843,6 +889,31 @@ def _append_unique_events(
     if len({event.event_id for event in combined}) != len(combined):
         raise ValueError("outbox events must not contain duplicate event IDs")
     return combined
+
+
+def _concept_catalog_version(entries: Sequence[ConceptCatalogEntry]) -> str:
+    """Derive a stable catalog version from the exact embedded projection."""
+
+    payload = [
+        {
+            "canonical_label": entry.canonical_label,
+            "normalized_label": entry.normalized_label,
+            "usage_count": entry.usage_count,
+            "examples": [
+                {"header": example.header, "excerpt": example.excerpt}
+                for example in entry.examples
+            ],
+        }
+        for entry in entries
+    ]
+    serialized = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    digest = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+    return f"catalog-{digest}"
 
 
 def _merge_outbox_events(

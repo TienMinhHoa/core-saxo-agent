@@ -7,6 +7,9 @@ import pytest
 from saxophone.app.factory import AppOverrides, create_app
 from saxophone.app.settings import AppSettings, SettingsValidationError
 from saxophone.ingestion.transaction import SqliteIngestionTransactionRepository
+from saxophone.ingestion.concept_embedding import (
+    ConceptCatalogVectorPreparationService,
+)
 from saxophone.ingestion.use_cases import DocumentChunkTaggingService
 from saxophone.tagging.adapters import RemoteChunkTagger
 
@@ -81,6 +84,10 @@ def test_enabled_composition_selects_chunk_tagging_and_atomic_sqlite_boundary(
     assert ingest_document is not None
     assert ingest_document._chunk_tagging is container.chunk_tagging
     assert ingest_document._tag_and_persist is None
+    assert isinstance(
+        ingest_document._concept_vector_preparation,
+        ConceptCatalogVectorPreparationService,
+    )
 
 
 def test_disabled_composition_preserves_legacy_paragraph_tagging(tmp_path: Path) -> None:
@@ -94,3 +101,4 @@ def test_disabled_composition_preserves_legacy_paragraph_tagging(tmp_path: Path)
     assert ingest_document is not None
     assert ingest_document._chunk_tagging is None
     assert ingest_document._tag_and_persist is not None
+    assert ingest_document._concept_vector_preparation is None
