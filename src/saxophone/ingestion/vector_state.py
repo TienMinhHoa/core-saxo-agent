@@ -14,6 +14,7 @@ from pathlib import Path
 from saxophone.documents.policies import is_safe_document_reference
 from saxophone.tagging.vector_outbox import VectorOutboxEvent
 
+from .concept_records import ConceptVectorRecord
 from .models import ChunkIndexRecord
 
 
@@ -126,6 +127,40 @@ def build_chunk_vector_states(
             source_version=record.source_version,
         )
         for record in sorted(normalized, key=lambda item: item.chunk_id)
+    )
+
+
+def build_concept_vector_states(
+    records: Sequence[ConceptVectorRecord],
+    *,
+    index_version: str,
+) -> tuple[VectorIndexState, ...]:
+    """Build deterministic desired state for the global concept catalog."""
+
+    if isinstance(records, (str, bytes)) or not isinstance(records, Sequence):
+        raise ValueError("records must be a sequence of ConceptVectorRecord values")
+    _require_non_blank("index_version", index_version)
+    normalized = tuple(records)
+    if any(not isinstance(record, ConceptVectorRecord) for record in normalized):
+        raise ValueError("records must contain ConceptVectorRecord values")
+    expected_version = index_version.strip()
+    normalized_labels = tuple(record.normalized_label for record in normalized)
+    if len(normalized_labels) != len(set(normalized_labels)):
+        raise ValueError("concept records must have a unique normalized label")
+    if any(record.index_version != expected_version for record in normalized):
+        raise ValueError("concept records must match index_version")
+    return tuple(
+        VectorIndexState(
+            entity_type="concept",
+            entity_key=record.normalized_label,
+            collection_name="concept_catalog",
+            chroma_record_id=record.record_id,
+            embedding_input_hash=record.embedding_input_hash,
+            embedding_model=record.embedding_model,
+            embedding_dimensions=record.embedding_dimensions,
+            index_version=expected_version,
+        )
+        for record in sorted(normalized, key=lambda item: item.normalized_label)
     )
 
 

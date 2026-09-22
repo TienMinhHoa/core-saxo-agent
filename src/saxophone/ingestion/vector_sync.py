@@ -80,7 +80,11 @@ class VectorSyncService:
                         await self._state.remove_record(
                             collection_name=event.collection,
                             chroma_record_id=event.record_id,
-                            document_ref=event.document_ref,
+                            document_ref=(
+                                None
+                                if event.collection == "concept_catalog"
+                                else event.document_ref
+                            ),
                             index_version=event.index_version,
                         )
                     elif state is not None:
@@ -173,14 +177,14 @@ def _chunk_state(event: VectorOutboxEvent, record: ChunkIndexRecord) -> VectorIn
 def _concept_state(event: VectorOutboxEvent, record: ConceptVectorRecord) -> VectorIndexState:
     return VectorIndexState(
         entity_type="concept",
-        entity_key=record.canonical_label,
+        entity_key=record.normalized_label,
         collection_name=event.collection,
         chroma_record_id=record.record_id,
         embedding_input_hash=record.embedding_input_hash,
         embedding_model=record.embedding_model,
         embedding_dimensions=record.embedding_dimensions,
         index_version=record.index_version,
-        document_ref=event.document_ref,
+        document_ref=None,
         source_version=event.source_version,
     )
 
