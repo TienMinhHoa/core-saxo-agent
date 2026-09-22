@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from enum import StrEnum
+from collections.abc import Mapping
 from typing import Any, Protocol, TypeVar
 
 from saxophone.platform.model_client import ModelClient, ModelRequest, ModelTask, ModelValidationError
@@ -107,6 +108,44 @@ class RemoteStructuredLlmProvider:
             raise ModelValidationError("structured response identity is invalid")
         try:
             return validator(dict(response.output))
+        except Exception as error:
+            raise ValueError("structured model output is invalid") from error
+
+
+class FakeStructuredLlmProvider:
+    """Deterministic structured provider for unit and integration tests."""
+
+    def __init__(self, responses: Mapping[str, object]) -> None:
+        if not isinstance(responses, Mapping):
+            raise ValueError("responses must be a mapping")
+        unknown = set(responses) - set(_TASKS)
+        if unknown:
+            raise ValueError(f"unsupported structured task_type: {sorted(unknown)[0]}")
+        self._responses = dict(responses)
+
+    @property
+    def structured_output_mode(self) -> StructuredOutputMode:
+        return StructuredOutputMode.JSON_OBJECT
+
+    async def generate_structured(
+        self,
+        *,
+        task_type: str,
+        system_prompt: str,
+        user_prompt: str,
+        response_model: type[T],
+    ) -> T:
+        if task_type not in _TASKS:
+            raise ValueError(f"unsupported structured task_type: {task_type}")
+        _require_prompt("system_prompt", system_prompt)
+        _require_prompt("user_prompt", user_prompt)
+        validator = getattr(response_model, "model_validate", None)
+        if not callable(validator):
+            raise TypeError("response_model must be a Pydantic model class")
+        if task_type not in self._responses:
+            raise ValueError(f"no fake response configured for task_type: {task_type}")
+        try:
+            return validator(self._responses[task_type])
         except Exception as error:
             raise ValueError("structured model output is invalid") from error
 
