@@ -78,6 +78,7 @@ class _DocumentTransactionRepository(Protocol):
         relations: Sequence[ParagraphConceptRole],
         outbox_events: Sequence[VectorOutboxEvent],
         previous_source_versions: Sequence[str],
+        concept_outbox_events: Sequence[VectorOutboxEvent] = (),
     ) -> None: ...
 
 
@@ -137,6 +138,7 @@ class ChunkTaggingTransactionService:
         runs: Sequence[ChunkTaggingRun],
         *,
         outbox_events: Sequence[VectorOutboxEvent] = (),
+        concept_outbox_events: Sequence[VectorOutboxEvent] = (),
         previous_source_versions: Sequence[str] = (),
     ) -> None:
         """Atomically persist all prepared chunk results for one document."""
@@ -178,18 +180,22 @@ class ChunkTaggingTransactionService:
             raise ValueError("document tagging relations must belong to requests")
 
         normalized_events = _validate_outbox_events(outbox_events)
+        normalized_concept_events = _validate_outbox_events(concept_outbox_events)
         normalized_previous_versions = _validate_previous_source_versions(
             source_version,
             previous_source_versions,
         )
-        await repository.commit_document(
-            document_ref=document_ref,
-            source_version=source_version,
-            paragraph_ids=normalized_paragraph_ids,
-            relations=tuple(relations),
-            outbox_events=normalized_events,
-            previous_source_versions=normalized_previous_versions,
-        )
+        commit_kwargs = {
+            "document_ref": document_ref,
+            "source_version": source_version,
+            "paragraph_ids": normalized_paragraph_ids,
+            "relations": tuple(relations),
+            "outbox_events": normalized_events,
+            "previous_source_versions": normalized_previous_versions,
+        }
+        if normalized_concept_events:
+            commit_kwargs["concept_outbox_events"] = normalized_concept_events
+        await repository.commit_document(**commit_kwargs)
 
     async def tag_and_commit(
         self,

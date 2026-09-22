@@ -58,6 +58,7 @@ class SqliteIngestionTransactionRepository:
         paragraph_ids: Sequence[str],
         relations: Sequence[ParagraphConceptRole],
         outbox_events: Sequence[VectorOutboxEvent],
+        concept_outbox_events: Sequence[VectorOutboxEvent] = (),
         previous_source_versions: Sequence[str] = (),
     ) -> None:
         """Replace one document version and enqueue vector changes atomically.
@@ -72,6 +73,7 @@ class SqliteIngestionTransactionRepository:
             paragraph_ids=paragraph_ids,
             relations=relations,
             outbox_events=outbox_events,
+            concept_outbox_events=concept_outbox_events,
             previous_source_versions=previous_source_versions,
         )
         await asyncio.to_thread(
@@ -82,6 +84,7 @@ class SqliteIngestionTransactionRepository:
             tuple(paragraph_ids),
             tuple(relations),
             tuple(outbox_events),
+            tuple(concept_outbox_events),
         )
 
     def _commit_chunk(
@@ -134,6 +137,7 @@ class SqliteIngestionTransactionRepository:
         paragraph_ids: tuple[str, ...],
         relations: tuple[ParagraphConceptRole, ...],
         outbox_events: tuple[VectorOutboxEvent, ...],
+        concept_outbox_events: tuple[VectorOutboxEvent, ...],
     ) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(self._path) as connection:
@@ -171,6 +175,8 @@ class SqliteIngestionTransactionRepository:
                 ),
             )
             for event in outbox_events:
+                self._enqueue_event(connection, event)
+            for event in concept_outbox_events:
                 self._enqueue_event(connection, event)
 
     @staticmethod
@@ -279,6 +285,7 @@ class SqliteIngestionTransactionRepository:
         paragraph_ids: Sequence[str],
         relations: Sequence[ParagraphConceptRole],
         outbox_events: Sequence[VectorOutboxEvent],
+        concept_outbox_events: Sequence[VectorOutboxEvent],
         previous_source_versions: Sequence[str],
     ) -> tuple[str, ...]:
         if not isinstance(document_ref, str) or not document_ref.strip():
@@ -331,6 +338,20 @@ class SqliteIngestionTransactionRepository:
                 and event.source_version not in normalized_previous_versions
             ):
                 raise ValueError("delete events must target the new or previous source version")
+        normalized_concept_events = tuple(concept_outbox_events)
+        if any(not isinstance(item, VectorOutboxEvent) for item in normalized_concept_events):
+            raise ValueError("concept outbox events must contain VectorOutboxEvent values")
+        if len({item.event_id for item in normalized_concept_events}) != len(normalized_concept_events):
+            raise ValueError("concept outbox events must not contain duplicate event IDs")
+        if len({item.event_id for item in (*normalized_events, *normalized_concept_events)}) != (
+            len(normalized_events) + len(normalized_concept_events)
+        ):
+            raise ValueError("outbox events must not contain duplicate event IDs")
+        for event in normalized_concept_events:
+            if event.collection != "concept_catalog":
+                raise ValueError("concept outbox events must target concept_catalog")
+            if event.document_ref != "concept-catalog":
+                raise ValueError("concept outbox events must use the concept-catalog scope")
         return normalized_previous_versions
 
     @staticmethod

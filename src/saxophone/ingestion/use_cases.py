@@ -413,6 +413,7 @@ class DocumentChunkTaggingService:
         prepared: _PreparedChunkTagging,
         *,
         outbox_events: Sequence[VectorOutboxEvent] = (),
+        concept_outbox_events: Sequence[VectorOutboxEvent] = (),
         previous_source_versions: Sequence[str] = (),
     ) -> None:
         """Commit all prepared chunks through one document transaction."""
@@ -421,13 +422,18 @@ class DocumentChunkTaggingService:
             raise TypeError("command must be an IngestionCommand")
         if not isinstance(prepared, _PreparedChunkTagging):
             raise TypeError("prepared must be a chunk tagging preparation")
+        commit_kwargs = {
+            "outbox_events": outbox_events,
+            "previous_source_versions": previous_source_versions,
+        }
+        if concept_outbox_events:
+            commit_kwargs["concept_outbox_events"] = concept_outbox_events
         await self._transaction_service.commit_document(
             command.document_ref,
             command.source_version,
             prepared.requests,
             prepared.runs,
-            outbox_events=outbox_events,
-            previous_source_versions=previous_source_versions,
+            **commit_kwargs,
         )
 
 
@@ -528,6 +534,7 @@ class IngestDocument:
         resolution_profile: str,
         existing_candidates: Mapping[str, Sequence[str]] | None = None,
         outbox_events: Mapping[str, Sequence[VectorOutboxEvent]] | None = None,
+        concept_outbox_events: Sequence[VectorOutboxEvent] = (),
         ingestion_run_id: str | None = None,
         previous_source_versions: Sequence[str] = (),
     ) -> IngestionReport:
@@ -538,6 +545,10 @@ class IngestDocument:
         normalized_previous_versions = _normalize_previous_source_versions(
             ingestion_run_id,
             previous_source_versions,
+        )
+        normalized_concept_events = _normalize_concept_outbox_events(
+            concept_outbox_events,
+            ingestion_run_id=ingestion_run_id,
         )
 
         if self._chunk_tagging is not None:
@@ -614,6 +625,7 @@ class IngestDocument:
                     command,
                     prepared_tagging,
                     outbox_events=document_events,
+                    concept_outbox_events=normalized_concept_events,
                     previous_source_versions=normalized_previous_versions,
                 )
             return await self._index_document.publish(
@@ -627,6 +639,7 @@ class IngestDocument:
             if (
                 existing_candidates is not None
                 or outbox_events is not None
+                or normalized_concept_events
                 or ingestion_run_id is not None
             ):
                 raise ValueError("chunk tagging options require a chunk tagging workflow")
@@ -753,6 +766,27 @@ def _normalize_outbox_events(
         if len({value.event_id for value in normalized_values}) != len(normalized_values):
             raise ValueError("outbox events must not contain duplicate event IDs")
         normalized[chunk_id] = normalized_values
+    return normalized
+
+
+def _normalize_concept_outbox_events(
+    events: Sequence[VectorOutboxEvent],
+    *,
+    ingestion_run_id: str | None,
+) -> tuple[VectorOutboxEvent, ...]:
+    if isinstance(events, (str, bytes)) or not isinstance(events, Sequence):
+        raise ValueError("concept_outbox_events must be a sequence")
+    normalized = tuple(events)
+    if normalized and ingestion_run_id is None:
+        raise ValueError("concept_outbox_events require an ingestion_run_id")
+    if any(not isinstance(event, VectorOutboxEvent) for event in normalized):
+        raise ValueError("concept_outbox_events must contain VectorOutboxEvent values")
+    if len({event.event_id for event in normalized}) != len(normalized):
+        raise ValueError("concept_outbox_events must not contain duplicate event IDs")
+    if any(event.collection != "concept_catalog" for event in normalized):
+        raise ValueError("concept outbox events must target concept_catalog")
+    if any(event.ingestion_run_id != ingestion_run_id for event in normalized):
+        raise ValueError("concept outbox events must match the ingestion_run_id")
     return normalized
 
 
