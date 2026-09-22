@@ -8,8 +8,10 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from saxophone.documents.policies import is_safe_document_reference
 from saxophone.tagging.vector_outbox import VectorOutboxEvent
 
+from .concept_records import ConceptVectorRecord
 from .models import ChunkIndexRecord
 
 
@@ -87,6 +89,87 @@ def build_chunk_vector_upsert_events(
     return tuple(events)
 
 
+def build_concept_vector_upsert_event(
+    record: ConceptVectorRecord,
+    *,
+    catalog_ref: str,
+    catalog_version: str,
+    index_version: str,
+    ingestion_run_id: str | None = None,
+) -> VectorOutboxEvent:
+    """Project one global concept record into a replayable outbox event."""
+
+    if not isinstance(record, ConceptVectorRecord):
+        raise TypeError("record must be a ConceptVectorRecord")
+    _validate_catalog_scope(catalog_ref, catalog_version)
+    _require_non_blank("index_version", index_version)
+    _validate_optional_scope("ingestion_run_id", ingestion_run_id)
+    expected_index_version = index_version.strip()
+    if record.index_version != expected_index_version:
+        raise ValueError("record index_version must match index_version")
+
+    payload = {"record": _concept_record_payload(record)}
+    payload_json = _dump_json(payload)
+    identity = _dump_json(
+        {
+            "catalog_ref": catalog_ref.strip(),
+            "catalog_version": catalog_version.strip(),
+            "collection": "concept_catalog",
+            "ingestion_run_id": ingestion_run_id,
+            "index_version": expected_index_version,
+            "operation": "upsert",
+            "payload": payload,
+        }
+    )
+    return VectorOutboxEvent(
+        event_id=f"concept-upsert-{_sha256(identity)}",
+        document_ref=catalog_ref.strip(),
+        source_version=catalog_version.strip(),
+        collection="concept_catalog",
+        record_id=record.record_id,
+        operation="upsert",
+        payload_json=payload_json,
+        ingestion_run_id=ingestion_run_id,
+        index_version=expected_index_version,
+    )
+
+
+def build_concept_vector_upsert_events(
+    records: Sequence[ConceptVectorRecord],
+    *,
+    catalog_ref: str,
+    catalog_version: str,
+    index_version: str,
+    ingestion_run_id: str | None = None,
+) -> tuple[VectorOutboxEvent, ...]:
+    """Build sorted, globally scoped events for a concept-catalog batch."""
+
+    if isinstance(records, (str, bytes)) or not isinstance(records, Sequence):
+        raise TypeError("records must be a sequence of ConceptVectorRecord values")
+    _validate_catalog_scope(catalog_ref, catalog_version)
+    _require_non_blank("index_version", index_version)
+    _validate_optional_scope("ingestion_run_id", ingestion_run_id)
+    normalized = tuple(records)
+    if any(not isinstance(record, ConceptVectorRecord) for record in normalized):
+        raise TypeError("records must contain ConceptVectorRecord values")
+    normalized_labels = tuple(record.normalized_label for record in normalized)
+    if len(normalized_labels) != len(set(normalized_labels)):
+        raise ValueError("concept records must have a unique normalized label")
+    expected_index_version = index_version.strip()
+    if any(record.index_version != expected_index_version for record in normalized):
+        raise ValueError("concept records must match index_version")
+    return tuple(
+        build_concept_vector_upsert_event(
+            record,
+            catalog_ref=catalog_ref,
+            catalog_version=catalog_version,
+            index_version=expected_index_version,
+            ingestion_run_id=ingestion_run_id,
+        )
+        for record in sorted(normalized, key=lambda item: item.normalized_label)
+    )
+
+
 def _chunk_record_payload(record: ChunkIndexRecord) -> dict[str, Any]:
     return {
         "access_scope": record.access_scope,
@@ -97,6 +180,22 @@ def _chunk_record_payload(record: ChunkIndexRecord) -> dict[str, Any]:
         "metadata": _json_value(record.metadata),
         "search_text": record.search_text,
         "source_version": record.source_version,
+    }
+
+
+def _concept_record_payload(record: ConceptVectorRecord) -> dict[str, Any]:
+    return {
+        "record_id": record.record_id,
+        "canonical_label": record.canonical_label,
+        "normalized_label": record.normalized_label,
+        "search_text": record.search_text,
+        "embedding": list(record.embedding),
+        "usage_count": record.usage_count,
+        "embedding_input_hash": record.embedding_input_hash,
+        "embedding_model": record.embedding_model,
+        "embedding_dimensions": record.embedding_dimensions,
+        "index_version": record.index_version,
+        "metadata": _json_value(record.metadata),
     }
 
 
@@ -138,3 +237,10 @@ def _require_non_blank(name: str, value: str) -> None:
 def _validate_optional_scope(name: str, value: str | None) -> None:
     if value is not None and (not isinstance(value, str) or not value.strip()):
         raise ValueError(f"{name} must be blank or null")
+
+
+def _validate_catalog_scope(catalog_ref: str, catalog_version: str) -> None:
+    _require_non_blank("catalog_ref", catalog_ref)
+    if not is_safe_document_reference(catalog_ref.strip()):
+        raise ValueError("catalog_ref must be a safe document reference")
+    _require_non_blank("catalog_version", catalog_version)
