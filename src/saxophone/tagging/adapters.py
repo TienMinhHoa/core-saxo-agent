@@ -18,7 +18,76 @@ from .models import (
     TagGenerationResult,
     TagResolution,
 )
-from .ports import TagConflictResolver, TagGenerator
+from .chunk_models import ChunkTaggingRequest, ChunkTaggingResult
+from .ports import ChunkTagger, TagConflictResolver, TagGenerator
+
+
+class RemoteChunkTagger(ChunkTagger):
+    """Translate one validated chunk-tagging request into a model call."""
+
+    def __init__(
+        self,
+        client: ModelClient,
+        *,
+        model: str,
+        response_schema: str = "chunk-tagging-v1",
+    ) -> None:
+        if not model.strip():
+            raise ValueError("model must not be blank")
+        if not response_schema.strip():
+            raise ValueError("response_schema must not be blank")
+        self._client = client
+        self._model = model.strip()
+        self._response_schema = response_schema.strip()
+
+    @property
+    def model(self) -> str:
+        return self._model
+
+    async def tag(self, request: ChunkTaggingRequest) -> ChunkTaggingResult:
+        response = await self._client.invoke(
+            ModelRequest(
+                model=self._model,
+                task=ModelTask.CHUNK_TAGGING,
+                input={
+                    "chunk_id": request.chunk_id,
+                    "paragraphs": [
+                        {
+                            "paragraph_id": item.paragraph.paragraph_id,
+                            "text": item.paragraph.text,
+                            "heading_path": list(item.paragraph.heading_path),
+                            "existing_candidates": list(item.existing_candidates),
+                            "previous_context": item.previous_context,
+                            "next_context": item.next_context,
+                            "image_context": list(item.image_context),
+                        }
+                        for item in request.paragraphs
+                    ],
+                },
+                metadata={"chunk_id": request.chunk_id},
+                response_schema=self._response_schema,
+                idempotency_key=f"chunk-tag-{request.chunk_id}",
+            ),
+        )
+        _validate_response(
+            response.task,
+            response.response_schema,
+            ModelTask.CHUNK_TAGGING,
+            self._response_schema,
+        )
+        try:
+            output = response.output
+            result = ChunkTaggingResult(
+                chunk_id=_required_text(output, "chunk_id"),
+                chunk_new_concepts=_required_string_list(output, "chunk_new_concepts"),
+                paragraphs=_parse_chunk_paragraphs(output),
+            )
+            result.validate_against(request)
+            return result
+        except ModelValidationError:
+            raise
+        except (TypeError, ValueError) as exc:
+            raise ModelValidationError(f"chunk tagging output violates contract: {exc}") from exc
 
 
 class RemoteParagraphTagger(TagGenerator):
@@ -190,3 +259,53 @@ def _required_text(payload: Mapping[str, object], name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ModelValidationError(f"model output {name} must be non-blank")
     return value.strip()
+
+
+def _required_string_list(payload: Mapping[str, object], name: str) -> tuple[str, ...]:
+    value = payload.get(name)
+    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+        raise ModelValidationError(f"chunk tagging output {name} must be a list of strings")
+    return tuple(value)
+
+
+def _parse_chunk_paragraphs(payload: Mapping[str, object]) -> tuple:
+    from .chunk_models import ChunkParagraphTaggingResult, ChunkTaggingLabel
+    from .models import ContentRole
+
+    raw_paragraphs = payload.get("paragraphs")
+    if not isinstance(raw_paragraphs, list):
+        raise ModelValidationError("chunk tagging output paragraphs must be a list")
+    parsed = []
+    for item in raw_paragraphs:
+        if not isinstance(item, Mapping):
+            raise ModelValidationError("chunk tagging paragraph must be a mapping")
+        raw_labels = item.get("labels")
+        if not isinstance(raw_labels, list):
+            raise ModelValidationError("chunk tagging labels must be a list")
+        labels = []
+        for raw_label in raw_labels:
+            if not isinstance(raw_label, Mapping):
+                raise ModelValidationError("chunk tagging label must be a mapping")
+            raw_roles = raw_label.get("roles")
+            if not isinstance(raw_roles, list):
+                raise ModelValidationError("chunk tagging roles must be a list")
+            try:
+                labels.append(
+                    ChunkTaggingLabel(
+                        _required_text(raw_label, "generated_concept"),
+                        _required_text(raw_label, "action"),
+                        _required_text(raw_label, "resolved_concept"),
+                        tuple(ContentRole(role) for role in raw_roles),
+                    )
+                )
+            except (TypeError, ValueError) as exc:
+                raise ModelValidationError(f"chunk tagging label is invalid: {exc}") from exc
+        try:
+            parsed.append(
+                ChunkParagraphTaggingResult(
+                    _required_text(item, "paragraph_ref"), tuple(labels), item.get("tagging_status", "completed")
+                )
+            )
+        except ValueError as exc:
+            raise ModelValidationError(f"chunk tagging paragraph is invalid: {exc}") from exc
+    return tuple(parsed)
