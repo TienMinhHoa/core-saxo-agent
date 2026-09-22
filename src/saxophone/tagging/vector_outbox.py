@@ -25,6 +25,7 @@ class VectorOutboxEvent:
     record_id: str
     operation: str
     payload_json: str
+    ingestion_run_id: str | None = None
     status: OutboxStatus = OutboxStatus.PENDING
     attempts: int = 0
     last_error: str | None = None
@@ -36,6 +37,10 @@ class VectorOutboxEvent:
                 raise ValueError(f"{name} must not be blank")
         if self.operation not in {"upsert", "delete"}:
             raise ValueError("operation must be upsert or delete")
+        if self.ingestion_run_id is not None and (
+            not isinstance(self.ingestion_run_id, str) or not self.ingestion_run_id.strip()
+        ):
+            raise ValueError("ingestion_run_id must be blank or null")
         if not isinstance(self.status, OutboxStatus):
             object.__setattr__(self, "status", OutboxStatus(self.status))
         if not isinstance(self.attempts, int) or self.attempts < 0:
@@ -60,10 +65,16 @@ class SqliteVectorOutboxRepository:
             raise ValueError("events must contain VectorOutboxEvent values")
         await asyncio.to_thread(self._enqueue, normalized)
 
-    async def list_pending(self, *, limit: int = 100) -> tuple[VectorOutboxEvent, ...]:
-        if not isinstance(limit, int) or limit <= 0:
+    async def list_pending(
+        self,
+        *,
+        limit: int = 100,
+        ingestion_run_id: str | None = None,
+    ) -> tuple[VectorOutboxEvent, ...]:
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
             raise ValueError("limit must be positive")
-        return await asyncio.to_thread(self._list_pending, limit)
+        self._validate_ingestion_run_id(ingestion_run_id)
+        return await asyncio.to_thread(self._list_pending, limit, ingestion_run_id)
 
     async def get(self, event_id: str) -> VectorOutboxEvent:
         self._validate_event_id(event_id)
@@ -91,27 +102,87 @@ class SqliteVectorOutboxRepository:
         with sqlite3.connect(self._path) as connection:
             self._create_schema(connection)
             for item in events:
-                existing = connection.execute("SELECT payload_json FROM vector_outbox WHERE event_id = ?", (item.event_id,)).fetchone()
+                existing = connection.execute(
+                    """
+                    SELECT ingestion_run_id, document_ref, source_version, collection,
+                           record_id, operation, payload_json
+                    FROM vector_outbox
+                    WHERE event_id = ?
+                    """,
+                    (item.event_id,),
+                ).fetchone()
                 if existing is not None:
-                    if existing[0] != item.payload_json:
-                        raise ValueError("event_id already exists with different payload")
+                    expected = (
+                        item.ingestion_run_id,
+                        item.document_ref,
+                        item.source_version,
+                        item.collection,
+                        item.record_id,
+                        item.operation,
+                        item.payload_json,
+                    )
+                    if existing != expected:
+                        raise ValueError("event_id already exists with different payload or scope")
                     continue
                 connection.execute(
-                    "INSERT INTO vector_outbox (event_id, document_ref, source_version, collection, record_id, operation, payload_json, status, attempts, last_error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (item.event_id, item.document_ref, item.source_version, item.collection, item.record_id, item.operation, item.payload_json, item.status.value, item.attempts, item.last_error),
+                    """
+                    INSERT INTO vector_outbox
+                        (event_id, ingestion_run_id, document_ref, source_version,
+                         collection, record_id, operation, payload_json, status,
+                         attempts, last_error)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        item.event_id,
+                        item.ingestion_run_id,
+                        item.document_ref,
+                        item.source_version,
+                        item.collection,
+                        item.record_id,
+                        item.operation,
+                        item.payload_json,
+                        item.status.value,
+                        item.attempts,
+                        item.last_error,
+                    ),
                 )
 
-    def _list_pending(self, limit: int) -> tuple[VectorOutboxEvent, ...]:
+    def _list_pending(
+        self, limit: int, ingestion_run_id: str | None
+    ) -> tuple[VectorOutboxEvent, ...]:
         with sqlite3.connect(self._path) as connection:
             self._create_schema(connection)
-            rows = connection.execute("SELECT event_id, document_ref, source_version, collection, record_id, operation, payload_json, status, attempts, last_error FROM vector_outbox WHERE status IN ('pending', 'failed') ORDER BY event_id LIMIT ?", (limit,)).fetchall()
-        return tuple(VectorOutboxEvent(*row[:7], status=OutboxStatus(row[7]), attempts=row[8], last_error=row[9]) for row in rows)
+            query = """
+                SELECT event_id, document_ref, source_version, collection,
+                       record_id, operation, payload_json, ingestion_run_id,
+                       status, attempts, last_error
+                FROM vector_outbox
+                WHERE status IN ('pending', 'failed')
+            """
+            parameters: tuple[object, ...]
+            if ingestion_run_id is None:
+                parameters = (limit,)
+            else:
+                query += " AND ingestion_run_id = ?"
+                parameters = (ingestion_run_id, limit)
+            query += " ORDER BY event_id LIMIT ?"
+            rows = connection.execute(query, parameters).fetchall()
+        return tuple(self._event_from_row(row) for row in rows)
 
     def _get(self, event_id: str) -> VectorOutboxEvent | None:
         with sqlite3.connect(self._path) as connection:
             self._create_schema(connection)
-            row = connection.execute("SELECT event_id, document_ref, source_version, collection, record_id, operation, payload_json, status, attempts, last_error FROM vector_outbox WHERE event_id = ?", (event_id,)).fetchone()
-        return None if row is None else VectorOutboxEvent(*row[:7], status=OutboxStatus(row[7]), attempts=row[8], last_error=row[9])
+            row = connection.execute(
+                """
+                SELECT event_id, document_ref, source_version, collection,
+                       record_id, operation, payload_json, ingestion_run_id,
+                       status, attempts, last_error
+                FROM vector_outbox
+                WHERE event_id = ?
+                """,
+                (event_id,),
+            ).fetchone()
+        return None if row is None else self._event_from_row(row)
 
     def _transition(self, event_id: str, status: OutboxStatus, error: str | None) -> None:
         with sqlite3.connect(self._path) as connection:
@@ -125,9 +196,54 @@ class SqliteVectorOutboxRepository:
 
     @staticmethod
     def _create_schema(connection: sqlite3.Connection) -> None:
-        connection.execute("CREATE TABLE IF NOT EXISTS vector_outbox (event_id TEXT PRIMARY KEY, document_ref TEXT NOT NULL, source_version TEXT NOT NULL, collection TEXT NOT NULL, record_id TEXT NOT NULL, operation TEXT NOT NULL, payload_json TEXT NOT NULL, status TEXT NOT NULL, attempts INTEGER NOT NULL, last_error TEXT)")
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS vector_outbox (
+                event_id TEXT PRIMARY KEY,
+                ingestion_run_id TEXT,
+                document_ref TEXT NOT NULL,
+                source_version TEXT NOT NULL,
+                collection TEXT NOT NULL,
+                record_id TEXT NOT NULL,
+                operation TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                status TEXT NOT NULL,
+                attempts INTEGER NOT NULL,
+                last_error TEXT
+            )
+            """
+        )
+        columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(vector_outbox)").fetchall()
+        }
+        if "ingestion_run_id" not in columns:
+            connection.execute("ALTER TABLE vector_outbox ADD COLUMN ingestion_run_id TEXT")
 
     @staticmethod
     def _validate_event_id(event_id: str) -> None:
         if not isinstance(event_id, str) or not event_id.strip():
             raise ValueError("event_id must not be blank")
+
+    @staticmethod
+    def _validate_ingestion_run_id(ingestion_run_id: str | None) -> None:
+        if ingestion_run_id is not None and (
+            not isinstance(ingestion_run_id, str) or not ingestion_run_id.strip()
+        ):
+            raise ValueError("ingestion_run_id must be blank or null")
+
+    @staticmethod
+    def _event_from_row(row: tuple[object, ...]) -> VectorOutboxEvent:
+        return VectorOutboxEvent(
+            event_id=row[0],
+            document_ref=row[1],
+            source_version=row[2],
+            collection=row[3],
+            record_id=row[4],
+            operation=row[5],
+            payload_json=row[6],
+            ingestion_run_id=row[7],
+            status=OutboxStatus(row[8]),
+            attempts=row[9],
+            last_error=row[10],
+        )

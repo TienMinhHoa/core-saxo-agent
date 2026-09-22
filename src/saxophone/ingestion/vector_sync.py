@@ -35,8 +35,16 @@ class VectorSyncService:
         self._outbox = outbox
         self._vector_index = vector_index
 
-    async def sync_pending(self, *, limit: int = 100) -> dict[str, int]:
-        events = await self._outbox.list_pending(limit=limit)
+    async def sync_pending(
+        self,
+        *,
+        ingestion_run_id: str | None = None,
+        limit: int = 100,
+    ) -> dict[str, int]:
+        events = await self._outbox.list_pending(
+            ingestion_run_id=ingestion_run_id,
+            limit=limit,
+        )
         succeeded = failed = 0
         for event in events:
             try:
