@@ -5,6 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Mapping, Sequence
 
+from .concept_records import ConceptVectorRecord
 from .models import ChunkIndexRecord, EmbeddingRecord, IndexInputRecord, VectorHit
 
 
@@ -57,4 +58,12 @@ class VectorIndex(ABC):
         filters: Mapping[str, object] | None = None,
         limit: int = 10,
     ) -> list[VectorHit]:
+        raise NotImplementedError
+
+
+class ConceptVectorIndex(ABC):
+    """Async port for the canonical concept catalog collection."""
+
+    @abstractmethod
+    async def upsert_concepts(self, records: Sequence[ConceptVectorRecord]) -> None:
         raise NotImplementedError

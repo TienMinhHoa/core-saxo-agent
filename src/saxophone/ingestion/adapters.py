@@ -23,8 +23,9 @@ from saxophone.platform.model_client import (
     ModelValidationError,
 )
 
+from .concept_records import ConceptVectorRecord
 from .models import ChunkIndexRecord, EmbeddingRecord, IndexInputRecord, VectorHit
-from .ports import EmbeddingProvider, EmbeddingReuseStore, VectorIndex
+from .ports import ConceptVectorIndex, EmbeddingProvider, EmbeddingReuseStore, VectorIndex
 
 
 class InMemoryEmbeddingReuseStore(EmbeddingReuseStore):
@@ -388,7 +389,7 @@ def _embedding_idempotency_key(
     return f"embed-{hashlib.sha256(payload.encode('utf-8')).hexdigest()}"
 
 
-class ChromaVectorIndex(VectorIndex):
+class ChromaVectorIndex(VectorIndex, ConceptVectorIndex):
     """Async Chroma adapter; every blocking SDK call runs in a worker thread."""
 
     def __init__(
@@ -396,12 +397,14 @@ class ChromaVectorIndex(VectorIndex):
         collection: Any,
         *,
         client: Any | None = None,
+        concept_collection: Any | None = None,
         io_limiter: Any | None = None,
         embedding_dimension: int | None = None,
     ) -> None:
         if client is not None and not callable(getattr(client, "close", None)):
             raise TypeError("client must expose a callable close method")
         self._collection = collection
+        self._concept_collection = concept_collection
         self._client = client
         self._closed = False
         if embedding_dimension is not None and (
@@ -479,6 +482,37 @@ class ChromaVectorIndex(VectorIndex):
             limiter=self._io_limiter,
         )
 
+    async def upsert_concepts(self, records: Sequence[ConceptVectorRecord]) -> None:
+        """Upsert canonical concepts into the separately owned catalog collection."""
+        if self._concept_collection is None:
+            raise ValueError("concept_collection must be configured")
+        if isinstance(records, (str, bytes)) or not isinstance(records, Sequence):
+            raise ValueError("records must be a sequence of ConceptVectorRecord")
+        if not records:
+            return
+        if any(not isinstance(record, ConceptVectorRecord) for record in records):
+            raise ValueError("records must contain ConceptVectorRecord values")
+        record_ids = [record.record_id for record in records]
+        if len(record_ids) != len(set(record_ids)):
+            raise ValueError("Chroma upsert concept IDs must be unique")
+        expected_dimension = records[0].embedding_dimensions
+        if any(record.embedding_dimensions != expected_dimension for record in records[1:]):
+            raise ValueError("Chroma upsert embeddings must have one shared dimension")
+        if self._embedding_dimension is not None and expected_dimension != self._embedding_dimension:
+            raise ValueError(
+                "concept embedding dimension does not match the configured Chroma collection"
+            )
+        await anyio.to_thread.run_sync(
+            partial(
+                self._concept_collection.upsert,
+                ids=record_ids,
+                embeddings=[list(record.embedding) for record in records],
+                documents=[record.search_text for record in records],
+                metadatas=[self._concept_metadata(record) for record in records],
+            ),
+            limiter=self._io_limiter,
+        )
+
     async def delete_chunks(self, chunk_ids: Sequence[str]) -> None:
         validated_ids = _validated_chunk_ids(chunk_ids)
         if validated_ids:
@@ -544,6 +578,33 @@ class ChromaVectorIndex(VectorIndex):
             "embedding_profile": record.embedding_profile,
             "access_scope": record.access_scope,
         }
+
+    @staticmethod
+    def _concept_metadata(record: ConceptVectorRecord) -> dict[str, object]:
+        required = {
+            "canonical_label": record.canonical_label,
+            "normalized_label": record.normalized_label,
+            "usage_count": record.usage_count,
+            "embedding_input_hash": record.embedding_input_hash,
+            "embedding_model": record.embedding_model,
+            "embedding_dimensions": record.embedding_dimensions,
+            "index_version": record.index_version,
+        }
+        for key, expected in required.items():
+            if key in record.metadata and record.metadata[key] != expected:
+                raise ValueError(f"concept metadata {key} does not match record")
+        extras = {
+            key: _chroma_metadata_value(value)
+            for key, value in record.metadata.items()
+            if key not in required
+        }
+        if any(not isinstance(key, str) or not key.strip() for key in extras):
+            raise ValueError("Chroma concept metadata keys must be non-blank strings")
+        if any(not _is_valid_chroma_metadata_value(value) for value in extras.values()):
+            raise ValueError(
+                "Chroma concept metadata values must be finite scalar values or lists"
+            )
+        return {**required, **extras}
 
     @staticmethod
     def _hits(result: Any) -> list[VectorHit]:

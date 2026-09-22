@@ -11,6 +11,7 @@ from saxophone.tagging.chunk_models import (
 )
 from saxophone.tagging.chunk_service import ChunkTaggingService
 from saxophone.tagging.models import ContentRole, ParagraphBlock, ParagraphConceptRole
+from saxophone.tagging.sqlite_repository import SqliteTaggingRepository
 
 
 def _request() -> ChunkTaggingRequest:
@@ -80,3 +81,40 @@ async def test_chunk_tagging_service_rejects_invalid_collaborator_output() -> No
 
     with pytest.raises(TypeError, match="ChunkTaggingResult"):
         await ChunkTaggingService(_InvalidTagger()).tag_chunk(_request())
+
+
+@pytest.mark.anyio
+async def test_chunk_tagging_service_replaces_only_its_chunk_relations(tmp_path) -> None:
+    from saxophone.tagging.chunk_service import ChunkTaggingPersistenceService
+
+    request = _request()
+    repository = SqliteTaggingRepository(tmp_path / "tagging.sqlite")
+    await repository.replace_relations(
+        "doc-1",
+        "v1",
+        (
+            ParagraphConceptRole("chunk-1:p1", "Old Harmony", ContentRole.EXPLANATION),
+            ParagraphConceptRole("chunk-2:p1", "Rhythm", ContentRole.DEFINITION),
+        ),
+    )
+    result = ChunkTaggingResult(
+        "chunk-1",
+        ("Harmony",),
+        (
+            ChunkParagraphTaggingResult(
+                "chunk-1:p1",
+                (ChunkTaggingLabel("harmony", "create_new", "Harmony", (ContentRole.DEFINITION,)),),
+            ),
+            ChunkParagraphTaggingResult("chunk-1:p2", ()),
+        ),
+    )
+
+    run = await ChunkTaggingPersistenceService(
+        ChunkTaggingService(_Tagger(result)), repository
+    ).tag_and_persist("doc-1", "v1", request)
+
+    assert run.relations == (ParagraphConceptRole("chunk-1:p1", "Harmony", ContentRole.DEFINITION),)
+    assert await repository.list_relations("doc-1", "v1") == (
+        ParagraphConceptRole("chunk-1:p1", "Harmony", ContentRole.DEFINITION),
+        ParagraphConceptRole("chunk-2:p1", "Rhythm", ContentRole.DEFINITION),
+    )

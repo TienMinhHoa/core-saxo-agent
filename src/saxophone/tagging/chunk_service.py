@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Protocol
 
 from .chunk_models import ChunkTaggingRequest, ChunkTaggingResult
 from .models import ParagraphConceptRole
@@ -15,6 +16,16 @@ class ChunkTaggingRun:
 
     result: ChunkTaggingResult
     relations: tuple[ParagraphConceptRole, ...]
+
+
+class _ChunkRelationRepository(Protocol):
+    async def replace_chunk_relations(
+        self,
+        document_ref: str,
+        source_version: str,
+        paragraph_ids: tuple[str, ...],
+        relations: tuple[ParagraphConceptRole, ...],
+    ) -> None: ...
 
 
 class ChunkTaggingService:
@@ -39,3 +50,34 @@ class ChunkTaggingService:
             for role in label.roles
         )
         return ChunkTaggingRun(result=result, relations=relations)
+
+
+class ChunkTaggingPersistenceService:
+    """Commit one validated chunk tagging run without replacing sibling chunks."""
+
+    def __init__(
+        self,
+        tagging_service: ChunkTaggingService,
+        repository: _ChunkRelationRepository,
+    ) -> None:
+        if not isinstance(tagging_service, ChunkTaggingService):
+            raise TypeError("tagging_service must be a ChunkTaggingService")
+        if not callable(getattr(repository, "replace_chunk_relations", None)):
+            raise TypeError("repository must provide replace_chunk_relations")
+        self._tagging_service = tagging_service
+        self._repository = repository
+
+    async def tag_and_persist(
+        self,
+        document_ref: str,
+        source_version: str,
+        request: ChunkTaggingRequest,
+    ) -> ChunkTaggingRun:
+        run = await self._tagging_service.tag_chunk(request)
+        await self._repository.replace_chunk_relations(
+            document_ref,
+            source_version,
+            tuple(item.paragraph.paragraph_id for item in request.paragraphs),
+            run.relations,
+        )
+        return run

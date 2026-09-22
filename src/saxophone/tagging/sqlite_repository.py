@@ -35,6 +35,45 @@ class SqliteTaggingRepository:
             raise ValueError("relations must be unique")
         await asyncio.to_thread(self._replace, document_ref, source_version, normalized)
 
+    async def replace_chunk_relations(
+        self,
+        document_ref: str,
+        source_version: str,
+        paragraph_ids: Sequence[str],
+        relations: Sequence[ParagraphConceptRole],
+    ) -> None:
+        """Atomically replace relations belonging to one explicitly scoped chunk.
+
+        Callers provide the requested paragraph IDs rather than relying on an
+        ID prefix, keeping replacement safe when stable-reference formats evolve.
+        """
+        self._validate_scope(document_ref, source_version)
+        paragraph_scope = tuple(paragraph_ids)
+        if not paragraph_scope or any(
+            not isinstance(item, str) or not item.strip() for item in paragraph_scope
+        ):
+            raise ValueError("paragraph_ids must contain non-blank strings")
+        if len(paragraph_scope) != len(set(paragraph_scope)):
+            raise ValueError("paragraph_ids must be unique")
+        normalized = tuple(relations)
+        if any(not isinstance(item, ParagraphConceptRole) for item in normalized):
+            raise ValueError("relations must contain ParagraphConceptRole values")
+        if any(item.paragraph_id not in paragraph_scope for item in normalized):
+            raise ValueError("relations must belong to paragraph_ids")
+        keys = tuple(
+            (item.paragraph_id, item.canonical_concept, item.content_role.value)
+            for item in normalized
+        )
+        if len(keys) != len(set(keys)):
+            raise ValueError("relations must be unique")
+        await asyncio.to_thread(
+            self._replace_chunk,
+            document_ref,
+            source_version,
+            paragraph_scope,
+            normalized,
+        )
+
     async def list_relations(
         self,
         document_ref: str,
@@ -82,6 +121,39 @@ class SqliteTaggingRepository:
                 (document_ref, source_version),
             ).fetchall()
         return tuple(ParagraphConceptRole(paragraph, concept, role) for paragraph, concept, role in rows)
+
+    def _replace_chunk(
+        self,
+        document_ref: str,
+        source_version: str,
+        paragraph_ids: tuple[str, ...],
+        relations: tuple[ParagraphConceptRole, ...],
+    ) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        placeholders = ", ".join("?" for _ in paragraph_ids)
+        with sqlite3.connect(self._path) as connection:
+            self._create_schema(connection)
+            connection.execute(
+                f"DELETE FROM paragraph_concept_roles WHERE document_ref = ? AND source_version = ? AND paragraph_id IN ({placeholders})",
+                (document_ref, source_version, *paragraph_ids),
+            )
+            connection.executemany(
+                """
+                INSERT INTO paragraph_concept_roles
+                    (document_ref, source_version, paragraph_id, canonical_concept, content_role)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    (
+                        document_ref,
+                        source_version,
+                        item.paragraph_id,
+                        item.canonical_concept,
+                        item.content_role.value,
+                    )
+                    for item in relations
+                ),
+            )
 
     @staticmethod
     def _create_schema(connection: sqlite3.Connection) -> None:
