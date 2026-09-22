@@ -389,6 +389,29 @@ class DocumentChunkTaggingService:
                 outbox_events=events_by_chunk.get(request.chunk_id, ()),
             )
 
+    async def commit_document(
+        self,
+        command: IngestionCommand,
+        prepared: _PreparedChunkTagging,
+        *,
+        outbox_events: Sequence[VectorOutboxEvent] = (),
+        previous_source_versions: Sequence[str] = (),
+    ) -> None:
+        """Commit all prepared chunks through one document transaction."""
+
+        if not isinstance(command, IngestionCommand):
+            raise TypeError("command must be an IngestionCommand")
+        if not isinstance(prepared, _PreparedChunkTagging):
+            raise TypeError("prepared must be a chunk tagging preparation")
+        await self._transaction_service.commit_document(
+            command.document_ref,
+            command.source_version,
+            prepared.requests,
+            prepared.runs,
+            outbox_events=outbox_events,
+            previous_source_versions=previous_source_versions,
+        )
+
 
 def build_chunk_tagging_requests(
     chunks: Sequence[IngestionSourceChunk],
@@ -482,11 +505,16 @@ class IngestDocument:
         existing_candidates: Mapping[str, Sequence[str]] | None = None,
         outbox_events: Mapping[str, Sequence[VectorOutboxEvent]] | None = None,
         ingestion_run_id: str | None = None,
+        previous_source_versions: Sequence[str] = (),
     ) -> IngestionReport:
         normalized_chunks = tuple(chunks)
         normalized_paragraphs = tuple(paragraphs)
         self._validate_input_scope(command, normalized_chunks, normalized_paragraphs)
         _validate_optional_ingestion_run_id(ingestion_run_id)
+        normalized_previous_versions = _normalize_previous_source_versions(
+            ingestion_run_id,
+            previous_source_versions,
+        )
 
         if self._chunk_tagging is not None:
             prepared_tagging = await self._chunk_tagging.prepare(
@@ -520,11 +548,24 @@ class IngestDocument:
                     ingestion_run_id=ingestion_run_id,
                 ),
             )
-            await self._chunk_tagging.commit(
-                command,
-                prepared_tagging,
-                outbox_events=events_by_chunk,
-            )
+            if ingestion_run_id is None:
+                await self._chunk_tagging.commit(
+                    command,
+                    prepared_tagging,
+                    outbox_events=events_by_chunk,
+                )
+            else:
+                document_events = tuple(
+                    event
+                    for request in prepared_tagging.requests
+                    for event in events_by_chunk.get(request.chunk_id, ())
+                )
+                await self._chunk_tagging.commit_document(
+                    command,
+                    prepared_tagging,
+                    outbox_events=document_events,
+                    previous_source_versions=normalized_previous_versions,
+                )
             return await self._index_document.publish(
                 command,
                 prepared_index,
@@ -683,6 +724,24 @@ def _validate_optional_ingestion_run_id(ingestion_run_id: str | None) -> None:
         not isinstance(ingestion_run_id, str) or not ingestion_run_id.strip()
     ):
         raise ValueError("ingestion_run_id must be blank or null")
+
+
+def _normalize_previous_source_versions(
+    ingestion_run_id: str | None,
+    previous_source_versions: Sequence[str],
+) -> tuple[str, ...]:
+    if isinstance(previous_source_versions, (str, bytes)) or not isinstance(
+        previous_source_versions, Sequence
+    ):
+        raise ValueError("previous_source_versions must be a sequence")
+    normalized = tuple(previous_source_versions)
+    if any(not isinstance(value, str) or not value.strip() for value in normalized):
+        raise ValueError("previous_source_versions must contain non-blank strings")
+    if len(normalized) != len(set(normalized)):
+        raise ValueError("previous_source_versions must be unique")
+    if ingestion_run_id is None and normalized:
+        raise ValueError("previous_source_versions require an ingestion_run_id")
+    return normalized
 
 
 def _tagged_paragraphs_from_chunk_runs(

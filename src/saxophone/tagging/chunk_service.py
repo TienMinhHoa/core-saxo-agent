@@ -68,6 +68,19 @@ class _ChunkTransactionRepository(Protocol):
     ) -> None: ...
 
 
+class _DocumentTransactionRepository(Protocol):
+    async def commit_document(
+        self,
+        *,
+        document_ref: str,
+        source_version: str,
+        paragraph_ids: Sequence[str],
+        relations: Sequence[ParagraphConceptRole],
+        outbox_events: Sequence[VectorOutboxEvent],
+        previous_source_versions: Sequence[str],
+    ) -> None: ...
+
+
 class ChunkTaggingTransactionService:
     """Commit one validated chunk result with its vector work atomically."""
 
@@ -114,6 +127,68 @@ class ChunkTaggingTransactionService:
             paragraph_ids=tuple(item.paragraph.paragraph_id for item in request.paragraphs),
             relations=run.relations,
             outbox_events=normalized_events,
+        )
+
+    async def commit_document(
+        self,
+        document_ref: str,
+        source_version: str,
+        requests: Sequence[ChunkTaggingRequest],
+        runs: Sequence[ChunkTaggingRun],
+        *,
+        outbox_events: Sequence[VectorOutboxEvent] = (),
+        previous_source_versions: Sequence[str] = (),
+    ) -> None:
+        """Atomically persist all prepared chunk results for one document."""
+
+        _validate_commit_scope(document_ref, source_version)
+        repository = self._transaction_repository
+        if not callable(getattr(repository, "commit_document", None)):
+            raise TypeError("transaction_repository must provide commit_document")
+        if isinstance(requests, (str, bytes)) or not isinstance(requests, Sequence):
+            raise TypeError("requests must be a sequence")
+        if isinstance(runs, (str, bytes)) or not isinstance(runs, Sequence):
+            raise TypeError("runs must be a sequence")
+        normalized_requests = tuple(requests)
+        normalized_runs = tuple(runs)
+        if len(normalized_requests) != len(normalized_runs):
+            raise ValueError("requests and runs must have matching lengths")
+
+        paragraph_ids: list[str] = []
+        relations: list[ParagraphConceptRole] = []
+        for request, run in zip(normalized_requests, normalized_runs):
+            if not isinstance(request, ChunkTaggingRequest):
+                raise TypeError("requests must contain ChunkTaggingRequest values")
+            if not isinstance(run, ChunkTaggingRun):
+                raise TypeError("runs must contain ChunkTaggingRun values")
+            run.result.validate_against(request)
+            paragraph_ids.extend(item.paragraph.paragraph_id for item in request.paragraphs)
+            relations.extend(run.relations)
+
+        normalized_paragraph_ids = tuple(paragraph_ids)
+        if len(normalized_paragraph_ids) != len(set(normalized_paragraph_ids)):
+            raise ValueError("document tagging requests must not repeat paragraph references")
+        relation_keys = tuple(
+            (item.paragraph_id, item.canonical_concept, item.content_role.value)
+            for item in relations
+        )
+        if len(relation_keys) != len(set(relation_keys)):
+            raise ValueError("document tagging relations must be unique")
+        if any(item.paragraph_id not in set(normalized_paragraph_ids) for item in relations):
+            raise ValueError("document tagging relations must belong to requests")
+
+        normalized_events = _validate_outbox_events(outbox_events)
+        normalized_previous_versions = _validate_previous_source_versions(
+            source_version,
+            previous_source_versions,
+        )
+        await repository.commit_document(
+            document_ref=document_ref,
+            source_version=source_version,
+            paragraph_ids=normalized_paragraph_ids,
+            relations=tuple(relations),
+            outbox_events=normalized_events,
+            previous_source_versions=normalized_previous_versions,
         )
 
     async def tag_and_commit(
@@ -187,3 +262,21 @@ def _validate_outbox_events(
     if len({event.event_id for event in normalized_events}) != len(normalized_events):
         raise ValueError("outbox_events must not contain duplicate event IDs")
     return normalized_events
+
+
+def _validate_previous_source_versions(
+    source_version: str,
+    previous_source_versions: Sequence[str],
+) -> tuple[str, ...]:
+    if isinstance(previous_source_versions, (str, bytes)) or not isinstance(
+        previous_source_versions, Sequence
+    ):
+        raise ValueError("previous_source_versions must be a sequence")
+    normalized = tuple(previous_source_versions)
+    if any(not isinstance(value, str) or not value.strip() for value in normalized):
+        raise ValueError("previous_source_versions must contain non-blank strings")
+    if len(normalized) != len(set(normalized)):
+        raise ValueError("previous_source_versions must be unique")
+    if source_version in normalized:
+        raise ValueError("previous_source_versions must not contain the new source version")
+    return normalized
