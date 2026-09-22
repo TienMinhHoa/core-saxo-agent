@@ -57,6 +57,10 @@ class VectorSyncService:
                 succeeded += 1
         return {"succeeded": succeeded, "failed": failed}
 
+    async def pending_count(self, *, ingestion_run_id: str | None = None) -> int:
+        """Return retryable events left after a scoped synchronization attempt."""
+        return await self._outbox.count_pending(ingestion_run_id=ingestion_run_id)
+
     async def _apply(self, event: VectorOutboxEvent) -> None:
         if event.collection == "concept_catalog":
             await self._apply_concept(event)

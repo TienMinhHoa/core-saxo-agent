@@ -76,6 +76,11 @@ class SqliteVectorOutboxRepository:
         self._validate_ingestion_run_id(ingestion_run_id)
         return await asyncio.to_thread(self._list_pending, limit, ingestion_run_id)
 
+    async def count_pending(self, *, ingestion_run_id: str | None = None) -> int:
+        """Count retryable events without consuming them."""
+        self._validate_ingestion_run_id(ingestion_run_id)
+        return await asyncio.to_thread(self._count_pending, ingestion_run_id)
+
     async def get(self, event_id: str) -> VectorOutboxEvent:
         self._validate_event_id(event_id)
         result = await asyncio.to_thread(self._get, event_id)
@@ -168,6 +173,17 @@ class SqliteVectorOutboxRepository:
             query += " ORDER BY event_id LIMIT ?"
             rows = connection.execute(query, parameters).fetchall()
         return tuple(self._event_from_row(row) for row in rows)
+
+    def _count_pending(self, ingestion_run_id: str | None) -> int:
+        with sqlite3.connect(self._path) as connection:
+            self._create_schema(connection)
+            query = "SELECT COUNT(*) FROM vector_outbox WHERE status IN ('pending', 'failed')"
+            parameters: tuple[object, ...] = ()
+            if ingestion_run_id is not None:
+                query += " AND ingestion_run_id = ?"
+                parameters = (ingestion_run_id,)
+            row = connection.execute(query, parameters).fetchone()
+        return int(row[0]) if row is not None else 0
 
     def _get(self, event_id: str) -> VectorOutboxEvent | None:
         with sqlite3.connect(self._path) as connection:
