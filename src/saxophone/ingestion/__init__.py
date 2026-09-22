@@ -32,4 +32,8 @@ def __getattr__(name: str) -> object:
         from .use_cases import IndexDocument, IngestDocument
 
         return {"IndexDocument": IndexDocument, "IngestDocument": IngestDocument}[name]
+    if name == "DocumentIngestionService":
+        from .services import DocumentIngestionService
+
+        return DocumentIngestionService
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
