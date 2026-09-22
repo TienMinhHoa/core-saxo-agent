@@ -47,10 +47,14 @@ def __getattr__(name: str) -> object:
             "IngestionStatus": IngestionStatus,
             "SqliteIngestionStateRepository": SqliteIngestionStateRepository,
         }[name]
-    if name in {"IndexDocument", "IngestDocument"}:
-        from .use_cases import IndexDocument, IngestDocument
+    if name in {"DocumentChunkTaggingService", "IndexDocument", "IngestDocument"}:
+        from .use_cases import DocumentChunkTaggingService, IndexDocument, IngestDocument
 
-        return {"IndexDocument": IndexDocument, "IngestDocument": IngestDocument}[name]
+        return {
+            "DocumentChunkTaggingService": DocumentChunkTaggingService,
+            "IndexDocument": IndexDocument,
+            "IngestDocument": IngestDocument,
+        }[name]
     if name == "DocumentIngestionService":
         from .services import DocumentIngestionService
 

@@ -55,6 +55,10 @@ def __getattr__(name: str) -> object:
         from .use_cases import TagAndPersistParagraph, TagParagraph
 
         return {"TagAndPersistParagraph": TagAndPersistParagraph, "TagParagraph": TagParagraph}[name]
+    if name == "ChunkTagger":
+        from .ports import ChunkTagger
+
+        return ChunkTagger
     if name == "parse_chunk_paragraphs":
         from .parser import parse_chunk_paragraphs
 

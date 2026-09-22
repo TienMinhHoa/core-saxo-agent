@@ -26,10 +26,12 @@ from saxophone.ingestion.adapters import FileEmbeddingReuseStore, RemoteEmbeddin
 from saxophone.ingestion import (
     EmbeddingProvider,
     EmbeddingReuseStore,
+    DocumentChunkTaggingService,
     IngestDocument,
     IndexDocument,
     VectorIndex,
 )
+from saxophone.ingestion.transaction import SqliteIngestionTransactionRepository
 from saxophone.platform.artifacts import (
     LocalArtifactRepository,
     RepositoryBackedImageArtifactGate,
@@ -56,7 +58,10 @@ from saxophone.tagging import (
     TagGenerator,
     TagParagraph,
     TaggedParagraphRepository,
+    ChunkTagger,
 )
+from saxophone.tagging.adapters import RemoteChunkTagger
+from saxophone.tagging.chunk_service import ChunkTaggingService, ChunkTaggingTransactionService
 from saxophone.tagging.structured_provider import (
     RemoteStructuredLlmProvider,
     StructuredLlmProvider,
@@ -120,6 +125,9 @@ class AppContainer:
     tag_generator: TagGenerator | None = None
     tag_conflict_resolver: TagConflictResolver | None = None
     knowledge_repository: KnowledgeRepository | None = None
+    chunk_tagger: ChunkTagger | None = None
+    chunk_tagging: DocumentChunkTaggingService | None = None
+    ingestion_transaction_repository: SqliteIngestionTransactionRepository | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,6 +158,7 @@ class AppOverrides:
     tag_generator: TagGenerator | None = None
     tag_conflict_resolver: TagConflictResolver | None = None
     knowledge_repository: KnowledgeRepository | None = None
+    chunk_tagger: ChunkTagger | None = None
 
 
 def create_layout_app() -> FastAPI:
@@ -286,17 +295,42 @@ def create_app(
             embedding_reuse,
             knowledge_repository=knowledge_repository,
         )
+    chunk_tagger: ChunkTagger | None = None
+    chunk_tagging: DocumentChunkTaggingService | None = None
+    ingestion_transaction_repository: SqliteIngestionTransactionRepository | None = None
+    if settings.chunk_tagging_enabled:
+        chunk_tagger = resolved_overrides.chunk_tagger or RemoteChunkTagger(
+            model_client,
+            model=settings.litellm_model_profile,
+        )
+        ingestion_transaction_repository = SqliteIngestionTransactionRepository(
+            settings.data_root / "ingestion.sqlite3"
+        )
+        chunk_tagging = DocumentChunkTaggingService(
+            ChunkTaggingTransactionService(
+                ChunkTaggingService(chunk_tagger),
+                ingestion_transaction_repository,
+            )
+        )
     ingest_extracted_document = resolved_overrides.ingest_extracted_document
     if ingest_extracted_document is None and index_document is not None:
-        tag_and_persist = TagAndPersistParagraph(
-            TagParagraph(tag_generator, tag_conflict_resolver),
-            tagged_paragraph_repository,
-            tag_catalog_repository,
-        )
+        if chunk_tagging is not None:
+            ingest_workflow = IngestDocument(
+                None,
+                index_document,
+                chunk_tagging=chunk_tagging,
+            )
+        else:
+            tag_and_persist = TagAndPersistParagraph(
+                TagParagraph(tag_generator, tag_conflict_resolver),
+                tagged_paragraph_repository,
+                tag_catalog_repository,
+            )
+            ingest_workflow = IngestDocument(tag_and_persist, index_document)
         ingest_extracted_document = IngestExtractedDocument(
             artifact_repository,
             index_document,
-            ingest_document=IngestDocument(tag_and_persist, index_document),
+            ingest_document=ingest_workflow,
         )
 
     retrieve_evidence = resolved_overrides.retrieve_evidence
@@ -337,6 +371,9 @@ def create_app(
         tag_generator=tag_generator,
         tag_conflict_resolver=tag_conflict_resolver,
         knowledge_repository=knowledge_repository,
+        chunk_tagger=chunk_tagger,
+        chunk_tagging=chunk_tagging,
+        ingestion_transaction_repository=ingestion_transaction_repository,
     )
 
     @asynccontextmanager
