@@ -55,6 +55,35 @@ def test_structured_provider_maps_task_and_validates_typed_output() -> None:
     assert client.request.input["schema"]["title"] == "AnswerPayload"
 
 
+def test_json_object_mode_includes_the_output_contract_in_the_prompt() -> None:
+    client = FakeClient(
+        ModelResponse(
+            task=ModelTask.ANSWER_GENERATE,
+            model="deepseek-v3",
+            response_schema="structured-answer_generation",
+            output={"answer": "Use the cited paragraph."},
+            source_version="structured-v1",
+        )
+    )
+    provider = RemoteStructuredLlmProvider(
+        client, model="deepseek-v3", mode=StructuredOutputMode.JSON_OBJECT
+    )
+
+    asyncio.run(
+        provider.generate_structured(
+            task_type="answer_generation",
+            system_prompt="Answer from evidence.",
+            user_prompt="What is the rule?",
+            response_model=AnswerPayload,
+        )
+    )
+
+    prompt = client.request.input["user_prompt"]
+    assert "Return exactly one JSON object." in prompt
+    assert "Do not wrap the object in Markdown fences." in prompt
+    assert '"answer"' in prompt
+
+
 def test_structured_provider_rejects_invalid_typed_output() -> None:
     client = FakeClient(
         ModelResponse(

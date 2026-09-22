@@ -90,12 +90,17 @@ class RemoteStructuredLlmProvider:
         schema = schema_factory()
         if not isinstance(schema, dict):
             raise TypeError("response_model schema must be a mapping")
+        request_prompt = _structured_user_prompt(
+            user_prompt,
+            schema=schema,
+            mode=self._mode,
+        )
         request = ModelRequest(
             model=self._model,
             task=task,
             input={
                 "system_prompt": system_prompt,
-                "user_prompt": user_prompt,
+                "user_prompt": request_prompt,
                 "response_format": self._mode.value,
                 "schema": schema,
             },
@@ -160,3 +165,27 @@ def _request_key(task_type: str, system_prompt: str, user_prompt: str) -> str:
         [task_type, system_prompt, user_prompt], ensure_ascii=False, separators=(",", ":")
     )
     return f"structured-{hashlib.sha256(payload.encode('utf-8')).hexdigest()}"
+
+
+def _structured_user_prompt(
+    user_prompt: str,
+    *,
+    schema: dict[str, object],
+    mode: StructuredOutputMode,
+) -> str:
+    """Attach an explicit output contract when native schemas are unavailable."""
+
+    if mode is StructuredOutputMode.JSON_SCHEMA:
+        return user_prompt
+    contract = json.dumps(schema, ensure_ascii=False, separators=(",", ":"))
+    return "\n\n".join(
+        (
+            user_prompt,
+            "Output contract:\n"
+            "Return exactly one JSON object.\n"
+            "Do not wrap the object in Markdown fences.\n"
+            "Do not include explanatory text before or after the JSON object.\n"
+            "Use only the keys and enum values defined in this JSON Schema:\n"
+            f"{contract}",
+        )
+    )
