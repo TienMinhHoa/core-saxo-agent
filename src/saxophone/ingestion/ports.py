@@ -5,7 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Mapping, Sequence
 
-from .concept_records import ConceptVectorRecord
+from .concept_records import ConceptVectorHit, ConceptVectorRecord
 from .models import ChunkIndexRecord, EmbeddingRecord, IndexInputRecord, VectorHit
 
 
@@ -66,4 +66,17 @@ class ConceptVectorIndex(ABC):
 
     @abstractmethod
     async def upsert_concepts(self, records: Sequence[ConceptVectorRecord]) -> None:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def delete_concepts(self, record_ids: Sequence[str]) -> None:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def query_concepts(
+        self,
+        query_vector: Sequence[float],
+        *,
+        limit: int = 10,
+    ) -> list[ConceptVectorHit]:
         raise NotImplementedError

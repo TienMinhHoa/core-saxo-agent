@@ -65,6 +65,36 @@ class ConceptVectorRecord:
         object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
 
 
+@dataclass(frozen=True, slots=True)
+class ConceptVectorHit:
+    """Validated result returned by semantic search over the concept catalog."""
+
+    record_id: str
+    canonical_label: str
+    normalized_label: str
+    search_text: str
+    metadata: Mapping[str, object]
+    distance: float
+
+    def __post_init__(self) -> None:
+        for name in (
+            "record_id",
+            "canonical_label",
+            "normalized_label",
+            "search_text",
+        ):
+            _require_non_blank(name, getattr(self, name))
+        if self.record_id != _record_id(self.normalized_label):
+            raise ValueError("record_id must be derived from normalized_label")
+        if not isinstance(self.metadata, Mapping):
+            raise ValueError("metadata must be a mapping")
+        if isinstance(self.distance, bool) or not isinstance(self.distance, (int, float)):
+            raise ValueError("distance must be a finite non-negative number")
+        if not math.isfinite(self.distance) or self.distance < 0:
+            raise ValueError("distance must be a finite non-negative number")
+        object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
+
+
 def build_concept_vector_record(
     candidate: ConceptCandidate,
     *,

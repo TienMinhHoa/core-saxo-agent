@@ -23,7 +23,7 @@ from saxophone.platform.model_client import (
     ModelValidationError,
 )
 
-from .concept_records import ConceptVectorRecord
+from .concept_records import ConceptVectorHit, ConceptVectorRecord
 from .models import ChunkIndexRecord, EmbeddingRecord, IndexInputRecord, VectorHit
 from .ports import ConceptVectorIndex, EmbeddingProvider, EmbeddingReuseStore, VectorIndex
 
@@ -513,6 +513,55 @@ class ChromaVectorIndex(VectorIndex, ConceptVectorIndex):
             limiter=self._io_limiter,
         )
 
+    async def delete_concepts(self, record_ids: Sequence[str]) -> None:
+        if self._concept_collection is None:
+            raise ValueError("concept_collection must be configured")
+        validated_ids = _validated_concept_ids(record_ids)
+        if validated_ids:
+            await anyio.to_thread.run_sync(
+                partial(self._concept_collection.delete, ids=validated_ids),
+                limiter=self._io_limiter,
+            )
+
+    async def query_concepts(
+        self,
+        query_vector: Sequence[float],
+        *,
+        limit: int = 10,
+    ) -> list[ConceptVectorHit]:
+        if self._concept_collection is None:
+            raise ValueError("concept_collection must be configured")
+        validated_limit = _validated_search_limit(limit)
+        if validated_limit == 0:
+            return []
+        validated_vector = _validated_query_vector(
+            query_vector,
+            expected_dimension=self._embedding_dimension,
+        )
+        result = await anyio.to_thread.run_sync(
+            partial(
+                self._concept_collection.query,
+                query_embeddings=[validated_vector],
+                n_results=validated_limit,
+                include=["documents", "metadatas", "distances"],
+            ),
+            limiter=self._io_limiter,
+        )
+        ids, documents, metadatas, distances = _validated_concept_rows(result)
+        return [
+            ConceptVectorHit(
+                record_id=record_id,
+                canonical_label=metadata["canonical_label"],
+                normalized_label=metadata["normalized_label"],
+                search_text=document,
+                metadata=metadata,
+                distance=distance,
+            )
+            for record_id, document, metadata, distance in zip(
+                ids, documents, metadatas, distances
+            )
+        ]
+
     async def delete_chunks(self, chunk_ids: Sequence[str]) -> None:
         validated_ids = _validated_chunk_ids(chunk_ids)
         if validated_ids:
@@ -748,6 +797,93 @@ def _validated_chunk_ids(chunk_ids: Sequence[str]) -> list[str]:
     if len(validated) != len(set(validated)):
         raise ValueError("Chroma delete chunk IDs must be unique")
     return validated
+
+
+def _validated_concept_ids(record_ids: Sequence[str]) -> list[str]:
+    """Validate stable catalog IDs before allowing destructive provider I/O."""
+    if isinstance(record_ids, (str, bytes)) or not isinstance(record_ids, Sequence):
+        raise ValueError("concept record IDs must be a sequence of stable IDs")
+    validated = list(record_ids)
+    if any(not isinstance(item, str) or not item.strip() for item in validated):
+        raise ValueError("concept record IDs must be a sequence of stable IDs")
+    if len(validated) != len(set(validated)):
+        raise ValueError("Chroma delete concept IDs must be unique")
+    if any(not _is_valid_concept_record_id(item) for item in validated):
+        raise ValueError("concept record IDs must use concept::sha256 form")
+    return validated
+
+
+def _is_valid_concept_record_id(value: str) -> bool:
+    digest = value.removeprefix("concept::")
+    return (
+        value.startswith("concept::")
+        and len(digest) == 64
+        and all(character in "0123456789abcdef" for character in digest)
+    )
+
+
+def _validated_concept_rows(
+    result: Any,
+) -> tuple[list[str], list[str], list[Mapping[str, object]], list[float]]:
+    if not isinstance(result, Mapping):
+        raise ValueError("Chroma concept result must be a mapping")
+    rows: list[list[object]] = []
+    for field in ("ids", "documents", "metadatas", "distances"):
+        value = result.get(field)
+        if not isinstance(value, list) or len(value) != 1 or not isinstance(value[0], list):
+            raise ValueError(f"Chroma concept result {field} must be one nested list")
+        rows.append(value[0])
+    if len({len(row) for row in rows}) != 1:
+        raise ValueError("Chroma concept result rows must have equal lengths")
+
+    ids, documents, metadatas, distances = rows
+    if any(not isinstance(item, str) or not item.strip() for item in ids):
+        raise ValueError("Chroma concept result IDs must be non-blank strings")
+    if len(ids) != len(set(ids)):
+        raise ValueError("Chroma concept result IDs must be unique")
+    if any(not _is_valid_concept_record_id(item) for item in ids):
+        raise ValueError("Chroma concept result IDs must use concept::sha256 form")
+    if any(not isinstance(item, str) or not item.strip() for item in documents):
+        raise ValueError("Chroma concept result documents must contain non-blank strings")
+    if any(not isinstance(item, Mapping) for item in metadatas):
+        raise ValueError("Chroma concept result metadata must contain mappings")
+    if any(not _is_valid_chroma_metadata_mapping(item) for item in metadatas):
+        raise ValueError("Chroma concept result metadata must contain valid projections")
+    for record_id, metadata in zip(ids, metadatas):
+        canonical_label = metadata.get("canonical_label")
+        normalized_label = metadata.get("normalized_label")
+        if not isinstance(canonical_label, str) or not canonical_label.strip():
+            raise ValueError("Chroma concept metadata canonical_label must be non-blank")
+        if not isinstance(normalized_label, str) or not normalized_label.strip():
+            raise ValueError("Chroma concept metadata normalized_label must be non-blank")
+        expected_id = f"concept::{hashlib.sha256(normalized_label.encode('utf-8')).hexdigest()}"
+        if record_id != expected_id:
+            raise ValueError("Chroma concept metadata normalized_label does not match result id")
+        usage_count = metadata.get("usage_count")
+        if isinstance(usage_count, bool) or not isinstance(usage_count, int) or usage_count < 0:
+            raise ValueError("Chroma concept metadata usage_count must be non-negative")
+        for field in ("embedding_input_hash", "embedding_model", "index_version"):
+            value = metadata.get(field)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"Chroma concept metadata {field} must be non-blank")
+        embedding_dimensions = metadata.get("embedding_dimensions")
+        if (
+            isinstance(embedding_dimensions, bool)
+            or not isinstance(embedding_dimensions, int)
+            or embedding_dimensions < 1
+        ):
+            raise ValueError(
+                "Chroma concept metadata embedding_dimensions must be positive"
+            )
+    if any(
+        isinstance(item, bool)
+        or not isinstance(item, (int, float))
+        or not math.isfinite(item)
+        or item < 0
+        for item in distances
+    ):
+        raise ValueError("Chroma concept result distances must be finite non-negative numbers")
+    return ids, documents, metadatas, distances
 
 
 def _validated_document_ref(document_ref: str) -> str:
