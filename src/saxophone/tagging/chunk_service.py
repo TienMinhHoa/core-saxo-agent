@@ -79,6 +79,8 @@ class _DocumentTransactionRepository(Protocol):
         outbox_events: Sequence[VectorOutboxEvent],
         previous_source_versions: Sequence[str],
         concept_outbox_events: Sequence[VectorOutboxEvent] = (),
+        chunks: Sequence[object] = (),
+        paragraphs: Sequence[object] = (),
     ) -> None: ...
 
 
@@ -140,6 +142,8 @@ class ChunkTaggingTransactionService:
         outbox_events: Sequence[VectorOutboxEvent] = (),
         concept_outbox_events: Sequence[VectorOutboxEvent] = (),
         previous_source_versions: Sequence[str] = (),
+        chunks: Sequence[object] = (),
+        paragraphs: Sequence[object] = (),
     ) -> None:
         """Atomically persist all prepared chunk results for one document."""
 
@@ -195,6 +199,9 @@ class ChunkTaggingTransactionService:
         }
         if normalized_concept_events:
             commit_kwargs["concept_outbox_events"] = normalized_concept_events
+        if chunks or paragraphs:
+            commit_kwargs["chunks"] = tuple(chunks)
+            commit_kwargs["paragraphs"] = tuple(paragraphs)
         await repository.commit_document(**commit_kwargs)
 
     async def tag_and_commit(

@@ -23,6 +23,8 @@ from saxophone.extraction import (
     RepositoryExtractionArtifactPayloadProvider,
 )
 from saxophone.ingestion.adapters import FileEmbeddingReuseStore, RemoteEmbeddingProvider
+from saxophone.ingestion.concept_embedding import ConceptCatalogVectorPreparationService
+from saxophone.ingestion.concept_repository import SqliteConceptCatalogRepository
 from saxophone.ingestion import (
     EmbeddingProvider,
     EmbeddingReuseStore,
@@ -142,6 +144,7 @@ class AppContainer:
     chunk_tagger: ChunkTagger | None = None
     chunk_tagging: DocumentChunkTaggingService | None = None
     ingestion_transaction_repository: SqliteIngestionTransactionRepository | None = None
+    concept_catalog_repository: SqliteConceptCatalogRepository | None = None
     document_ingestion: DocumentIngestionService | None = None
 
 
@@ -314,6 +317,7 @@ def create_app(
     chunk_tagger: ChunkTagger | None = None
     chunk_tagging: DocumentChunkTaggingService | None = None
     ingestion_transaction_repository: SqliteIngestionTransactionRepository | None = None
+    concept_catalog_repository: SqliteConceptCatalogRepository | None = None
     vector_state: SqliteVectorIndexStateRepository | None = None
     document_ingestion = resolved_overrides.document_ingestion
     if settings.chunk_tagging_enabled:
@@ -325,6 +329,7 @@ def create_app(
         ingestion_transaction_repository = SqliteIngestionTransactionRepository(
             ingestion_database
         )
+        concept_catalog_repository = SqliteConceptCatalogRepository(ingestion_database)
         vector_state = SqliteVectorIndexStateRepository(ingestion_database)
         chunk_tagging = DocumentChunkTaggingService(
             ChunkTaggingTransactionService(
@@ -340,6 +345,10 @@ def create_app(
                 index_document,
                 chunk_tagging=chunk_tagging,
                 vector_state=vector_state,
+                concept_catalog_repository=concept_catalog_repository,
+                concept_vector_preparation=ConceptCatalogVectorPreparationService(
+                    embedding_provider
+                ),
             )
         else:
             tag_and_persist = TagAndPersistParagraph(
@@ -415,6 +424,7 @@ def create_app(
         chunk_tagger=chunk_tagger,
         chunk_tagging=chunk_tagging,
         ingestion_transaction_repository=ingestion_transaction_repository,
+        concept_catalog_repository=concept_catalog_repository,
         document_ingestion=document_ingestion,
     )
 

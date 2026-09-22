@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sqlite3
 from collections.abc import Sequence
 from pathlib import Path
 
 from saxophone.documents.policies import is_safe_document_reference
 from saxophone.tagging.models import ParagraphConceptRole
+from saxophone.tagging.models import ParagraphBlock
+from saxophone.retrieval.sqlite_context import SqliteRetrievalContextRepository
 from saxophone.tagging.sqlite_repository import SqliteTaggingRepository
 from saxophone.tagging.vector_outbox import SqliteVectorOutboxRepository, VectorOutboxEvent
+
+from .models import IngestionSourceChunk
 
 
 class SqliteIngestionTransactionRepository:
@@ -60,6 +65,8 @@ class SqliteIngestionTransactionRepository:
         outbox_events: Sequence[VectorOutboxEvent],
         concept_outbox_events: Sequence[VectorOutboxEvent] = (),
         previous_source_versions: Sequence[str] = (),
+        chunks: Sequence[IngestionSourceChunk] = (),
+        paragraphs: Sequence[ParagraphBlock] = (),
     ) -> None:
         """Replace one document version and enqueue vector changes atomically.
 
@@ -75,6 +82,8 @@ class SqliteIngestionTransactionRepository:
             outbox_events=outbox_events,
             concept_outbox_events=concept_outbox_events,
             previous_source_versions=previous_source_versions,
+            chunks=chunks,
+            paragraphs=paragraphs,
         )
         await asyncio.to_thread(
             self._commit_document,
@@ -85,6 +94,8 @@ class SqliteIngestionTransactionRepository:
             tuple(relations),
             tuple(outbox_events),
             tuple(concept_outbox_events),
+            tuple(chunks),
+            tuple(paragraphs),
         )
 
     def _commit_chunk(
@@ -138,11 +149,14 @@ class SqliteIngestionTransactionRepository:
         relations: tuple[ParagraphConceptRole, ...],
         outbox_events: tuple[VectorOutboxEvent, ...],
         concept_outbox_events: tuple[VectorOutboxEvent, ...],
+        chunks: tuple[IngestionSourceChunk, ...],
+        paragraphs: tuple[ParagraphBlock, ...],
     ) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(self._path) as connection:
             SqliteTaggingRepository._create_schema(connection)
             SqliteVectorOutboxRepository._create_schema(connection)
+            SqliteRetrievalContextRepository._create_schema(connection)
 
             connection.execute(
                 "DELETE FROM paragraph_concept_roles WHERE document_ref = ? AND source_version = ?",
@@ -156,6 +170,64 @@ class SqliteIngestionTransactionRepository:
                     WHERE document_ref = ? AND source_version IN ({placeholders})
                     """,
                     (document_ref, *previous_source_versions),
+                )
+                connection.execute(
+                    f"DELETE FROM source_paragraphs WHERE document_ref = ? AND source_version IN ({placeholders})",
+                    (document_ref, *previous_source_versions),
+                )
+                connection.execute(
+                    f"DELETE FROM source_chunks WHERE document_ref = ? AND source_version IN ({placeholders})",
+                    (document_ref, *previous_source_versions),
+                )
+            if chunks:
+                connection.execute(
+                    "DELETE FROM source_paragraphs WHERE document_ref = ? AND source_version = ?",
+                    (document_ref, source_version),
+                )
+                connection.execute(
+                    "DELETE FROM source_chunks WHERE document_ref = ? AND source_version = ?",
+                    (document_ref, source_version),
+                )
+                connection.executemany(
+                    """
+                    INSERT INTO source_chunks
+                        (document_ref, source_version, chunk_id, search_text, metadata_json)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        (
+                            chunk.document_ref,
+                            chunk.source_version,
+                            chunk.chunk_id,
+                            chunk.search_text,
+                            json.dumps(dict(chunk.metadata), ensure_ascii=False, sort_keys=True),
+                        )
+                        for chunk in chunks
+                    ),
+                )
+                connection.executemany(
+                    """
+                    INSERT INTO source_paragraphs
+                        (document_ref, source_version, paragraph_id, chunk_id,
+                         order_index, text, exact_content_hash,
+                         normalized_identity_hash, heading_path_json, image_refs_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        (
+                            document_ref,
+                            source_version,
+                            paragraph.paragraph_id,
+                            paragraph.chunk_id,
+                            paragraph.ordinal,
+                            paragraph.text,
+                            paragraph.exact_content_hash,
+                            paragraph.normalized_identity_hash,
+                            json.dumps(paragraph.heading_path, ensure_ascii=False),
+                            json.dumps(paragraph.image_refs, ensure_ascii=False),
+                        )
+                        for paragraph in paragraphs
+                    ),
                 )
             connection.executemany(
                 """
@@ -287,6 +359,8 @@ class SqliteIngestionTransactionRepository:
         outbox_events: Sequence[VectorOutboxEvent],
         concept_outbox_events: Sequence[VectorOutboxEvent],
         previous_source_versions: Sequence[str],
+        chunks: Sequence[IngestionSourceChunk],
+        paragraphs: Sequence[ParagraphBlock],
     ) -> tuple[str, ...]:
         if not isinstance(document_ref, str) or not document_ref.strip():
             raise ValueError("document_ref must not be blank")
@@ -352,7 +426,50 @@ class SqliteIngestionTransactionRepository:
                 raise ValueError("concept outbox events must target concept_catalog")
             if event.document_ref != "concept-catalog":
                 raise ValueError("concept outbox events must use the concept-catalog scope")
+        SqliteIngestionTransactionRepository._validate_source_context(
+            document_ref=document_ref,
+            source_version=source_version,
+            paragraph_ids=normalized_paragraph_ids,
+            chunks=chunks,
+            paragraphs=paragraphs,
+        )
         return normalized_previous_versions
+
+    @staticmethod
+    def _validate_source_context(
+        *,
+        document_ref: str,
+        source_version: str,
+        paragraph_ids: Sequence[str],
+        chunks: Sequence[IngestionSourceChunk],
+        paragraphs: Sequence[ParagraphBlock],
+    ) -> None:
+        if isinstance(chunks, (str, bytes)) or not isinstance(chunks, Sequence):
+            raise ValueError("chunks must be a sequence")
+        if isinstance(paragraphs, (str, bytes)) or not isinstance(paragraphs, Sequence):
+            raise ValueError("paragraphs must be a sequence")
+        normalized_chunks = tuple(chunks)
+        normalized_paragraphs = tuple(paragraphs)
+        if not normalized_chunks and not normalized_paragraphs:
+            return
+        if not normalized_chunks or not normalized_paragraphs:
+            raise ValueError("chunks and paragraphs must be provided together")
+        if any(not isinstance(chunk, IngestionSourceChunk) for chunk in normalized_chunks):
+            raise ValueError("chunks must contain IngestionSourceChunk values")
+        if any(not isinstance(paragraph, ParagraphBlock) for paragraph in normalized_paragraphs):
+            raise ValueError("paragraphs must contain ParagraphBlock values")
+        chunk_ids = tuple(chunk.chunk_id for chunk in normalized_chunks)
+        if len(chunk_ids) != len(set(chunk_ids)):
+            raise ValueError("chunks must have unique chunk IDs")
+        if any(
+            chunk.document_ref != document_ref or chunk.source_version != source_version
+            for chunk in normalized_chunks
+        ):
+            raise ValueError("chunks must match the document commit scope")
+        if {paragraph.paragraph_id for paragraph in normalized_paragraphs} != set(paragraph_ids):
+            raise ValueError("paragraphs must match paragraph_ids")
+        if any(paragraph.chunk_id not in set(chunk_ids) for paragraph in normalized_paragraphs):
+            raise ValueError("paragraphs must belong to supplied chunks")
 
     @staticmethod
     def _validate_paragraph_ids(paragraph_ids: Sequence[str]) -> tuple[str, ...]:

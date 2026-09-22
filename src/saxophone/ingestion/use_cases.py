@@ -75,6 +75,17 @@ class _ConceptVectorPreparation(Protocol):
     ) -> ConceptVectorPreparation: ...
 
 
+class _ConceptCatalogRepository(Protocol):
+    async def replace_document_entries(
+        self,
+        document_ref: str,
+        source_version: str,
+        entries: Sequence[ConceptCatalogEntry],
+        *,
+        previous_source_versions: Sequence[str] = (),
+    ) -> tuple[ConceptCatalogEntry, ...]: ...
+
+
 class IndexDocument:
     """Publish one document's searchable chunks through the vector-index port."""
 
@@ -431,6 +442,8 @@ class DocumentChunkTaggingService:
         outbox_events: Sequence[VectorOutboxEvent] = (),
         concept_outbox_events: Sequence[VectorOutboxEvent] = (),
         previous_source_versions: Sequence[str] = (),
+        chunks: Sequence[IngestionSourceChunk] = (),
+        paragraphs: Sequence[ParagraphBlock] = (),
     ) -> None:
         """Commit all prepared chunks through one document transaction."""
 
@@ -444,6 +457,9 @@ class DocumentChunkTaggingService:
         }
         if concept_outbox_events:
             commit_kwargs["concept_outbox_events"] = concept_outbox_events
+        if chunks or paragraphs:
+            commit_kwargs["chunks"] = tuple(chunks)
+            commit_kwargs["paragraphs"] = tuple(paragraphs)
         await self._transaction_service.commit_document(
             command.document_ref,
             command.source_version,
@@ -523,6 +539,7 @@ class IngestDocument:
         *,
         chunk_tagging: DocumentChunkTaggingService | None = None,
         vector_state: _VectorStatePlanner | None = None,
+        concept_catalog_repository: _ConceptCatalogRepository | None = None,
         concept_vector_preparation: _ConceptVectorPreparation | None = None,
     ) -> None:
         if tag_and_persist is None and chunk_tagging is None:
@@ -543,10 +560,19 @@ class IngestDocument:
             raise TypeError("concept_vector_preparation must provide prepare")
         if concept_vector_preparation is not None and chunk_tagging is None:
             raise TypeError("concept vector preparation requires chunk tagging")
+        if concept_catalog_repository is not None and not callable(
+            getattr(concept_catalog_repository, "replace_document_entries", None)
+        ):
+            raise TypeError(
+                "concept_catalog_repository must provide replace_document_entries"
+            )
+        if concept_catalog_repository is not None and chunk_tagging is None:
+            raise TypeError("concept catalog repository requires chunk tagging")
         self._tag_and_persist = tag_and_persist
         self._index_document = index_document
         self._chunk_tagging = chunk_tagging
         self._vector_state = vector_state
+        self._concept_catalog_repository = concept_catalog_repository
         self._concept_vector_preparation = concept_vector_preparation
 
     async def execute(
@@ -595,6 +621,13 @@ class IngestDocument:
                     normalized_paragraphs,
                     prepared_tagging.runs,
                 )
+                if self._concept_catalog_repository is not None:
+                    entries = await self._concept_catalog_repository.replace_document_entries(
+                        command.document_ref,
+                        command.source_version,
+                        entries,
+                        previous_source_versions=normalized_previous_versions,
+                    )
                 prepared_concepts = await self._concept_vector_preparation.prepare(
                     entries,
                     embedding_model=command.embedding_profile,
@@ -673,6 +706,8 @@ class IngestDocument:
                     outbox_events=document_events,
                     concept_outbox_events=normalized_concept_events,
                     previous_source_versions=normalized_previous_versions,
+                    chunks=normalized_chunks,
+                    paragraphs=normalized_paragraphs,
                 )
             return await self._index_document.publish(
                 command,

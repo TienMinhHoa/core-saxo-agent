@@ -10,6 +10,7 @@ from saxophone.ingestion.transaction import SqliteIngestionTransactionRepository
 from saxophone.ingestion.concept_embedding import (
     ConceptCatalogVectorPreparationService,
 )
+from saxophone.ingestion.concept_repository import SqliteConceptCatalogRepository
 from saxophone.ingestion.use_cases import DocumentChunkTaggingService
 from saxophone.tagging.adapters import RemoteChunkTagger
 
@@ -88,6 +89,11 @@ def test_enabled_composition_selects_chunk_tagging_and_atomic_sqlite_boundary(
         ingest_document._concept_vector_preparation,
         ConceptCatalogVectorPreparationService,
     )
+    assert isinstance(
+        ingest_document._concept_catalog_repository,
+        SqliteConceptCatalogRepository,
+    )
+    assert container.concept_catalog_repository is ingest_document._concept_catalog_repository
 
 
 def test_disabled_composition_preserves_legacy_paragraph_tagging(tmp_path: Path) -> None:
@@ -102,3 +108,5 @@ def test_disabled_composition_preserves_legacy_paragraph_tagging(tmp_path: Path)
     assert ingest_document._chunk_tagging is None
     assert ingest_document._tag_and_persist is not None
     assert ingest_document._concept_vector_preparation is None
+    assert ingest_document._concept_catalog_repository is None
+    assert container.concept_catalog_repository is None

@@ -313,6 +313,31 @@ class RemoteEmbeddingProvider(EmbeddingProvider):
             raise ModelValidationError("embedding vectors must have one shared dimension")
         return tuple(records)
 
+    async def embed_texts(
+        self,
+        texts: Sequence[str],
+    ) -> tuple[tuple[float, ...], ...]:
+        """Expose the text-batch contract shared by concept and query flows."""
+
+        if isinstance(texts, (str, bytes)) or not isinstance(texts, Sequence):
+            raise ValueError("texts must be a sequence")
+        normalized = tuple(texts)
+        if any(not isinstance(text, str) or not text.strip() for text in normalized):
+            raise ValueError("texts must contain non-blank strings")
+        if not normalized:
+            return ()
+        serialized = json.dumps(
+            normalized,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        source_version = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+        records = await self.embed(
+            tuple((f"text-{index}", text) for index, text in enumerate(normalized)),
+            source_version=f"text-batch-{source_version}",
+        )
+        return tuple(record.vector for record in records)
+
 
 class FakeEmbeddingProvider(EmbeddingProvider):
     """Deterministic embedding provider for service and integration tests."""
