@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
+import inspect
 from typing import Protocol
 
 from .models import IngestionCommand, IngestionReport
@@ -17,6 +18,7 @@ class _IngestWorkflow(Protocol):
         paragraphs: Sequence[object],
         *,
         resolution_profile: str,
+        ingestion_run_id: str | None = None,
     ) -> IngestionReport: ...
 
 
@@ -132,11 +134,13 @@ class DocumentIngestionService:
                 source_hash=source_hash,
             )
         try:
-            report = await self._ingest_workflow.execute(
+            report = await _execute_ingest_workflow(
+                self._ingest_workflow,
                 command,
                 tuple(chunks),
                 tuple(paragraphs),
                 resolution_profile=resolution_profile,
+                ingestion_run_id=ingestion_run_id,
             )
         except Exception:
             if self._lifecycle is not None:
@@ -247,3 +251,26 @@ async def _pending_vector_event_count(
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise ValueError("vector sync pending count must be a non-negative integer")
     return value
+
+
+async def _execute_ingest_workflow(
+    workflow: _IngestWorkflow,
+    command: IngestionCommand,
+    chunks: Sequence[object],
+    paragraphs: Sequence[object],
+    *,
+    resolution_profile: str,
+    ingestion_run_id: str | None,
+) -> IngestionReport:
+    """Pass run identity only to workflows that implement the optional boundary."""
+
+    execute = workflow.execute
+    parameters = inspect.signature(execute).parameters
+    accepts_run_id = "ingestion_run_id" in parameters or any(
+        parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    )
+    kwargs: dict[str, object] = {"resolution_profile": resolution_profile}
+    if accepts_run_id:
+        kwargs["ingestion_run_id"] = ingestion_run_id
+    return await execute(command, chunks, paragraphs, **kwargs)

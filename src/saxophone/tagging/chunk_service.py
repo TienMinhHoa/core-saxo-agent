@@ -83,6 +83,39 @@ class ChunkTaggingTransactionService:
         self._tagging_service = tagging_service
         self._transaction_repository = transaction_repository
 
+    async def tag(self, request: ChunkTaggingRequest) -> ChunkTaggingRun:
+        """Prepare one validated chunk result without changing durable state."""
+
+        if not isinstance(request, ChunkTaggingRequest):
+            raise TypeError("request must be a ChunkTaggingRequest")
+        return await self._tagging_service.tag_chunk(request)
+
+    async def commit(
+        self,
+        document_ref: str,
+        source_version: str,
+        request: ChunkTaggingRequest,
+        run: ChunkTaggingRun,
+        *,
+        outbox_events: Sequence[VectorOutboxEvent] = (),
+    ) -> None:
+        """Atomically persist a prepared result and its vector events."""
+
+        _validate_commit_scope(document_ref, source_version)
+        if not isinstance(request, ChunkTaggingRequest):
+            raise TypeError("request must be a ChunkTaggingRequest")
+        if not isinstance(run, ChunkTaggingRun):
+            raise TypeError("run must be a ChunkTaggingRun")
+        run.result.validate_against(request)
+        normalized_events = _validate_outbox_events(outbox_events)
+        await self._transaction_repository.commit_chunk(
+            document_ref=document_ref,
+            source_version=source_version,
+            paragraph_ids=tuple(item.paragraph.paragraph_id for item in request.paragraphs),
+            relations=run.relations,
+            outbox_events=normalized_events,
+        )
+
     async def tag_and_commit(
         self,
         document_ref: str,
@@ -92,21 +125,13 @@ class ChunkTaggingTransactionService:
         outbox_events: Sequence[VectorOutboxEvent] = (),
     ) -> ChunkTaggingRun:
         _validate_commit_scope(document_ref, source_version)
-        if not isinstance(request, ChunkTaggingRequest):
-            raise TypeError("request must be a ChunkTaggingRequest")
-        if isinstance(outbox_events, (str, bytes)) or not isinstance(outbox_events, Sequence):
-            raise TypeError("outbox_events must be a sequence")
-        normalized_events = tuple(outbox_events)
-        if any(not isinstance(event, VectorOutboxEvent) for event in normalized_events):
-            raise TypeError("outbox_events must contain VectorOutboxEvent values")
-
-        run = await self._tagging_service.tag_chunk(request)
-        await self._transaction_repository.commit_chunk(
-            document_ref=document_ref,
-            source_version=source_version,
-            paragraph_ids=tuple(item.paragraph.paragraph_id for item in request.paragraphs),
-            relations=run.relations,
-            outbox_events=normalized_events,
+        run = await self.tag(request)
+        await self.commit(
+            document_ref,
+            source_version,
+            request,
+            run,
+            outbox_events=outbox_events,
         )
         return run
 
@@ -149,3 +174,16 @@ def _validate_commit_scope(document_ref: str, source_version: str) -> None:
         raise ValueError("document_ref must be a safe document reference")
     if not isinstance(source_version, str) or not source_version.strip():
         raise ValueError("source_version must not be blank")
+
+
+def _validate_outbox_events(
+    outbox_events: Sequence[VectorOutboxEvent],
+) -> tuple[VectorOutboxEvent, ...]:
+    if isinstance(outbox_events, (str, bytes)) or not isinstance(outbox_events, Sequence):
+        raise TypeError("outbox_events must be a sequence")
+    normalized_events = tuple(outbox_events)
+    if any(not isinstance(event, VectorOutboxEvent) for event in normalized_events):
+        raise TypeError("outbox_events must contain VectorOutboxEvent values")
+    if len({event.event_id for event in normalized_events}) != len(normalized_events):
+        raise ValueError("outbox_events must not contain duplicate event IDs")
+    return normalized_events

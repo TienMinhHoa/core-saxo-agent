@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 
 from saxophone.documents import KnowledgeChunk, KnowledgeRepository
 from saxophone.tagging import ParagraphBlock, TagAndPersistParagraph, TaggedParagraph
@@ -20,6 +21,24 @@ from .models import (
     IngestionSourceChunk,
 )
 from .ports import EmbeddingProvider, EmbeddingReuseStore, VectorIndex
+from .vector_events import build_chunk_vector_upsert_events
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedIndex:
+    """Embedding-ready records kept separate from their publication side effect."""
+
+    input_records: tuple[IndexInputRecord, ...]
+    indexed_records: tuple[ChunkIndexRecord, ...]
+    reused_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedChunkTagging:
+    """Validated chunk requests/results waiting for one atomic commit each."""
+
+    requests: tuple[ChunkTaggingRequest, ...]
+    runs: tuple[ChunkTaggingRun, ...]
 
 
 class IndexDocument:
@@ -68,7 +87,7 @@ class IndexDocument:
                 error=ValueError("cannot index an empty projection"),
             )
         try:
-            indexed_records, reused_count = await self._embed_records(command, normalized_records)
+            prepared = await self.prepare(command, normalized_records)
         except Exception as error:
             return self._failure_report(
                 command,
@@ -79,42 +98,110 @@ class IndexDocument:
                 reused_count=0,
                 error=error,
             )
+        return await self.publish(
+            command,
+            prepared,
+            paragraph_count=report_paragraph_count,
+            tagged_paragraph_count=report_tagged_count,
+        )
+
+    async def prepare(
+        self,
+        command: IngestionCommand,
+        records: Sequence[IndexInputRecord],
+    ) -> _PreparedIndex:
+        """Embed records without publishing them to the vector index."""
+
+        normalized_records = tuple(records)
+        self._validate_scope(command, normalized_records)
+        if not normalized_records:
+            raise ValueError("cannot index an empty projection")
+        indexed_records, reused_count = await self._embed_records(command, normalized_records)
+        return _PreparedIndex(
+            input_records=normalized_records,
+            indexed_records=indexed_records,
+            reused_count=reused_count,
+        )
+
+    async def publish(
+        self,
+        command: IngestionCommand,
+        prepared: _PreparedIndex,
+        *,
+        paragraph_count: int,
+        tagged_paragraph_count: int,
+        publish_vectors: bool = True,
+    ) -> IngestionReport:
+        """Persist the prepared projection and optionally publish vector records."""
+
+        if not isinstance(prepared, _PreparedIndex):
+            raise TypeError("prepared must be an embedding preparation")
+        normalized_records = prepared.input_records
+        self._validate_scope(command, normalized_records)
+        self._validate_report_counts(paragraph_count, tagged_paragraph_count)
         try:
             list_chunk_ids = getattr(self._vector_index, "list_chunk_ids", None)
-            if list_chunk_ids is not None:
+            existing_ids = ()
+            if publish_vectors and list_chunk_ids is not None:
                 existing_ids = await list_chunk_ids(document_ref=command.document_ref)
             if self._knowledge_repository is not None:
-                for record in indexed_records:
+                for record in prepared.indexed_records:
                     await self._knowledge_repository.upsert(_knowledge_chunk(record))
-            await self._vector_index.upsert_chunks(indexed_records)
-            if list_chunk_ids is not None:
-                current_ids = {record.chunk_id for record in indexed_records}
-                stale_ids = tuple(chunk_id for chunk_id in existing_ids if chunk_id not in current_ids)
-                await self._vector_index.delete_chunks(stale_ids)
+            if publish_vectors:
+                await self._vector_index.upsert_chunks(prepared.indexed_records)
+                if list_chunk_ids is not None:
+                    current_ids = {record.chunk_id for record in prepared.indexed_records}
+                    stale_ids = tuple(
+                        chunk_id for chunk_id in existing_ids if chunk_id not in current_ids
+                    )
+                    await self._vector_index.delete_chunks(stale_ids)
         except Exception as error:
             return self._failure_report(
                 command,
                 normalized_records,
-                paragraph_count=report_paragraph_count,
-                tagged_count=report_tagged_count,
-                embedded_count=len(indexed_records),
-                reused_count=reused_count,
+                paragraph_count=paragraph_count,
+                tagged_count=tagged_paragraph_count,
+                embedded_count=len(prepared.indexed_records),
+                reused_count=prepared.reused_count,
                 error=error,
             )
         return IngestionReport(
             document_ref=command.document_ref,
             source_version=command.source_version,
             chunk_count=len(normalized_records),
-            paragraph_count=report_paragraph_count,
-            tagged_paragraph_count=report_tagged_count,
+            paragraph_count=paragraph_count,
+            tagged_paragraph_count=tagged_paragraph_count,
             failed_paragraph_count=0,
-            embedded_count=len(normalized_records) - reused_count,
-            reused_embedding_count=reused_count,
+            embedded_count=len(normalized_records) - prepared.reused_count,
+            reused_embedding_count=prepared.reused_count,
             skipped_count=0,
             index_version=command.index_profile,
             indexed=True,
             warnings=(),
             errors=(),
+        )
+
+    def failure_report(
+        self,
+        command: IngestionCommand,
+        records: Sequence[IndexInputRecord],
+        *,
+        paragraph_count: int,
+        tagged_count: int,
+        embedded_count: int,
+        reused_count: int,
+        error: Exception,
+    ) -> IngestionReport:
+        """Build the same typed failure report used by the one-step workflow."""
+
+        return self._failure_report(
+            command,
+            records,
+            paragraph_count=paragraph_count,
+            tagged_count=tagged_count,
+            embedded_count=embedded_count,
+            reused_count=reused_count,
+            error=error,
         )
 
     async def _embed_records(
@@ -220,7 +307,7 @@ class IndexDocument:
 
 
 class DocumentChunkTaggingService:
-    """Build and commit one validated chunk-tagging call per source chunk."""
+    """Build, validate, and commit one chunk-tagging call per source chunk."""
 
     def __init__(self, transaction_service: ChunkTaggingTransactionService) -> None:
         if not isinstance(transaction_service, ChunkTaggingTransactionService):
@@ -236,6 +323,29 @@ class DocumentChunkTaggingService:
         existing_candidates: Mapping[str, Sequence[str]] | None = None,
         outbox_events: Mapping[str, Sequence[VectorOutboxEvent]] | None = None,
     ) -> tuple[ChunkTaggingRun, ...]:
+        prepared = await self.prepare(
+            command,
+            chunks,
+            paragraphs,
+            existing_candidates=existing_candidates,
+        )
+        await self.commit(
+            command,
+            prepared,
+            outbox_events=outbox_events,
+        )
+        return prepared.runs
+
+    async def prepare(
+        self,
+        command: IngestionCommand,
+        chunks: Sequence[IngestionSourceChunk],
+        paragraphs: Sequence[ParagraphBlock],
+        *,
+        existing_candidates: Mapping[str, Sequence[str]] | None = None,
+    ) -> _PreparedChunkTagging:
+        """Run provider calls and return validated results before persistence."""
+
         if not isinstance(command, IngestionCommand):
             raise TypeError("command must be an IngestionCommand")
         normalized_chunks = tuple(chunks)
@@ -246,18 +356,38 @@ class DocumentChunkTaggingService:
             normalized_paragraphs,
             existing_candidates=existing_candidates,
         )
-        events_by_chunk = _normalize_outbox_events(outbox_events, normalized_chunks)
         runs: list[ChunkTaggingRun] = []
         for request in requests:
-            runs.append(
-                await self._transaction_service.tag_and_commit(
-                    command.document_ref,
-                    command.source_version,
-                    request,
-                    outbox_events=events_by_chunk.get(request.chunk_id, ()),
-                )
+            runs.append(await self._transaction_service.tag(request))
+        return _PreparedChunkTagging(tuple(requests), tuple(runs))
+
+    async def commit(
+        self,
+        command: IngestionCommand,
+        prepared: _PreparedChunkTagging,
+        *,
+        outbox_events: Mapping[str, Sequence[VectorOutboxEvent]] | None = None,
+    ) -> None:
+        """Commit prepared chunk relations and vector events atomically per chunk."""
+
+        if not isinstance(command, IngestionCommand):
+            raise TypeError("command must be an IngestionCommand")
+        if not isinstance(prepared, _PreparedChunkTagging):
+            raise TypeError("prepared must be a chunk tagging preparation")
+        if len(prepared.requests) != len(prepared.runs):
+            raise ValueError("prepared requests and runs must have matching lengths")
+        events_by_chunk = _normalize_outbox_events(
+            outbox_events,
+            tuple(request.chunk_id for request in prepared.requests),
+        )
+        for request, run in zip(prepared.requests, prepared.runs):
+            await self._transaction_service.commit(
+                command.document_ref,
+                command.source_version,
+                request,
+                run,
+                outbox_events=events_by_chunk.get(request.chunk_id, ()),
             )
-        return tuple(runs)
 
 
 def build_chunk_tagging_requests(
@@ -351,22 +481,63 @@ class IngestDocument:
         resolution_profile: str,
         existing_candidates: Mapping[str, Sequence[str]] | None = None,
         outbox_events: Mapping[str, Sequence[VectorOutboxEvent]] | None = None,
+        ingestion_run_id: str | None = None,
     ) -> IngestionReport:
         normalized_chunks = tuple(chunks)
         normalized_paragraphs = tuple(paragraphs)
         self._validate_input_scope(command, normalized_chunks, normalized_paragraphs)
+        _validate_optional_ingestion_run_id(ingestion_run_id)
 
         if self._chunk_tagging is not None:
-            runs = await self._chunk_tagging.execute(
+            prepared_tagging = await self._chunk_tagging.prepare(
                 command,
                 normalized_chunks,
                 normalized_paragraphs,
                 existing_candidates=existing_candidates,
-                outbox_events=outbox_events,
             )
-            tagged = _tagged_paragraphs_from_chunk_runs(normalized_paragraphs, runs)
+            tagged = _tagged_paragraphs_from_chunk_runs(
+                normalized_paragraphs, prepared_tagging.runs
+            )
+            records = build_index_inputs(command, normalized_chunks, tagged)
+            try:
+                prepared_index = await self._index_document.prepare(command, records)
+            except Exception as error:
+                return self._index_document.failure_report(
+                    command,
+                    records,
+                    paragraph_count=len(normalized_paragraphs),
+                    tagged_count=len(tagged),
+                    embedded_count=0,
+                    reused_count=0,
+                    error=error,
+                )
+            provided_events = _normalize_outbox_events(outbox_events, normalized_chunks)
+            events_by_chunk = _merge_outbox_events(
+                provided_events,
+                _generated_chunk_events(
+                    prepared_index,
+                    command,
+                    ingestion_run_id=ingestion_run_id,
+                ),
+            )
+            await self._chunk_tagging.commit(
+                command,
+                prepared_tagging,
+                outbox_events=events_by_chunk,
+            )
+            return await self._index_document.publish(
+                command,
+                prepared_index,
+                paragraph_count=len(normalized_paragraphs),
+                tagged_paragraph_count=len(tagged),
+                publish_vectors=ingestion_run_id is None,
+            )
         else:
-            if existing_candidates is not None or outbox_events is not None:
+            if (
+                existing_candidates is not None
+                or outbox_events is not None
+                or ingestion_run_id is not None
+            ):
                 raise ValueError("chunk tagging options require a chunk tagging workflow")
             assert self._tag_and_persist is not None
             tagged = {}
@@ -445,13 +616,16 @@ def _normalize_existing_candidates(
 
 def _normalize_outbox_events(
     events: Mapping[str, Sequence[VectorOutboxEvent]] | None,
-    chunks: Sequence[IngestionSourceChunk],
+    chunks_or_ids: Sequence[IngestionSourceChunk | str],
 ) -> dict[str, tuple[VectorOutboxEvent, ...]]:
     if events is None:
         return {}
     if not isinstance(events, Mapping):
         raise ValueError("outbox_events must be a mapping")
-    chunk_ids = {chunk.chunk_id for chunk in chunks}
+    chunk_ids = {
+        item.chunk_id if isinstance(item, IngestionSourceChunk) else item
+        for item in chunks_or_ids
+    }
     if set(events) - chunk_ids:
         raise ValueError("outbox_events contains an unknown chunk ID")
     normalized: dict[str, tuple[VectorOutboxEvent, ...]] = {}
@@ -465,6 +639,50 @@ def _normalize_outbox_events(
             raise ValueError("outbox events must not contain duplicate event IDs")
         normalized[chunk_id] = normalized_values
     return normalized
+
+
+def _generated_chunk_events(
+    prepared: _PreparedIndex,
+    command: IngestionCommand,
+    *,
+    ingestion_run_id: str | None,
+) -> dict[str, tuple[VectorOutboxEvent, ...]]:
+    if ingestion_run_id is None:
+        return {}
+    events = build_chunk_vector_upsert_events(
+        prepared.indexed_records,
+        index_version=command.index_profile,
+        ingestion_run_id=ingestion_run_id,
+    )
+    return {event.record_id: (event,) for event in events}
+
+
+def _merge_outbox_events(
+    provided: Mapping[str, Sequence[VectorOutboxEvent]] | None,
+    generated: Mapping[str, Sequence[VectorOutboxEvent]],
+) -> dict[str, tuple[VectorOutboxEvent, ...]]:
+    if provided is None:
+        provided = {}
+    merged: dict[str, tuple[VectorOutboxEvent, ...]] = {}
+    event_ids: set[str] = set()
+    for source in (provided, generated):
+        for chunk_id, events in source.items():
+            normalized = tuple(events)
+            if any(not isinstance(event, VectorOutboxEvent) for event in normalized):
+                raise ValueError("outbox events must contain VectorOutboxEvent values")
+            for event in normalized:
+                if event.event_id in event_ids:
+                    raise ValueError("outbox events must not contain duplicate event IDs")
+                event_ids.add(event.event_id)
+            merged[chunk_id] = (*merged.get(chunk_id, ()), *normalized)
+    return merged
+
+
+def _validate_optional_ingestion_run_id(ingestion_run_id: str | None) -> None:
+    if ingestion_run_id is not None and (
+        not isinstance(ingestion_run_id, str) or not ingestion_run_id.strip()
+    ):
+        raise ValueError("ingestion_run_id must be blank or null")
 
 
 def _tagged_paragraphs_from_chunk_runs(
@@ -534,6 +752,7 @@ def build_index_inputs(
         metadata = dict(chunk.metadata)
         metadata["tags"] = tags
         metadata["tagged_paragraph_ids"] = tuple(paragraph.paragraph_id for paragraph in related)
+        metadata["index_version"] = command.index_profile
         inputs.append(
             IndexInputRecord(
                 chunk_id=chunk.chunk_id,
