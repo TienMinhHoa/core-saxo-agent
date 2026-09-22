@@ -14,6 +14,7 @@ from saxophone.extraction.models import PdfExtractionResult
 from saxophone.ingestion.models import IngestionReport
 from saxophone.ingestion.services import DocumentIngestionService
 from saxophone.ingestion.state import SqliteIngestionStateRepository
+from saxophone.ingestion.vector_state import SqliteVectorIndexStateRepository
 from saxophone.ingestion.vector_sync import VectorSyncService
 from saxophone.tagging.vector_outbox import SqliteVectorOutboxRepository
 from saxophone.workflows.ingest_extracted_document import IngestExtractedDocument
@@ -219,6 +220,10 @@ def test_chunk_tagging_composition_builds_outer_document_ingestion_service(
     assert isinstance(
         container.document_ingestion._lifecycle,
         SqliteIngestionStateRepository,
+    )
+    assert isinstance(
+        container.document_ingestion._ingest_workflow._vector_state,
+        SqliteVectorIndexStateRepository,
     )
     assert container.ingest_extracted_document is not None
     assert container.ingest_extracted_document._document_ingestion is container.document_ingestion

@@ -314,6 +314,7 @@ def create_app(
     chunk_tagger: ChunkTagger | None = None
     chunk_tagging: DocumentChunkTaggingService | None = None
     ingestion_transaction_repository: SqliteIngestionTransactionRepository | None = None
+    vector_state: SqliteVectorIndexStateRepository | None = None
     document_ingestion = resolved_overrides.document_ingestion
     if settings.chunk_tagging_enabled:
         chunk_tagger = resolved_overrides.chunk_tagger or RemoteChunkTagger(
@@ -324,6 +325,7 @@ def create_app(
         ingestion_transaction_repository = SqliteIngestionTransactionRepository(
             ingestion_database
         )
+        vector_state = SqliteVectorIndexStateRepository(ingestion_database)
         chunk_tagging = DocumentChunkTaggingService(
             ChunkTaggingTransactionService(
                 ChunkTaggingService(chunk_tagger),
@@ -337,6 +339,7 @@ def create_app(
                 None,
                 index_document,
                 chunk_tagging=chunk_tagging,
+                vector_state=vector_state,
             )
         else:
             tag_and_persist = TagAndPersistParagraph(
@@ -353,7 +356,7 @@ def create_app(
             assert ingestion_transaction_repository is not None
             outbox = SqliteVectorOutboxRepository(ingestion_database)
             lifecycle = SqliteIngestionStateRepository(ingestion_database)
-            vector_state = SqliteVectorIndexStateRepository(ingestion_database)
+            assert vector_state is not None
             vector_sync = VectorSyncService(
                 outbox,
                 vector_index,

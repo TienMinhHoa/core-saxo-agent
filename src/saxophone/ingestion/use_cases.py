@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import Protocol
 
 from saxophone.documents import KnowledgeChunk, KnowledgeRepository
 from saxophone.tagging import ParagraphBlock, TagAndPersistParagraph, TaggedParagraph
@@ -22,6 +23,11 @@ from .models import (
 )
 from .ports import EmbeddingProvider, EmbeddingReuseStore, VectorIndex
 from .vector_events import build_chunk_vector_upsert_events
+from .vector_state import (
+    VectorStateReconciliation,
+    build_chunk_vector_states,
+    build_stale_delete_events,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +45,18 @@ class _PreparedChunkTagging:
 
     requests: tuple[ChunkTaggingRequest, ...]
     runs: tuple[ChunkTaggingRun, ...]
+
+
+class _VectorStatePlanner(Protocol):
+    async def plan_reconciliation(
+        self,
+        *,
+        entity_type: str,
+        collection_name: str,
+        index_version: str,
+        desired: Sequence[object],
+        document_ref: str | None = None,
+    ) -> VectorStateReconciliation: ...
 
 
 class IndexDocument:
@@ -482,6 +500,7 @@ class IngestDocument:
         index_document: IndexDocument,
         *,
         chunk_tagging: DocumentChunkTaggingService | None = None,
+        vector_state: _VectorStatePlanner | None = None,
     ) -> None:
         if tag_and_persist is None and chunk_tagging is None:
             raise ValueError("a paragraph or chunk tagging workflow is required")
@@ -491,9 +510,14 @@ class IngestDocument:
             chunk_tagging, DocumentChunkTaggingService
         ):
             raise TypeError("chunk_tagging must be a DocumentChunkTaggingService")
+        if vector_state is not None and not callable(
+            getattr(vector_state, "plan_reconciliation", None)
+        ):
+            raise TypeError("vector_state must provide plan_reconciliation")
         self._tag_and_persist = tag_and_persist
         self._index_document = index_document
         self._chunk_tagging = chunk_tagging
+        self._vector_state = vector_state
 
     async def execute(
         self,
@@ -539,13 +563,28 @@ class IngestDocument:
                     reused_count=0,
                     error=error,
                 )
+            reconciliation = await self._plan_vector_reconciliation(
+                command,
+                prepared_index,
+                ingestion_run_id=ingestion_run_id,
+            )
             provided_events = _normalize_outbox_events(outbox_events, normalized_chunks)
+            allowed_chunk_ids = (
+                {state.entity_key for state in reconciliation.upsert_required}
+                if reconciliation is not None
+                else None
+            )
+            provided_events = _filter_chunk_upsert_events(
+                provided_events,
+                allowed_chunk_ids=allowed_chunk_ids,
+            )
             events_by_chunk = _merge_outbox_events(
                 provided_events,
                 _generated_chunk_events(
                     prepared_index,
                     command,
                     ingestion_run_id=ingestion_run_id,
+                    allowed_chunk_ids=allowed_chunk_ids,
                 ),
             )
             if ingestion_run_id is None:
@@ -560,6 +599,17 @@ class IngestDocument:
                     for request in prepared_tagging.requests
                     for event in events_by_chunk.get(request.chunk_id, ())
                 )
+                stale_events = (
+                    build_stale_delete_events(
+                        reconciliation,
+                        ingestion_run_id=ingestion_run_id,
+                        document_ref=command.document_ref,
+                        source_version=command.source_version,
+                    )
+                    if reconciliation is not None
+                    else ()
+                )
+                document_events = _append_unique_events(document_events, stale_events)
                 await self._chunk_tagging.commit_document(
                     command,
                     prepared_tagging,
@@ -617,6 +667,30 @@ class IngestDocument:
             if paragraph.chunk_id not in chunk_ids:
                 raise ValueError("all paragraphs must belong to a supplied chunk")
             paragraph_ids.add(paragraph.paragraph_id)
+
+    async def _plan_vector_reconciliation(
+        self,
+        command: IngestionCommand,
+        prepared: _PreparedIndex,
+        *,
+        ingestion_run_id: str | None,
+    ) -> VectorStateReconciliation | None:
+        if ingestion_run_id is None or self._vector_state is None:
+            return None
+        desired = build_chunk_vector_states(
+            prepared.indexed_records,
+            index_version=command.index_profile,
+        )
+        reconciliation = await self._vector_state.plan_reconciliation(
+            entity_type="chunk",
+            collection_name="document_chunks",
+            index_version=command.index_profile,
+            desired=desired,
+            document_ref=command.document_ref,
+        )
+        if not isinstance(reconciliation, VectorStateReconciliation):
+            raise TypeError("vector_state must return VectorStateReconciliation")
+        return reconciliation
 
 
 def _validate_chunk_tagging_inputs(
@@ -687,15 +761,54 @@ def _generated_chunk_events(
     command: IngestionCommand,
     *,
     ingestion_run_id: str | None,
+    allowed_chunk_ids: set[str] | None = None,
 ) -> dict[str, tuple[VectorOutboxEvent, ...]]:
     if ingestion_run_id is None:
         return {}
+    records = tuple(
+        record
+        for record in prepared.indexed_records
+        if allowed_chunk_ids is None or record.chunk_id in allowed_chunk_ids
+    )
     events = build_chunk_vector_upsert_events(
-        prepared.indexed_records,
+        records,
         index_version=command.index_profile,
         ingestion_run_id=ingestion_run_id,
     )
     return {event.record_id: (event,) for event in events}
+
+
+def _filter_chunk_upsert_events(
+    events: Mapping[str, Sequence[VectorOutboxEvent]],
+    *,
+    allowed_chunk_ids: set[str] | None,
+) -> dict[str, tuple[VectorOutboxEvent, ...]]:
+    if allowed_chunk_ids is None:
+        return {chunk_id: tuple(values) for chunk_id, values in events.items()}
+    filtered: dict[str, tuple[VectorOutboxEvent, ...]] = {}
+    for chunk_id, values in events.items():
+        kept = tuple(
+            event
+            for event in values
+            if not (
+                event.collection == "document_chunks"
+                and event.operation == "upsert"
+                and event.record_id not in allowed_chunk_ids
+            )
+        )
+        if kept:
+            filtered[chunk_id] = kept
+    return filtered
+
+
+def _append_unique_events(
+    existing: Sequence[VectorOutboxEvent],
+    additional: Sequence[VectorOutboxEvent],
+) -> tuple[VectorOutboxEvent, ...]:
+    combined = (*existing, *additional)
+    if len({event.event_id for event in combined}) != len(combined):
+        raise ValueError("outbox events must not contain duplicate event IDs")
+    return combined
 
 
 def _merge_outbox_events(
