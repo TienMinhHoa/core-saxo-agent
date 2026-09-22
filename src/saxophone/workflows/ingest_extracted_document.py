@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 from saxophone.documents import ArtifactRepository
 from saxophone.extraction import PdfExtractionResult
 from saxophone.ingestion import (
+    DocumentIngestionService,
     IndexDocument,
     IndexInputRecord,
     IngestDocument,
@@ -28,12 +31,20 @@ class IngestExtractedDocument:
         index_document: IndexDocument | None = None,
         *,
         ingest_document: IngestDocument | None = None,
+        document_ingestion: DocumentIngestionService | None = None,
     ) -> None:
         if index_document is None and ingest_document is None:
             raise ValueError("an index or ingestion workflow must be configured")
+        if document_ingestion is not None and ingest_document is None:
+            raise ValueError("document ingestion requires an ingest workflow")
+        if document_ingestion is not None and not callable(
+            getattr(document_ingestion, "ingest_document", None)
+        ):
+            raise TypeError("document ingestion must provide ingest_document")
         self._artifacts = artifacts
         self._index_document = index_document
         self._ingest_document = ingest_document
+        self._document_ingestion = document_ingestion
 
     async def execute(
         self,
@@ -45,7 +56,11 @@ class IngestExtractedDocument:
         access_scope: str,
         tagging_profile: str = "none-v1",
         resolution_profile: str = "none-v1",
+        ingestion_run_id: str | None = None,
+        sync_limit: int = 100,
     ):
+        _validate_optional_ingestion_run_id(ingestion_run_id)
+        _validate_sync_limit(sync_limit)
         if chunking_profile != "header-v1":
             raise ValueError(f"unsupported chunking profile: {chunking_profile}")
         markdown = await self._artifacts.get(result.markdown)
@@ -86,6 +101,16 @@ class IngestExtractedDocument:
                 index_profile=index_profile,
                 access_scope=access_scope,
             )
+            if self._document_ingestion is not None:
+                return await self._document_ingestion.ingest_document(
+                    command,
+                    chunks,
+                    paragraphs,
+                    resolution_profile=resolution_profile,
+                    sync_limit=sync_limit,
+                    ingestion_run_id=ingestion_run_id or _new_ingestion_run_id(),
+                    source_hash=result.markdown.sha256,
+                )
             return await self._ingest_document.execute(
                 command,
                 chunks,
@@ -106,3 +131,19 @@ class IngestExtractedDocument:
             for chunk in chunks
         )
         return await self._index_document.execute(command, records)
+
+
+def _new_ingestion_run_id() -> str:
+    """Create a fresh run identity; callers can pass one explicitly to resume."""
+
+    return f"ingest-{uuid4().hex}"
+
+
+def _validate_optional_ingestion_run_id(value: str | None) -> None:
+    if value is not None and (not isinstance(value, str) or not value.strip()):
+        raise ValueError("ingestion_run_id must be blank or null")
+
+
+def _validate_sync_limit(value: int) -> None:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError("sync_limit must be positive")

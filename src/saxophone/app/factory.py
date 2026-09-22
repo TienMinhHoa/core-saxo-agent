@@ -26,12 +26,16 @@ from saxophone.ingestion.adapters import FileEmbeddingReuseStore, RemoteEmbeddin
 from saxophone.ingestion import (
     EmbeddingProvider,
     EmbeddingReuseStore,
+    DocumentIngestionService,
     DocumentChunkTaggingService,
     IngestDocument,
     IndexDocument,
     VectorIndex,
 )
+from saxophone.ingestion.state import SqliteIngestionStateRepository
 from saxophone.ingestion.transaction import SqliteIngestionTransactionRepository
+from saxophone.ingestion.vector_state import SqliteVectorIndexStateRepository
+from saxophone.ingestion.vector_sync import VectorSyncService
 from saxophone.platform.artifacts import (
     LocalArtifactRepository,
     RepositoryBackedImageArtifactGate,
@@ -62,6 +66,7 @@ from saxophone.tagging import (
 )
 from saxophone.tagging.adapters import RemoteChunkTagger
 from saxophone.tagging.chunk_service import ChunkTaggingService, ChunkTaggingTransactionService
+from saxophone.tagging.vector_outbox import SqliteVectorOutboxRepository
 from saxophone.tagging.structured_provider import (
     RemoteStructuredLlmProvider,
     StructuredLlmProvider,
@@ -96,6 +101,15 @@ def _correlation_id_from_request(request: Request) -> str:
     return str(uuid4())
 
 
+def _supports_vector_sync(vector_index: object | None) -> bool:
+    """Check the minimal publication port needed by the ingestion coordinator."""
+
+    return vector_index is not None and all(
+        callable(getattr(vector_index, method, None))
+        for method in ("upsert_chunks", "delete_chunks")
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class AppContainer:
     """Explicit dependencies owned by one application instance."""
@@ -128,6 +142,7 @@ class AppContainer:
     chunk_tagger: ChunkTagger | None = None
     chunk_tagging: DocumentChunkTaggingService | None = None
     ingestion_transaction_repository: SqliteIngestionTransactionRepository | None = None
+    document_ingestion: DocumentIngestionService | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,6 +174,7 @@ class AppOverrides:
     tag_conflict_resolver: TagConflictResolver | None = None
     knowledge_repository: KnowledgeRepository | None = None
     chunk_tagger: ChunkTagger | None = None
+    document_ingestion: DocumentIngestionService | None = None
 
 
 def create_layout_app() -> FastAPI:
@@ -298,13 +314,15 @@ def create_app(
     chunk_tagger: ChunkTagger | None = None
     chunk_tagging: DocumentChunkTaggingService | None = None
     ingestion_transaction_repository: SqliteIngestionTransactionRepository | None = None
+    document_ingestion = resolved_overrides.document_ingestion
     if settings.chunk_tagging_enabled:
         chunk_tagger = resolved_overrides.chunk_tagger or RemoteChunkTagger(
             model_client,
             model=settings.litellm_model_profile,
         )
+        ingestion_database = settings.data_root / "ingestion.sqlite3"
         ingestion_transaction_repository = SqliteIngestionTransactionRepository(
-            settings.data_root / "ingestion.sqlite3"
+            ingestion_database
         )
         chunk_tagging = DocumentChunkTaggingService(
             ChunkTaggingTransactionService(
@@ -327,10 +345,30 @@ def create_app(
                 tag_catalog_repository,
             )
             ingest_workflow = IngestDocument(tag_and_persist, index_document)
+        if (
+            document_ingestion is None
+            and chunk_tagging is not None
+            and _supports_vector_sync(vector_index)
+        ):
+            assert ingestion_transaction_repository is not None
+            outbox = SqliteVectorOutboxRepository(ingestion_database)
+            lifecycle = SqliteIngestionStateRepository(ingestion_database)
+            vector_state = SqliteVectorIndexStateRepository(ingestion_database)
+            vector_sync = VectorSyncService(
+                outbox,
+                vector_index,
+                state=vector_state,
+            )
+            document_ingestion = DocumentIngestionService(
+                ingest_workflow,
+                vector_sync=vector_sync,
+                lifecycle=lifecycle,
+            )
         ingest_extracted_document = IngestExtractedDocument(
             artifact_repository,
             index_document,
             ingest_document=ingest_workflow,
+            document_ingestion=document_ingestion,
         )
 
     retrieve_evidence = resolved_overrides.retrieve_evidence
@@ -374,6 +412,7 @@ def create_app(
         chunk_tagger=chunk_tagger,
         chunk_tagging=chunk_tagging,
         ingestion_transaction_repository=ingestion_transaction_repository,
+        document_ingestion=document_ingestion,
     )
 
     @asynccontextmanager
