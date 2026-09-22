@@ -135,6 +135,7 @@ class IngestionReport:
     indexed: bool
     warnings: tuple[str, ...]
     errors: tuple[str, ...]
+    vector_sync_failed: int = 0
 
     def __post_init__(self) -> None:
         _require_non_blank("document_ref", self.document_ref)
@@ -158,6 +159,14 @@ class IngestionReport:
             raise ValueError("failed_count prevents indexed=True")
         if self.errors and self.indexed:
             raise ValueError("errors prevent indexed=True")
+        if (
+            isinstance(self.vector_sync_failed, bool)
+            or not isinstance(self.vector_sync_failed, int)
+            or self.vector_sync_failed < 0
+        ):
+            raise ValueError("vector_sync_failed must be a non-negative integer")
+        if self.vector_sync_failed and self.indexed:
+            raise ValueError("vector sync failures prevent indexed=True")
 
 
 @dataclass(frozen=True, slots=True)

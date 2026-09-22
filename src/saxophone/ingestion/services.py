@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from typing import Protocol
 
 from .models import IngestionCommand, IngestionReport
@@ -20,7 +21,7 @@ class _IngestWorkflow(Protocol):
 
 
 class _VectorSync(Protocol):
-    async def sync_pending(self, *, limit: int) -> dict[str, int]: ...
+    async def sync_pending(self, *, limit: int) -> Mapping[str, object]: ...
 
 
 class _ArtifactExporter(Protocol):
@@ -85,7 +86,15 @@ class DocumentIngestionService:
         if not isinstance(report, IngestionReport):
             raise TypeError("ingest workflow must return IngestionReport")
         if report.indexed and self._vector_sync is not None:
-            await self._vector_sync.sync_pending(limit=sync_limit)
+            sync_result = await self._vector_sync.sync_pending(limit=sync_limit)
+            failed = _vector_sync_failure_count(sync_result)
+            if failed:
+                report = replace(
+                    report,
+                    indexed=False,
+                    vector_sync_failed=failed,
+                    errors=(*report.errors, f"vector sync failed for {failed} event(s)"),
+                )
         if report.indexed and self._artifact_exporter is not None:
             self._artifact_exporter.export(
                 document_ref=command.document_ref,
@@ -95,3 +104,15 @@ class DocumentIngestionService:
                 ingestion_report=report,
             )
         return report
+
+
+def _vector_sync_failure_count(result: Mapping[str, object]) -> int:
+    """Validate the sync summary before it can influence readiness state."""
+
+    if not isinstance(result, Mapping):
+        raise TypeError("vector sync must return a mapping")
+    for key in ("succeeded", "failed"):
+        value = result.get(key)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"vector sync {key} count must be a non-negative integer")
+    return result["failed"]
