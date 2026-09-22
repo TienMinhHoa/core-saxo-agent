@@ -19,6 +19,7 @@ class _IngestWorkflow(Protocol):
         *,
         resolution_profile: str,
         ingestion_run_id: str | None = None,
+        previous_source_versions: Sequence[str] = (),
     ) -> IngestionReport: ...
 
 
@@ -34,6 +35,8 @@ class _VectorSync(Protocol):
 
 
 class _Lifecycle(Protocol):
+    async def get_document(self, document_ref: str) -> object: ...
+
     async def start_or_resume(
         self,
         *,
@@ -124,6 +127,11 @@ class DocumentIngestionService:
         if not isinstance(sync_limit, int) or isinstance(sync_limit, bool) or sync_limit <= 0:
             raise ValueError("sync_limit must be positive")
         self._validate_lifecycle_identity(ingestion_run_id, source_hash)
+        previous_source_versions = await _load_previous_source_versions(
+            self._lifecycle,
+            document_ref=command.document_ref,
+            source_version=command.source_version,
+        )
         if self._lifecycle is not None:
             assert ingestion_run_id is not None
             assert source_hash is not None
@@ -141,6 +149,7 @@ class DocumentIngestionService:
                 tuple(paragraphs),
                 resolution_profile=resolution_profile,
                 ingestion_run_id=ingestion_run_id,
+                previous_source_versions=previous_source_versions,
             )
         except Exception:
             if self._lifecycle is not None:
@@ -261,8 +270,9 @@ async def _execute_ingest_workflow(
     *,
     resolution_profile: str,
     ingestion_run_id: str | None,
+    previous_source_versions: Sequence[str],
 ) -> IngestionReport:
-    """Pass run identity only to workflows that implement the optional boundary."""
+    """Pass optional run and re-ingestion identity to capable workflows."""
 
     execute = workflow.execute
     parameters = inspect.signature(execute).parameters
@@ -270,7 +280,38 @@ async def _execute_ingest_workflow(
         parameter.kind is inspect.Parameter.VAR_KEYWORD
         for parameter in parameters.values()
     )
+    accepts_previous_versions = "previous_source_versions" in parameters or any(
+        parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    )
     kwargs: dict[str, object] = {"resolution_profile": resolution_profile}
     if accepts_run_id:
         kwargs["ingestion_run_id"] = ingestion_run_id
+    if accepts_previous_versions:
+        kwargs["previous_source_versions"] = previous_source_versions
     return await execute(command, chunks, paragraphs, **kwargs)
+
+
+async def _load_previous_source_versions(
+    lifecycle: _Lifecycle | None,
+    *,
+    document_ref: str,
+    source_version: str,
+) -> tuple[str, ...]:
+    """Load the active version without making first ingestion a special case."""
+
+    if lifecycle is None:
+        return ()
+    get_document = getattr(lifecycle, "get_document", None)
+    if not callable(get_document):
+        return ()
+    try:
+        document = await get_document(document_ref)
+    except FileNotFoundError:
+        return ()
+    active_version = getattr(document, "active_version", None)
+    if active_version is None or active_version == source_version:
+        return ()
+    if not isinstance(active_version, str) or not active_version.strip():
+        raise ValueError("lifecycle document active_version must be blank or a string")
+    return (active_version,)
