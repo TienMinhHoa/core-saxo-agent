@@ -29,6 +29,7 @@ class VectorOutboxEvent:
     status: OutboxStatus = OutboxStatus.PENDING
     attempts: int = 0
     last_error: str | None = None
+    index_version: str | None = None
 
     def __post_init__(self) -> None:
         for name in ("event_id", "document_ref", "source_version", "collection", "record_id", "operation", "payload_json"):
@@ -41,6 +42,10 @@ class VectorOutboxEvent:
             not isinstance(self.ingestion_run_id, str) or not self.ingestion_run_id.strip()
         ):
             raise ValueError("ingestion_run_id must be blank or null")
+        if self.index_version is not None and (
+            not isinstance(self.index_version, str) or not self.index_version.strip()
+        ):
+            raise ValueError("index_version must be blank or null")
         if not isinstance(self.status, OutboxStatus):
             object.__setattr__(self, "status", OutboxStatus(self.status))
         if not isinstance(self.attempts, int) or self.attempts < 0:
@@ -110,7 +115,7 @@ class SqliteVectorOutboxRepository:
                 existing = connection.execute(
                     """
                     SELECT ingestion_run_id, document_ref, source_version, collection,
-                           record_id, operation, payload_json
+                           record_id, operation, payload_json, index_version
                     FROM vector_outbox
                     WHERE event_id = ?
                     """,
@@ -125,6 +130,7 @@ class SqliteVectorOutboxRepository:
                         item.record_id,
                         item.operation,
                         item.payload_json,
+                        item.index_version,
                     )
                     if existing != expected:
                         raise ValueError("event_id already exists with different payload or scope")
@@ -133,9 +139,9 @@ class SqliteVectorOutboxRepository:
                     """
                     INSERT INTO vector_outbox
                         (event_id, ingestion_run_id, document_ref, source_version,
-                         collection, record_id, operation, payload_json, status,
-                         attempts, last_error)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         collection, record_id, operation, payload_json, index_version,
+                         status, attempts, last_error)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         item.event_id,
@@ -146,6 +152,7 @@ class SqliteVectorOutboxRepository:
                         item.record_id,
                         item.operation,
                         item.payload_json,
+                        item.index_version,
                         item.status.value,
                         item.attempts,
                         item.last_error,
@@ -160,7 +167,7 @@ class SqliteVectorOutboxRepository:
             query = """
                 SELECT event_id, document_ref, source_version, collection,
                        record_id, operation, payload_json, ingestion_run_id,
-                       status, attempts, last_error
+                       index_version, status, attempts, last_error
                 FROM vector_outbox
                 WHERE status IN ('pending', 'failed')
             """
@@ -192,7 +199,7 @@ class SqliteVectorOutboxRepository:
                 """
                 SELECT event_id, document_ref, source_version, collection,
                        record_id, operation, payload_json, ingestion_run_id,
-                       status, attempts, last_error
+                       index_version, status, attempts, last_error
                 FROM vector_outbox
                 WHERE event_id = ?
                 """,
@@ -223,6 +230,7 @@ class SqliteVectorOutboxRepository:
                 record_id TEXT NOT NULL,
                 operation TEXT NOT NULL,
                 payload_json TEXT NOT NULL,
+                index_version TEXT,
                 status TEXT NOT NULL,
                 attempts INTEGER NOT NULL,
                 last_error TEXT
@@ -235,6 +243,8 @@ class SqliteVectorOutboxRepository:
         }
         if "ingestion_run_id" not in columns:
             connection.execute("ALTER TABLE vector_outbox ADD COLUMN ingestion_run_id TEXT")
+        if "index_version" not in columns:
+            connection.execute("ALTER TABLE vector_outbox ADD COLUMN index_version TEXT")
 
     @staticmethod
     def _validate_event_id(event_id: str) -> None:
@@ -259,7 +269,8 @@ class SqliteVectorOutboxRepository:
             operation=row[5],
             payload_json=row[6],
             ingestion_run_id=row[7],
-            status=OutboxStatus(row[8]),
-            attempts=row[9],
-            last_error=row[10],
+            index_version=row[8],
+            status=OutboxStatus(row[9]),
+            attempts=row[10],
+            last_error=row[11],
         )

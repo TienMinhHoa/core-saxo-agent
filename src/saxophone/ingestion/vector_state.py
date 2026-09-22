@@ -12,6 +12,7 @@ from enum import StrEnum
 from pathlib import Path
 
 from saxophone.documents.policies import is_safe_document_reference
+from saxophone.tagging.vector_outbox import VectorOutboxEvent
 
 
 class VectorSyncStatus(StrEnum):
@@ -84,6 +85,47 @@ class VectorStateReconciliation:
         """Return changed and new records in stable entity-key order."""
 
         return tuple(sorted((*self.changed, *self.new), key=lambda item: item.entity_key))
+
+
+def build_stale_delete_events(
+    reconciliation: VectorStateReconciliation,
+    *,
+    ingestion_run_id: str,
+    document_ref: str,
+    source_version: str,
+) -> tuple[VectorOutboxEvent, ...]:
+    """Project exact stale vector identities into deterministic delete work items."""
+
+    if not isinstance(reconciliation, VectorStateReconciliation):
+        raise TypeError("reconciliation must be a VectorStateReconciliation")
+    _require_non_blank("ingestion_run_id", ingestion_run_id)
+    _require_non_blank("document_ref", document_ref)
+    if not is_safe_document_reference(document_ref):
+        raise ValueError("document_ref must be a safe document reference")
+    _require_non_blank("source_version", source_version)
+
+    events: list[VectorOutboxEvent] = []
+    for state in sorted(reconciliation.stale, key=_stale_state_sort_key):
+        if not isinstance(state, VectorIndexState):
+            raise ValueError("stale states must contain VectorIndexState values")
+        event_document_ref = state.document_ref or document_ref
+        if state.entity_type == "chunk" and event_document_ref != document_ref:
+            raise ValueError("stale chunk state belongs to a different document")
+        event_source_version = state.source_version or source_version
+        events.append(
+            VectorOutboxEvent(
+                event_id=_stale_delete_event_id(ingestion_run_id, state),
+                ingestion_run_id=ingestion_run_id,
+                document_ref=event_document_ref,
+                source_version=event_source_version,
+                collection=state.collection_name,
+                record_id=state.chroma_record_id,
+                operation="delete",
+                payload_json="{}",
+                index_version=state.index_version,
+            )
+        )
+    return tuple(events)
 
 
 def reconcile_vector_states(
@@ -382,6 +424,30 @@ def _scope(state: VectorIndexState) -> tuple[str, str, str, str | None]:
         state.index_version,
         state.document_ref if state.entity_type == "chunk" else None,
     )
+
+
+def _stale_state_sort_key(state: VectorIndexState) -> tuple[str, str, str, str, str]:
+    return (
+        state.entity_type,
+        state.collection_name,
+        state.index_version,
+        state.chroma_record_id,
+        state.entity_key,
+    )
+
+
+def _stale_delete_event_id(ingestion_run_id: str, state: VectorIndexState) -> str:
+    identity = "\x1f".join(
+        (
+            ingestion_run_id,
+            state.entity_type,
+            state.entity_key,
+            state.collection_name,
+            state.chroma_record_id,
+            state.index_version,
+        )
+    )
+    return f"stale-delete-{hashlib.sha256(identity.encode('utf-8')).hexdigest()}"
 
 
 def _index_by_entity_key(

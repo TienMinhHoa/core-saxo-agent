@@ -82,6 +82,7 @@ class VectorSyncService:
                             collection_name=event.collection,
                             chroma_record_id=event.record_id,
                             document_ref=event.document_ref,
+                            index_version=event.index_version,
                         )
                     elif state is not None:
                         await self._state.mark_synced(state)
