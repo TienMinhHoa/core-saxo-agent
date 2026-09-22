@@ -248,6 +248,13 @@ class RemoteEmbeddingProvider(EmbeddingProvider):
     ) -> tuple[EmbeddingRecord, ...]:
         if not source_version.strip():
             raise ValueError("source_version must not be empty")
+        if isinstance(chunks, (str, bytes)) or not isinstance(chunks, Sequence):
+            raise ValueError("chunks must be a sequence")
+        chunk_ids = [chunk_id for chunk_id, _ in chunks]
+        if any(not isinstance(chunk_id, str) or not chunk_id.strip() for chunk_id in chunk_ids):
+            raise ValueError("chunk IDs must be non-blank strings")
+        if len(chunk_ids) != len(set(chunk_ids)):
+            raise ValueError("chunk IDs must be unique")
         request = ModelRequest(
             model=self._model,
             task=ModelTask.EMBED,
@@ -283,6 +290,13 @@ class RemoteEmbeddingProvider(EmbeddingProvider):
                 raise ModelValidationError("embedding chunk_id is invalid")
             if not isinstance(vector, list):
                 raise ModelValidationError("embedding vector must be a list")
+            if not vector or any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                for value in vector
+            ):
+                raise ModelValidationError("embedding vector values must be finite numbers")
             actual_ids.append(chunk_id)
             records.append(
                 EmbeddingRecord(
@@ -294,6 +308,8 @@ class RemoteEmbeddingProvider(EmbeddingProvider):
             )
         if actual_ids != expected_ids:
             raise ModelValidationError("embedding response chunk IDs do not match request")
+        if len({record.dimension for record in records}) != 1:
+            raise ModelValidationError("embedding vectors must have one shared dimension")
         return tuple(records)
 
 

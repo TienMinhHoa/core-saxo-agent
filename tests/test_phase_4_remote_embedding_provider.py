@@ -76,3 +76,39 @@ async def test_remote_embedding_provider_rejects_missing_or_extra_chunk() -> Non
         await RemoteEmbeddingProvider(client, model="embed-model").embed(
             [("chunk-1", "A phrase")], source_version="source-v1"
         )
+
+
+@pytest.mark.anyio
+async def test_remote_embedding_provider_rejects_duplicate_inputs_and_inconsistent_dimensions() -> None:
+    client = FakeModelClient(
+        _response(
+            {
+                "embeddings": [
+                    {"chunk_id": "chunk-1", "vector": [0.1, 0.2]},
+                    {"chunk_id": "chunk-2", "vector": [0.3]},
+                ]
+            }
+        )
+    )
+
+    with pytest.raises(ValueError, match="unique"):
+        await RemoteEmbeddingProvider(client, model="embed-model").embed(
+            [("chunk-1", "A"), ("chunk-1", "duplicate")], source_version="source-v1"
+        )
+
+    with pytest.raises(ModelValidationError, match="dimension"):
+        await RemoteEmbeddingProvider(client, model="embed-model").embed(
+            [("chunk-1", "A"), ("chunk-2", "B")], source_version="source-v1"
+        )
+
+
+@pytest.mark.anyio
+async def test_remote_embedding_provider_rejects_non_finite_vectors() -> None:
+    client = FakeModelClient(
+        _response({"embeddings": [{"chunk_id": "chunk-1", "vector": [float("nan")]}]})
+    )
+
+    with pytest.raises(ModelValidationError, match="finite"):
+        await RemoteEmbeddingProvider(client, model="embed-model").embed(
+            [("chunk-1", "A phrase")], source_version="source-v1"
+        )
