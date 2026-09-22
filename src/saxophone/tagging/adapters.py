@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from saxophone.platform.model_client import ModelClient, ModelRequest, ModelTask, ModelValidationError
+from saxophone.platform.model_client import (
+    ModelClient,
+    ModelRequest,
+    ModelTask,
+    ModelValidationError,
+)
 
 from .models import (
     TagConflictResolution,
@@ -13,19 +18,19 @@ from .models import (
     TagGenerationResult,
     TagResolution,
 )
-from .chunk_models import (
-    ChunkParagraphTaggingResult,
-    ChunkTaggingLabel,
-    ChunkTaggingRequest,
-    ChunkTaggingResult,
-)
-from .ports import ChunkTagger, TagConflictResolver, TagGenerator
+from .ports import TagConflictResolver, TagGenerator
 
 
 class RemoteParagraphTagger(TagGenerator):
     """Translate one paragraph-tagging request into a validated model call."""
 
-    def __init__(self, client: ModelClient, *, model: str, response_schema: str = "paragraph-tags-v1") -> None:
+    def __init__(
+        self,
+        client: ModelClient,
+        *,
+        model: str,
+        response_schema: str = "paragraph-tags-v1",
+    ) -> None:
         if not model.strip():
             raise ValueError("model must not be blank")
         if not response_schema.strip():
@@ -56,21 +61,40 @@ class RemoteParagraphTagger(TagGenerator):
                 idempotency_key=f"tag-{paragraph.paragraph_id}-{request.tagging_profile}",
             ),
         )
-        _validate_response(response.task, response.response_schema, ModelTask.PARAGRAPH_TAG, self._response_schema)
+        _validate_response(
+            response.task,
+            response.response_schema,
+            ModelTask.PARAGRAPH_TAG,
+            self._response_schema,
+        )
         output = response.output
         paragraph_id = _required_text(output, "paragraph_id")
         raw_tags = output.get("tags")
-        if not isinstance(raw_tags, list) or any(not isinstance(tag, str) for tag in raw_tags):
-            raise ModelValidationError("paragraph tag response tags must be a list of strings")
+        if not isinstance(raw_tags, list) or any(
+            not isinstance(tag, str) for tag in raw_tags
+        ):
+            raise ModelValidationError(
+                "paragraph tag response tags must be a list of strings"
+            )
         if paragraph_id != paragraph.paragraph_id:
-            raise ModelValidationError("paragraph tag response paragraph_id does not match request")
-        return TagGenerationResult(paragraph_id, tuple(raw_tags), request.tagging_profile)
+            raise ModelValidationError(
+                "paragraph tag response paragraph_id does not match request"
+            )
+        return TagGenerationResult(
+            paragraph_id, tuple(raw_tags), request.tagging_profile
+        )
 
 
 class RemoteTagConflictResolver(TagConflictResolver):
     """Translate existing-vs-new tag resolution through the model boundary."""
 
-    def __init__(self, client: ModelClient, *, model: str, response_schema: str = "tag-resolution-v1") -> None:
+    def __init__(
+        self,
+        client: ModelClient,
+        *,
+        model: str,
+        response_schema: str = "tag-resolution-v1",
+    ) -> None:
         if not model.strip():
             raise ValueError("model must not be blank")
         if not response_schema.strip():
@@ -83,7 +107,9 @@ class RemoteTagConflictResolver(TagConflictResolver):
     def model(self) -> str:
         return self._model
 
-    async def resolve(self, request: TagConflictResolutionRequest) -> TagConflictResolution:
+    async def resolve(
+        self, request: TagConflictResolutionRequest
+    ) -> TagConflictResolution:
         response = await self._client.invoke(
             ModelRequest(
                 model=self._model,
@@ -101,11 +127,18 @@ class RemoteTagConflictResolver(TagConflictResolver):
                 idempotency_key=f"resolve-{request.paragraph_id}-{request.resolution_profile}",
             ),
         )
-        _validate_response(response.task, response.response_schema, ModelTask.TAG_RESOLVE, self._response_schema)
+        _validate_response(
+            response.task,
+            response.response_schema,
+            ModelTask.TAG_RESOLVE,
+            self._response_schema,
+        )
         output = response.output
         paragraph_id = _required_text(output, "paragraph_id")
         if paragraph_id != request.paragraph_id:
-            raise ModelValidationError("tag resolution paragraph_id does not match request")
+            raise ModelValidationError(
+                "tag resolution paragraph_id does not match request"
+            )
         raw_resolutions = output.get("resolutions")
         if not isinstance(raw_resolutions, list):
             raise ModelValidationError("tag resolution resolutions must be a list")
@@ -131,7 +164,9 @@ class RemoteTagConflictResolver(TagConflictResolver):
                 resolutions=tuple(resolutions),
                 resolution_profile=request.resolution_profile,
                 generated_tags=request.generated_tags,
-                existing_tags=tuple(candidate.tag for candidate in request.existing_tags),
+                existing_tags=tuple(
+                    candidate.tag for candidate in request.existing_tags
+                ),
             )
         except ModelValidationError:
             raise
@@ -139,92 +174,15 @@ class RemoteTagConflictResolver(TagConflictResolver):
             raise ModelValidationError(str(exc)) from exc
 
 
-class RemoteChunkTagger(ChunkTagger):
-    """Map one chunk request to one model call and validate all references."""
-
-    def __init__(self, client: ModelClient, *, model: str, response_schema: str = "chunk-tagging-v1") -> None:
-        if not model.strip():
-            raise ValueError("model must not be blank")
-        if not response_schema.strip():
-            raise ValueError("response_schema must not be blank")
-        self._client = client
-        self._model = model.strip()
-        self._response_schema = response_schema.strip()
-
-    async def tag(self, request: ChunkTaggingRequest) -> ChunkTaggingResult:
-        response = await self._client.invoke(
-            ModelRequest(
-                model=self._model,
-                task=ModelTask.CHUNK_TAGGING,
-                input={
-                    "chunk_id": request.chunk_id,
-                    "paragraphs": [
-                        {
-                            "paragraph_ref": item.paragraph.paragraph_id,
-                            "text": item.paragraph.text,
-                            "existing_candidates": list(item.existing_candidates),
-                            "previous_context": item.previous_context,
-                            "next_context": item.next_context,
-                            "image_context": list(item.image_context),
-                        }
-                        for item in request.paragraphs
-                    ],
-                },
-                metadata={"tagging_profile": "chunk"},
-                response_schema=self._response_schema,
-                idempotency_key=f"chunk-tag-{request.chunk_id}",
-            ),
-        )
-        _validate_response(response.task, response.response_schema, ModelTask.CHUNK_TAGGING, self._response_schema)
-        output = response.output
-        chunk_id = _required_text(output, "chunk_id")
-        raw_new = output.get("chunk_new_concepts")
-        raw_paragraphs = output.get("paragraphs")
-        if not isinstance(raw_new, list) or any(not isinstance(item, str) for item in raw_new):
-            raise ModelValidationError("chunk_new_concepts must be a list of strings")
-        if not isinstance(raw_paragraphs, list):
-            raise ModelValidationError("paragraphs must be a list")
-        paragraphs = []
-        for item in raw_paragraphs:
-            if not isinstance(item, Mapping):
-                raise ModelValidationError("paragraph result must be a mapping")
-            ref = _required_text(item, "paragraph_ref")
-            raw_labels = item.get("labels")
-            if not isinstance(raw_labels, list):
-                raise ModelValidationError("labels must be a list")
-            labels = []
-            for label in raw_labels:
-                if not isinstance(label, Mapping):
-                    raise ModelValidationError("label must be a mapping")
-                raw_roles = label.get("roles")
-                if not isinstance(raw_roles, list) or any(not isinstance(role, str) for role in raw_roles):
-                    raise ModelValidationError("roles must be a list of strings")
-                try:
-                    labels.append(ChunkTaggingLabel(
-                        _required_text(label, "generated_concept"),
-                        _required_text(label, "action"),
-                        _required_text(label, "resolved_concept"),
-                        tuple(raw_roles),
-                    ))
-                except ValueError as exc:
-                    raise ModelValidationError(str(exc)) from exc
-            try:
-                paragraphs.append(ChunkParagraphTaggingResult(ref, tuple(labels)))
-            except ValueError as exc:
-                raise ModelValidationError(str(exc)) from exc
-        try:
-            result = ChunkTaggingResult(chunk_id, tuple(raw_new), tuple(paragraphs))
-            result.validate_against(request)
-            return result
-        except ValueError as exc:
-            raise ModelValidationError(str(exc)) from exc
-
-
-def _validate_response(task: ModelTask, schema: str, expected_task: ModelTask, expected_schema: str) -> None:
+def _validate_response(
+    task: ModelTask, schema: str, expected_task: ModelTask, expected_schema: str
+) -> None:
     if task is not expected_task:
         raise ModelValidationError(f"model response task must be {expected_task.value}")
     if schema != expected_schema:
-        raise ModelValidationError("model response schema does not match tagging contract")
+        raise ModelValidationError(
+            "model response schema does not match tagging contract"
+        )
 
 
 def _required_text(payload: Mapping[str, object], name: str) -> str:

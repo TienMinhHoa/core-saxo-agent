@@ -14,6 +14,7 @@ from .role_selection import (
 from .renderers import ConceptInventory, ConceptInventoryBuilder
 from .paragraph_traversal import ParagraphTraversal
 from .context_limiter import ContextLimiter
+from .question_retrieval import QuestionRequest, QuestionRetrievalService, RetrievalBundle, RetrievalBundleStatus
 
 __all__ = [
     "ChunkHit",
@@ -30,4 +31,8 @@ __all__ = [
     "ConceptInventoryBuilder",
     "ParagraphTraversal",
     "ContextLimiter",
+    "QuestionRequest",
+    "QuestionRetrievalService",
+    "RetrievalBundle",
+    "RetrievalBundleStatus",
 ]
