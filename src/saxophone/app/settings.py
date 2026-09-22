@@ -34,6 +34,7 @@ class AppSettings:
     litellm_retry_jitter_ratio: float = 0.0
     litellm_circuit_breaker_failure_threshold: int = 0
     litellm_circuit_breaker_cooldown_seconds: float = 30.0
+    litellm_structured_output_mode: str = "json_schema"
     chroma_persist_directory: Path = Path("runtime/saxophone/chroma")
     chroma_collection_name: str = "saxophone_chunks"
     embedding_dimension: int = 1536
@@ -58,6 +59,7 @@ class AppSettings:
             self.litellm_model_profile,
             "SAXO_LITELLM_MODEL_PROFILE",
         )
+        _parse_structured_output_mode(self.litellm_structured_output_mode)
         _validate_canonical_runtime_text(
             self.chroma_collection_name,
             "SAXO_CHROMA_COLLECTION_NAME",
@@ -203,6 +205,9 @@ class AppSettings:
                 environment.get("SAXO_LITELLM_CIRCUIT_BREAKER_COOLDOWN_SECONDS", "30"),
                 "SAXO_LITELLM_CIRCUIT_BREAKER_COOLDOWN_SECONDS",
                 strictly_positive=True,
+            ),
+            litellm_structured_output_mode=_parse_structured_output_mode(
+                environment.get("SAXO_LITELLM_STRUCTURED_OUTPUT_MODE", "json_schema"),
             ),
             chroma_persist_directory=chroma_directory,
             chroma_collection_name=collection_name,
@@ -356,6 +361,15 @@ def _parse_required_text(value: str | None, variable: str) -> str:
     if not value or not value.strip():
         raise SettingsValidationError(f"{variable} must not be empty")
     return value.strip()
+
+
+def _parse_structured_output_mode(value: object) -> str:
+    variable = "SAXO_LITELLM_STRUCTURED_OUTPUT_MODE"
+    if value not in {"json_schema", "json_object"}:
+        raise SettingsValidationError(
+            f"{variable} must be json_schema or json_object"
+        )
+    return value
 
 
 def _parse_collection_name(value: str | None) -> str:

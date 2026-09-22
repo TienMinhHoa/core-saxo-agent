@@ -32,6 +32,7 @@ def test_from_environment_uses_safe_defaults() -> None:
     assert settings.litellm_retry_jitter_ratio == 0.0
     assert settings.litellm_circuit_breaker_failure_threshold == 0
     assert settings.litellm_circuit_breaker_cooldown_seconds == 30.0
+    assert settings.litellm_structured_output_mode == "json_schema"
     assert settings.chroma_persist_directory == Path("runtime/saxophone/chroma")
     assert settings.chroma_collection_name == "saxophone_chunks"
     assert settings.embedding_dimension == 1536
@@ -54,6 +55,7 @@ def test_from_environment_accepts_explicit_typed_values() -> None:
         "SAXO_LITELLM_RETRY_JITTER_RATIO": "0.2",
         "SAXO_LITELLM_CIRCUIT_BREAKER_FAILURE_THRESHOLD": "5",
         "SAXO_LITELLM_CIRCUIT_BREAKER_COOLDOWN_SECONDS": "45.5",
+        "SAXO_LITELLM_STRUCTURED_OUTPUT_MODE": "json_object",
         "SAXO_CHROMA_PERSIST_DIRECTORY": "D:/saxo-data/chroma",
         "SAXO_CHROMA_COLLECTION_NAME": "music_chunks_v2",
         "SAXO_EMBEDDING_DIMENSION": "1024",
@@ -74,6 +76,7 @@ def test_from_environment_accepts_explicit_typed_values() -> None:
     assert settings.litellm_retry_jitter_ratio == 0.2
     assert settings.litellm_circuit_breaker_failure_threshold == 5
     assert settings.litellm_circuit_breaker_cooldown_seconds == 45.5
+    assert settings.litellm_structured_output_mode == "json_object"
     assert settings.chroma_persist_directory == Path("D:/saxo-data/chroma")
     assert settings.chroma_collection_name == "music_chunks_v2"
     assert settings.embedding_dimension == 1024
@@ -182,6 +185,14 @@ def test_from_environment_rejects_invalid_model_retry_configuration(
         AppSettings.from_environment({**VALID_ENVIRONMENT, variable: value})
 
     assert variable in str(error.value)
+
+
+@pytest.mark.parametrize("value", ["", "auto", "JSON_OBJECT", "json-object"])
+def test_from_environment_rejects_invalid_structured_output_mode(value: str) -> None:
+    with pytest.raises(SettingsValidationError, match="SAXO_LITELLM_STRUCTURED_OUTPUT_MODE"):
+        AppSettings.from_environment(
+            {**VALID_ENVIRONMENT, "SAXO_LITELLM_STRUCTURED_OUTPUT_MODE": value}
+        )
 
 
 def test_settings_representation_and_validation_errors_never_leak_bearer_token() -> None:

@@ -57,6 +57,11 @@ from saxophone.tagging import (
     TagParagraph,
     TaggedParagraphRepository,
 )
+from saxophone.tagging.structured_provider import (
+    RemoteStructuredLlmProvider,
+    StructuredLlmProvider,
+    StructuredOutputMode,
+)
 from saxophone.interfaces.api import build_capability_router
 from saxophone.interfaces.pdf_layout_web import app as pdf_layout_app
 from saxophone.workflows import (
@@ -93,6 +98,7 @@ class AppContainer:
     settings: AppSettings
     remote_gpu_gateway: RemoteGpuGateway
     model_client: ModelClient
+    structured_llm_provider: StructuredLlmProvider
     event_sink: EventSink
     metrics: EventMetrics | None = None
     http_client: httpx.AsyncClient | None = None
@@ -196,6 +202,11 @@ def create_app(
             event_sink=event_sink,
             metrics=metrics,
         )
+    structured_llm_provider = RemoteStructuredLlmProvider(
+        model_client,
+        model=settings.litellm_model_profile,
+        mode=StructuredOutputMode(settings.litellm_structured_output_mode),
+    )
 
     pdf_extractor = resolved_overrides.pdf_extractor
     if pdf_extractor is None:
@@ -304,6 +315,7 @@ def create_app(
         settings=settings,
         remote_gpu_gateway=remote_gpu_gateway,
         model_client=model_client,
+        structured_llm_provider=structured_llm_provider,
         event_sink=event_sink,
         metrics=metrics,
         http_client=http_client,

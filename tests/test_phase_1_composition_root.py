@@ -27,6 +27,10 @@ from saxophone.tagging.persistence import (
     JsonTagCatalogRepository,
     JsonTaggedParagraphRepository,
 )
+from saxophone.tagging.structured_provider import (
+    RemoteStructuredLlmProvider,
+    StructuredOutputMode,
+)
 
 
 VALID_ENVIRONMENT = {
@@ -196,6 +200,18 @@ def test_default_composition_wires_remote_pdf_extractor_to_shared_model_client()
 
     assert isinstance(extractor, RemotePdfExtractor)
     assert extractor.model == build_settings().litellm_model_profile
+
+
+def test_default_composition_wires_configured_structured_provider() -> None:
+    settings = AppSettings.from_environment(
+        {**VALID_ENVIRONMENT, "SAXO_LITELLM_STRUCTURED_OUTPUT_MODE": "json_object"}
+    )
+    app = create_app(settings)
+
+    provider = app.state.container.structured_llm_provider
+
+    assert isinstance(provider, RemoteStructuredLlmProvider)
+    assert provider.structured_output_mode is StructuredOutputMode.JSON_OBJECT
 
 
 def test_composition_builds_retrieval_and_chat_from_application_ports() -> None:
