@@ -28,6 +28,25 @@ __all__ = [
 def __getattr__(name: str) -> object:
     """Load the use case lazily to avoid a domain-port import cycle."""
 
+    if name in {
+        "DocumentState",
+        "IngestionRunState",
+        "IngestionStatus",
+        "SqliteIngestionStateRepository",
+    }:
+        from .state import (
+            DocumentState,
+            IngestionRunState,
+            IngestionStatus,
+            SqliteIngestionStateRepository,
+        )
+
+        return {
+            "DocumentState": DocumentState,
+            "IngestionRunState": IngestionRunState,
+            "IngestionStatus": IngestionStatus,
+            "SqliteIngestionStateRepository": SqliteIngestionStateRepository,
+        }[name]
     if name in {"IndexDocument", "IngestDocument"}:
         from .use_cases import IndexDocument, IngestDocument
 
