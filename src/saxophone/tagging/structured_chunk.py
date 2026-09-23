@@ -219,7 +219,9 @@ class StructuredChunkTagger(ChunkTagger):
                 "paragraph. Return exactly one strict JSON object matching the output contract. "
                 "Return every request-local paragraph alias exactly once. Never echo source fields such "
                 "as target_text, heading_path, previous_context, next_context, image_context, "
-                "or existing_candidates into the output. Do not add any fields."
+                "or existing_candidates into the output. Do not add any fields. "
+                "Within each paragraph, emit at most one label for each generated_concept; "
+                "merge multiple roles for the same concept into that label."
             ),
             user_prompt=_chunk_prompt(request, paragraph_aliases),
             response_model=_StructuredChunkResult,
@@ -293,6 +295,9 @@ def _chunk_prompt(
                 "For create_new or reuse_chunk_new, resolved_concept must appear in chunk_new_concepts.",
                 "Use create_new for the first introduction of a new chunk concept and reuse_chunk_new for later reuse.",
                 "Each label must contain at least one role from role_enum.",
+                "Use one label per generated concept within each paragraph; never repeat a generated_concept.",
+                "If one concept has multiple roles, merge all roles into that single label.",
+                "Before returning, compare generated_concept values within each paragraph and merge duplicates.",
             ],
         },
         "few_shot_examples": _few_shot_examples(),
@@ -377,6 +382,36 @@ def _few_shot_examples() -> list[dict[str, object]]:
                         ],
                         "tagging_status": "completed",
                     },
+                ],
+            },
+        },
+        {
+            "input": {
+                "chunk_id": "example-chunk-merge-roles",
+                "paragraphs": [
+                    {
+                        "paragraph_ref": "p1",
+                        "target_text": "Harmony describes how chords and progressions relate in a musical passage.",
+                        "existing_candidates": [],
+                    }
+                ],
+            },
+            "output": {
+                "chunk_id": "example-chunk-merge-roles",
+                "chunk_new_concepts": ["Harmony"],
+                "paragraphs": [
+                    {
+                        "paragraph_ref": "p1",
+                        "labels": [
+                            {
+                                "generated_concept": "Harmony",
+                                "action": "create_new",
+                                "resolved_concept": "Harmony",
+                                "roles": ["Definition", "Explanation"],
+                            }
+                        ],
+                        "tagging_status": "completed",
+                    }
                 ],
             },
         },

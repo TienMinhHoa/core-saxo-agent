@@ -190,7 +190,10 @@ async def test_structured_chunk_prompt_contains_few_shot_contract_examples() -> 
         "roles",
     ]
     assert prompt["instructions"]["copy_example_ids"] is False
-    assert len(prompt["few_shot_examples"]) == 2
+    rules = prompt["instructions"]["rules"]
+    assert "Use one label per generated concept within each paragraph; never repeat a generated_concept." in rules
+    assert "If one concept has multiple roles, merge all roles into that single label." in rules
+    assert len(prompt["few_shot_examples"]) == 3
     assert prompt["few_shot_examples"][0]["output"]["paragraphs"][0] == {
         "paragraph_ref": "p1",
         "labels": [
@@ -203,6 +206,14 @@ async def test_structured_chunk_prompt_contains_few_shot_contract_examples() -> 
         ],
         "tagging_status": "completed",
     }
+    assert prompt["few_shot_examples"][2]["output"]["paragraphs"][0]["labels"] == [
+        {
+            "generated_concept": "Harmony",
+            "action": "create_new",
+            "resolved_concept": "Harmony",
+            "roles": ["Definition", "Explanation"],
+        }
+    ]
     assert prompt["request"]["chunk_id"] == "chunk-01"
     assert prompt["request"]["paragraphs"][0]["paragraph_ref"] == "p1"
 
