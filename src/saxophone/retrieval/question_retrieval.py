@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
-from typing import Mapping
+from typing import Mapping, Protocol
 
 from saxophone.tagging.models import ParagraphConceptRole
 
@@ -24,6 +24,11 @@ from .role_selection import (
     ConceptRoleSelectionRequest,
     ConceptRoleSelector,
 )
+from .sqlite_context import RetrievalContext
+
+
+class RetrievalContextRepository(Protocol):
+    async def load_for_hits(self, hits: tuple[ChunkHit, ...]) -> RetrievalContext: ...
 
 
 class RetrievalBundleStatus(str, Enum):
@@ -62,6 +67,7 @@ class RetrievalBundle:
     question: str
     hits: tuple[ChunkHit, ...] = ()
     answer_context_markdown: str | None = None
+    answer_context: object | None = None
 
 
 class QuestionRetrievalService:
@@ -72,16 +78,22 @@ class QuestionRetrievalService:
         *,
         retriever: ChunkRetriever,
         selector: ConceptRoleSelector,
-        relations: tuple[ParagraphConceptRole, ...],
-        paragraphs: Mapping[str, SourceParagraph],
+        relations: tuple[ParagraphConceptRole, ...] = (),
+        paragraphs: Mapping[str, SourceParagraph] | None = None,
+        context_repository: RetrievalContextRepository | None = None,
         limiter: ContextLimiter | None = None,
         max_paragraphs: int = 20,
         max_tokens: int = 4000,
     ) -> None:
         self._retriever = retriever
         self._selector = selector
+        if context_repository is not None and not callable(
+            getattr(context_repository, "load_for_hits", None)
+        ):
+            raise TypeError("context_repository must provide load_for_hits")
         self._relations = tuple(relations)
-        self._paragraphs = dict(paragraphs)
+        self._paragraphs = dict(paragraphs or {})
+        self._context_repository = context_repository
         self._limiter = limiter or ContextLimiter()
         self._max_paragraphs = max_paragraphs
         self._max_tokens = max_tokens
@@ -97,13 +109,22 @@ class QuestionRetrievalService:
         if not hits:
             return RetrievalBundle(RetrievalBundleStatus.NO_RETRIEVAL_CONTEXT, request.question)
 
+        relations = self._relations
+        paragraphs = self._paragraphs
+        if self._context_repository is not None:
+            hydrated = await self._context_repository.load_for_hits(hits)
+            if not isinstance(hydrated, RetrievalContext):
+                raise TypeError("context_repository must return RetrievalContext")
+            relations = hydrated.relations
+            paragraphs = dict(hydrated.paragraphs)
+
         chunk_ranks = {hit.chunk_ref: hit.rank for hit in hits}
         paragraph_chunks = {
             ref: (paragraph.chunk_id or paragraph.parent_header)
-            for ref, paragraph in self._paragraphs.items()
+            for ref, paragraph in paragraphs.items()
         }
         relations = tuple(
-            relation for relation in self._relations
+            relation for relation in relations
             if paragraph_chunks.get(relation.paragraph_id) in chunk_ranks
         )
         inventory = ConceptInventoryBuilder().build(
@@ -144,11 +165,17 @@ class QuestionRetrievalService:
             for selection in selection_result.selections
             for role in selection.selected_roles
         )
-        context = ParagraphTraversal().resolve(selected, relations, self._paragraphs)
+        context = ParagraphTraversal().resolve(selected, relations, paragraphs)
         context = self._limiter.limit(
             context,
             max_paragraphs=request.max_paragraphs,
             max_tokens=request.max_tokens,
         )
         markdown = AnswerContextMarkdownRenderer().render_answer_context(request.question, context)
-        return RetrievalBundle(RetrievalBundleStatus.READY, request.question, hits, markdown)
+        return RetrievalBundle(
+            RetrievalBundleStatus.READY,
+            request.question,
+            hits,
+            markdown,
+            context,
+        )

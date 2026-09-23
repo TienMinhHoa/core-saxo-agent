@@ -1932,6 +1932,7 @@ dependencies = [
     { name = "openai" },
     { name = "python-dotenv" },
     { name = "python-multipart" },
+    { name = "tiktoken" },
     { name = "uvicorn" },
 ]
 
@@ -1956,6 +1957,7 @@ requires-dist = [
     { name = "paddlepaddle", marker = "extra == 'paddle-client'", specifier = ">=3.2.1,<4" },
     { name = "python-dotenv", specifier = ">=1,<2" },
     { name = "python-multipart", specifier = ">=0.0.9,<1" },
+    { name = "tiktoken", specifier = ">=0.7,<1" },
     { name = "uvicorn", specifier = ">=0.30,<1" },
 ]
 provides-extras = ["paddle-client"]

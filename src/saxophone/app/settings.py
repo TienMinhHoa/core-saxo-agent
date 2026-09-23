@@ -36,6 +36,16 @@ class AppSettings:
     litellm_circuit_breaker_cooldown_seconds: float = 30.0
     litellm_structured_output_mode: str = "json_schema"
     chunk_tagging_enabled: bool = False
+    model_provider: str = "gateway"
+    deepseek_api_base_url: str = "https://api.deepseek.com"
+    deepseek_api_key: str | None = field(default=None, repr=False)
+    deepseek_model: str = "deepseek-flash"
+    agent_chat_model: str = "deepseek-pro"
+    deepseek_reasoning_effort: str = "max"
+    deepseek_max_tokens: int = 65536
+    openai_api_base_url: str = "https://api.openai.com/v1"
+    openai_api_key: str | None = field(default=None, repr=False)
+    openai_embedding_model: str = "text-embedding-3-small"
     chroma_persist_directory: Path = Path("runtime/saxophone/chroma")
     chroma_collection_name: str = "saxophone_chunks"
     chroma_concept_collection_name: str = "concept_catalog"
@@ -63,6 +73,37 @@ class AppSettings:
         )
         _parse_structured_output_mode(self.litellm_structured_output_mode)
         _validate_runtime_boolean(self.chunk_tagging_enabled, "chunk_tagging_enabled")
+        _parse_model_provider(self.model_provider)
+        _parse_optional_https_url(
+            self.deepseek_api_base_url,
+            default="https://api.deepseek.com",
+            variable="SAXO_DEEPSEEK_API_BASE_URL",
+        )
+        _parse_optional_https_url(
+            self.openai_api_base_url,
+            default="https://api.openai.com/v1",
+            variable="SAXO_OPENAI_API_BASE_URL",
+        )
+        _parse_required_text(self.deepseek_model, "SAXO_DEEPSEEK_MODEL")
+        _parse_agent_chat_model(self.agent_chat_model)
+        _parse_reasoning_effort(self.deepseek_reasoning_effort)
+        _parse_required_text(
+            self.openai_embedding_model,
+            "SAXO_OPENAI_EMBEDDING_MODEL",
+        )
+        if self.model_provider == "direct":
+            _parse_required_token(self.deepseek_api_key, "DEEPSEEK_API_KEY")
+            _parse_required_token(self.openai_api_key, "OPENAI_API_KEY")
+            if self.litellm_structured_output_mode != "json_object":
+                raise SettingsValidationError(
+                    "SAXO_LITELLM_STRUCTURED_OUTPUT_MODE must be json_object "
+                    "when SAXO_MODEL_PROVIDER=direct"
+                )
+            if not self.chunk_tagging_enabled:
+                raise SettingsValidationError(
+                    "SAXO_CHUNK_TAGGING_ENABLED must be true "
+                    "when SAXO_MODEL_PROVIDER=direct"
+                )
         _validate_canonical_runtime_text(
             self.chroma_collection_name,
             "SAXO_CHROMA_COLLECTION_NAME",
@@ -95,6 +136,7 @@ class AppSettings:
             "remote_gpu_max_in_flight",
             "remote_gpu_retention_days",
             "litellm_max_attempts",
+            "deepseek_max_tokens",
             "embedding_dimension",
             "max_upload_bytes",
         ):
@@ -145,18 +187,48 @@ class AppSettings:
         application boundary and makes configuration tests deterministic.
         """
         _validate_environment_mapping(environment)
+        model_provider = _parse_model_provider(
+            environment.get("SAXO_MODEL_PROVIDER", "gateway")
+        )
+        deepseek_api_base_url = _parse_optional_https_url(
+            environment.get("SAXO_DEEPSEEK_API_BASE_URL"),
+            default="https://api.deepseek.com",
+            variable="SAXO_DEEPSEEK_API_BASE_URL",
+        )
+        deepseek_api_key = _parse_optional_token(
+            environment.get("SAXO_DEEPSEEK_API_KEY")
+            or environment.get("DEEPSEEK_API_KEY"),
+            "DEEPSEEK_API_KEY",
+        )
+        openai_api_base_url = _parse_optional_https_url(
+            environment.get("SAXO_OPENAI_API_BASE_URL"),
+            default="https://api.openai.com/v1",
+            variable="SAXO_OPENAI_API_BASE_URL",
+        )
+        openai_api_key = _parse_optional_token(
+            environment.get("SAXO_OPENAI_API_KEY") or environment.get("OPENAI_API_KEY"),
+            "OPENAI_API_KEY",
+        )
         data_root = _parse_data_root(
             environment.get("SAXO_DATA_ROOT", "runtime/saxophone")
         )
-        base_url = _parse_remote_gpu_base_url(
-            environment.get("SAXO_REMOTE_GPU_BASE_URL"),
-        )
-        bearer_token = _parse_required_token(
-            environment.get("SAXO_REMOTE_GPU_BEARER_TOKEN"),
-        )
+        if model_provider == "direct":
+            base_url = deepseek_api_base_url
+            bearer_token = _parse_required_token(deepseek_api_key, "DEEPSEEK_API_KEY")
+        else:
+            base_url = _parse_remote_gpu_base_url(
+                environment.get("SAXO_REMOTE_GPU_BASE_URL"),
+            )
+            bearer_token = _parse_required_token(
+                environment.get("SAXO_REMOTE_GPU_BEARER_TOKEN"),
+            )
         endpoint = _parse_optional_https_url(
             environment.get("SAXO_LITELLM_ENDPOINT"),
-            default=f"{base_url.rstrip('/')}/v1/invoke",
+            default=(
+                f"{deepseek_api_base_url.rstrip('/')}/chat/completions"
+                if model_provider == "direct"
+                else f"{base_url.rstrip('/')}/v1/invoke"
+            ),
             variable="SAXO_LITELLM_ENDPOINT",
         )
         chroma_directory = _parse_chroma_directory(
@@ -172,6 +244,9 @@ class AppSettings:
                 "concept_catalog",
             ),
             "SAXO_CHROMA_CONCEPT_COLLECTION_NAME",
+        )
+        structured_output_default = (
+            "json_object" if model_provider == "direct" else "json_schema"
         )
         return cls(
             data_root=data_root,
@@ -231,11 +306,40 @@ class AppSettings:
                 strictly_positive=True,
             ),
             litellm_structured_output_mode=_parse_structured_output_mode(
-                environment.get("SAXO_LITELLM_STRUCTURED_OUTPUT_MODE", "json_schema"),
+                environment.get(
+                    "SAXO_LITELLM_STRUCTURED_OUTPUT_MODE",
+                    structured_output_default,
+                ),
             ),
             chunk_tagging_enabled=_parse_boolean(
                 environment.get("SAXO_CHUNK_TAGGING_ENABLED", "false"),
                 "SAXO_CHUNK_TAGGING_ENABLED",
+            ),
+            model_provider=model_provider,
+            deepseek_api_base_url=deepseek_api_base_url,
+            deepseek_api_key=deepseek_api_key,
+            deepseek_model=_parse_required_text(
+                environment.get("SAXO_DEEPSEEK_MODEL", "deepseek-flash"),
+                "SAXO_DEEPSEEK_MODEL",
+            ),
+            agent_chat_model=_parse_agent_chat_model(
+                environment.get("SAXO_AGENT_CHAT_MODEL", "deepseek-pro")
+            ),
+            deepseek_reasoning_effort=_parse_reasoning_effort(
+                environment.get("SAXO_DEEPSEEK_REASONING_EFFORT", "max")
+            ),
+            deepseek_max_tokens=_parse_positive_integer(
+                environment.get("SAXO_DEEPSEEK_MAX_TOKENS", "65536"),
+                "SAXO_DEEPSEEK_MAX_TOKENS",
+            ),
+            openai_api_base_url=openai_api_base_url,
+            openai_api_key=openai_api_key,
+            openai_embedding_model=_parse_required_text(
+                environment.get(
+                    "SAXO_OPENAI_EMBEDDING_MODEL",
+                    "text-embedding-3-small",
+                ),
+                "SAXO_OPENAI_EMBEDDING_MODEL",
             ),
             chroma_persist_directory=chroma_directory,
             chroma_collection_name=collection_name,
@@ -341,16 +445,39 @@ def _parse_optional_https_url(value: str | None, *, default: str, variable: str)
     return url
 
 
-def _parse_required_token(value: str | None) -> str:
-    _validate_optional_runtime_text(value, "SAXO_REMOTE_GPU_BEARER_TOKEN")
+def _parse_required_token(
+    value: str | None,
+    variable: str = "SAXO_REMOTE_GPU_BEARER_TOKEN",
+) -> str:
+    _validate_optional_runtime_text(value, variable)
     if not value or not value.strip():
-        raise SettingsValidationError("SAXO_REMOTE_GPU_BEARER_TOKEN is required")
+        raise SettingsValidationError(f"{variable} is required")
     token = value.strip()
     if any(ord(character) < 32 or ord(character) == 127 for character in token):
         raise SettingsValidationError(
-            "SAXO_REMOTE_GPU_BEARER_TOKEN must not contain control characters",
+            f"{variable} must not contain control characters",
         )
     return token
+
+
+def _parse_optional_token(value: str | None, variable: str) -> str | None:
+    if value is None or not value.strip():
+        return None
+    return _parse_required_token(value, variable)
+
+
+def _parse_model_provider(value: object) -> str:
+    variable = "SAXO_MODEL_PROVIDER"
+    if value not in {"gateway", "direct"}:
+        raise SettingsValidationError(f"{variable} must be gateway or direct")
+    return str(value)
+
+
+def _parse_reasoning_effort(value: object) -> str:
+    variable = "SAXO_DEEPSEEK_REASONING_EFFORT"
+    if value not in {"low", "high", "max"}:
+        raise SettingsValidationError(f"{variable} must be low, high, or max")
+    return str(value)
 
 
 def _parse_boolean(value: str | None, variable: str) -> bool:
@@ -390,6 +517,16 @@ def _parse_required_text(value: str | None, variable: str) -> str:
     if not value or not value.strip():
         raise SettingsValidationError(f"{variable} must not be empty")
     return value.strip()
+
+
+def _parse_agent_chat_model(value: str | None) -> str:
+    variable = "SAXO_AGENT_CHAT_MODEL"
+    model = _parse_required_text(value, variable)
+    if value != model or any(ord(character) < 0x20 or ord(character) == 0x7F for character in model):
+        raise SettingsValidationError(
+            f"{variable} must be canonical text without control characters"
+        )
+    return model
 
 
 def _parse_structured_output_mode(value: object) -> str:

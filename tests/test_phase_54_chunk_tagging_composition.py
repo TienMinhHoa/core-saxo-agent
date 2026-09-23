@@ -11,8 +11,9 @@ from saxophone.ingestion.concept_embedding import (
     ConceptCatalogVectorPreparationService,
 )
 from saxophone.ingestion.concept_repository import SqliteConceptCatalogRepository
+from saxophone.ingestion.content_ledger import SqliteContentLedger
 from saxophone.ingestion.use_cases import DocumentChunkTaggingService
-from saxophone.tagging.adapters import RemoteChunkTagger
+from saxophone.tagging.structured_chunk import StructuredChunkTagger
 
 
 VALID_ENVIRONMENT = {
@@ -70,8 +71,10 @@ def test_enabled_composition_selects_chunk_tagging_and_atomic_sqlite_boundary(
 ) -> None:
     container = _app(_settings(tmp_path, enabled="true")).state.container
 
-    assert isinstance(container.chunk_tagger, RemoteChunkTagger)
+    assert isinstance(container.chunk_tagger, StructuredChunkTagger)
     assert isinstance(container.chunk_tagging, DocumentChunkTaggingService)
+    assert isinstance(container.embedding_reuse, SqliteContentLedger)
+    assert container.chunk_tagging._content_ledger is container.embedding_reuse
     assert isinstance(
         container.ingestion_transaction_repository,
         SqliteIngestionTransactionRepository,

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass
+from pathlib import Path
 import re
+import sys
 from typing import AsyncIterator
 from uuid import uuid4
 
@@ -15,7 +17,12 @@ from fastapi import Request
 from fastapi.responses import Response
 
 from saxophone.app.settings import AppSettings
-from saxophone.chat import AnswerGenerator, AnswerQuestion, ImageArtifactGate
+from saxophone.chat import (
+    AnswerGenerator,
+    AnswerQuestion,
+    GroundedAnswerService,
+    ImageArtifactGate,
+)
 from saxophone.documents import ArtifactRepository, ImageArtifactResolver, KnowledgeRepository
 from saxophone.extraction import (
     PdfExtractor,
@@ -25,6 +32,7 @@ from saxophone.extraction import (
 from saxophone.ingestion.adapters import FileEmbeddingReuseStore, RemoteEmbeddingProvider
 from saxophone.ingestion.concept_embedding import ConceptCatalogVectorPreparationService
 from saxophone.ingestion.concept_repository import SqliteConceptCatalogRepository
+from saxophone.ingestion.content_ledger import SqliteContentLedger
 from saxophone.ingestion import (
     EmbeddingProvider,
     EmbeddingReuseStore,
@@ -45,14 +53,29 @@ from saxophone.platform.artifacts import (
 from saxophone.platform.chroma import create_chroma_vector_index
 from saxophone.platform.concurrency import create_blocking_io_limiter
 from saxophone.platform.knowledge import JsonKnowledgeRepository
+from saxophone.platform.direct_model_client import DirectApiModelClient
 from saxophone.platform.model_client import LiteLLMModelClient, ModelClient
-from saxophone.platform.observability import EventMetrics, EventSink, LoggingEventSink
+from saxophone.platform.observability import (
+    DailyTextFileEventSink,
+    EventMetrics,
+    EventSink,
+    LoggingEventSink,
+)
 from saxophone.platform.remote_gpu import (
     CachedRemoteGpuGateway,
+    DirectProviderHealthGateway,
     HttpRemoteGpuGateway,
     RemoteGpuGateway,
 )
-from saxophone.retrieval import ChunkRetriever, RetrieveEvidence
+from saxophone.retrieval import ChunkRetriever, QuestionRetrievalService, RetrieveEvidence
+from saxophone.retrieval.adapters import VectorIndexChunkRetriever
+from saxophone.retrieval.role_selection import StructuredConceptRoleSelector
+from saxophone.retrieval.sqlite_context import SqliteRetrievalContextRepository
+from saxophone.services.extract_topic import (
+    DocumentIngestionFacadeAdapter,
+    DocumentTaggingFacadeAdapter,
+    ExtractTopicService,
+)
 from saxophone.tagging import (
     JsonTagCatalogRepository,
     JsonTaggedParagraphRepository,
@@ -66,15 +89,15 @@ from saxophone.tagging import (
     TaggedParagraphRepository,
     ChunkTagger,
 )
-from saxophone.tagging.adapters import RemoteChunkTagger
 from saxophone.tagging.chunk_service import ChunkTaggingService, ChunkTaggingTransactionService
+from saxophone.tagging.structured_chunk import StructuredChunkTagger
 from saxophone.tagging.vector_outbox import SqliteVectorOutboxRepository
 from saxophone.tagging.structured_provider import (
     RemoteStructuredLlmProvider,
     StructuredLlmProvider,
     StructuredOutputMode,
 )
-from saxophone.interfaces.api import build_capability_router
+from saxophone.interfaces.api import build_agent_chat_router, build_capability_router
 from saxophone.interfaces.pdf_layout_web import app as pdf_layout_app
 from saxophone.workflows import (
     IngestExtractedDocument,
@@ -112,6 +135,47 @@ def _supports_vector_sync(vector_index: object | None) -> bool:
     )
 
 
+def _supports_topic_retrieval(
+    vector_index: object | None,
+    embedding_provider: object | None,
+) -> bool:
+    return (
+        vector_index is not None
+        and embedding_provider is not None
+        and callable(getattr(vector_index, "search", None))
+        and callable(getattr(embedding_provider, "embed_texts", None))
+    )
+
+
+def _create_direct_model_client(
+    settings: AppSettings,
+    *,
+    http_client: httpx.AsyncClient,
+    deepseek_model: str,
+    event_sink: EventSink,
+    metrics: EventMetrics | None,
+) -> DirectApiModelClient:
+    assert settings.deepseek_api_key is not None
+    assert settings.openai_api_key is not None
+    return DirectApiModelClient(
+        http_client=http_client,
+        deepseek_api_base_url=settings.deepseek_api_base_url,
+        deepseek_api_key=settings.deepseek_api_key,
+        deepseek_model=deepseek_model,
+        deepseek_reasoning_effort=settings.deepseek_reasoning_effort,
+        deepseek_max_tokens=settings.deepseek_max_tokens,
+        openai_api_base_url=settings.openai_api_base_url,
+        openai_api_key=settings.openai_api_key,
+        openai_embedding_model=settings.openai_embedding_model,
+        embedding_dimension=settings.embedding_dimension,
+        timeout_seconds=settings.litellm_timeout_seconds,
+        max_attempts=settings.litellm_max_attempts,
+        retry_backoff_seconds=settings.litellm_retry_backoff_seconds,
+        event_sink=event_sink,
+        metrics=metrics,
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class AppContainer:
     """Explicit dependencies owned by one application instance."""
@@ -120,6 +184,7 @@ class AppContainer:
     remote_gpu_gateway: RemoteGpuGateway
     model_client: ModelClient
     structured_llm_provider: StructuredLlmProvider
+    agent_structured_llm_provider: StructuredLlmProvider
     event_sink: EventSink
     metrics: EventMetrics | None = None
     http_client: httpx.AsyncClient | None = None
@@ -128,6 +193,7 @@ class AppContainer:
     pdf_extractor: PdfExtractor | None = None
     embedding_provider: EmbeddingProvider | None = None
     embedding_reuse: EmbeddingReuseStore | None = None
+    content_ledger: SqliteContentLedger | None = None
     vector_index: VectorIndex | None = None
     artifact_repository: ArtifactRepository | None = None
     image_artifact_resolver: ImageArtifactResolver | None = None
@@ -146,6 +212,10 @@ class AppContainer:
     ingestion_transaction_repository: SqliteIngestionTransactionRepository | None = None
     concept_catalog_repository: SqliteConceptCatalogRepository | None = None
     document_ingestion: DocumentIngestionService | None = None
+    question_retrieval: QuestionRetrievalService | None = None
+    grounded_answer: GroundedAnswerService | None = None
+    agent_chat: GroundedAnswerService | None = None
+    extract_topic: ExtractTopicService | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +224,8 @@ class AppOverrides:
 
     remote_gpu_gateway: RemoteGpuGateway | None = None
     model_client: ModelClient | None = None
+    structured_llm_provider: StructuredLlmProvider | None = None
+    agent_structured_llm_provider: StructuredLlmProvider | None = None
     event_sink: EventSink | None = None
     retrieve_evidence: RetrieveEvidence | None = None
     answer_question: AnswerQuestion | None = None
@@ -163,6 +235,7 @@ class AppOverrides:
     pdf_extractor: PdfExtractor | None = None
     embedding_provider: EmbeddingProvider | None = None
     embedding_reuse: EmbeddingReuseStore | None = None
+    content_ledger: SqliteContentLedger | None = None
     artifact_repository: ArtifactRepository | None = None
     image_artifact_resolver: ImageArtifactResolver | None = None
     process_document: ProcessDocument | None = None
@@ -178,6 +251,7 @@ class AppOverrides:
     knowledge_repository: KnowledgeRepository | None = None
     chunk_tagger: ChunkTagger | None = None
     document_ingestion: DocumentIngestionService | None = None
+    agent_chat: GroundedAnswerService | None = None
 
 
 def create_layout_app() -> FastAPI:
@@ -195,49 +269,94 @@ def create_app(
     """Compose the sole ASGI application without reading process environment."""
 
     resolved_overrides = overrides or AppOverrides()
+    direct_provider = settings.model_provider == "direct"
     io_limiter = create_blocking_io_limiter()
     http_client: httpx.AsyncClient | None = None
     remote_gpu_gateway = resolved_overrides.remote_gpu_gateway
     model_client = resolved_overrides.model_client
-    event_sink = resolved_overrides.event_sink or LoggingEventSink()
-    metrics = event_sink.metrics if isinstance(event_sink, LoggingEventSink) else None
-    if metrics is None and resolved_overrides.event_sink is None:
+    if resolved_overrides.event_sink is None:
         metrics = EventMetrics()
-        event_sink = LoggingEventSink(metrics=metrics)
+        event_sink = DailyTextFileEventSink(
+            Path("logs"),
+            metrics=metrics,
+            progress_stream=sys.stdout,
+        )
+    else:
+        event_sink = resolved_overrides.event_sink
+        metrics = event_sink.metrics if isinstance(event_sink, LoggingEventSink) else None
     if remote_gpu_gateway is None or model_client is None:
         http_client = httpx.AsyncClient(verify=settings.remote_gpu_tls_verify)
     if remote_gpu_gateway is None:
-        remote_gpu_gateway = HttpRemoteGpuGateway(
-            settings,
-            http_client=http_client,
-            timeout_seconds=settings.remote_gpu_health_timeout_seconds,
-        )
+        if direct_provider:
+            assert settings.deepseek_api_key is not None
+            assert settings.openai_api_key is not None
+            remote_gpu_gateway = DirectProviderHealthGateway(
+                http_client=http_client,
+                deepseek_api_base_url=settings.deepseek_api_base_url,
+                deepseek_api_key=settings.deepseek_api_key,
+                openai_api_base_url=settings.openai_api_base_url,
+                openai_api_key=settings.openai_api_key,
+                timeout_seconds=settings.remote_gpu_health_timeout_seconds,
+            )
+        else:
+            remote_gpu_gateway = HttpRemoteGpuGateway(
+                settings,
+                http_client=http_client,
+                timeout_seconds=settings.remote_gpu_health_timeout_seconds,
+            )
     cached_remote_gpu_gateway = CachedRemoteGpuGateway(
         remote_gpu_gateway,
         ttl_seconds=settings.remote_gpu_health_cache_seconds,
     )
     if model_client is None:
-        model_client = LiteLLMModelClient(
-            settings.litellm_endpoint,
-            http_client=http_client,
-            bearer_token=settings.remote_gpu_bearer_token,
-            timeout_seconds=settings.litellm_timeout_seconds,
-            max_attempts=settings.litellm_max_attempts,
-            retry_backoff_seconds=settings.litellm_retry_backoff_seconds,
-            retry_jitter_ratio=settings.litellm_retry_jitter_ratio,
-            circuit_breaker_failure_threshold=settings.litellm_circuit_breaker_failure_threshold,
-            circuit_breaker_cooldown_seconds=settings.litellm_circuit_breaker_cooldown_seconds,
-            event_sink=event_sink,
-            metrics=metrics,
+        if direct_provider:
+            model_client = _create_direct_model_client(
+                settings,
+                http_client=http_client,
+                deepseek_model=settings.deepseek_model,
+                event_sink=event_sink,
+                metrics=metrics,
+            )
+        else:
+            model_client = LiteLLMModelClient(
+                settings.litellm_endpoint,
+                http_client=http_client,
+                bearer_token=settings.remote_gpu_bearer_token,
+                timeout_seconds=settings.litellm_timeout_seconds,
+                max_attempts=settings.litellm_max_attempts,
+                retry_backoff_seconds=settings.litellm_retry_backoff_seconds,
+                retry_jitter_ratio=settings.litellm_retry_jitter_ratio,
+                circuit_breaker_failure_threshold=settings.litellm_circuit_breaker_failure_threshold,
+                circuit_breaker_cooldown_seconds=settings.litellm_circuit_breaker_cooldown_seconds,
+                event_sink=event_sink,
+                metrics=metrics,
+            )
+    structured_llm_provider = resolved_overrides.structured_llm_provider
+    if structured_llm_provider is None:
+        structured_llm_provider = RemoteStructuredLlmProvider(
+            model_client,
+            model=settings.litellm_model_profile,
+            mode=StructuredOutputMode(settings.litellm_structured_output_mode),
         )
-    structured_llm_provider = RemoteStructuredLlmProvider(
-        model_client,
-        model=settings.litellm_model_profile,
-        mode=StructuredOutputMode(settings.litellm_structured_output_mode),
-    )
+    agent_structured_llm_provider = resolved_overrides.agent_structured_llm_provider
+    if agent_structured_llm_provider is None:
+        agent_model_client = model_client
+        if direct_provider and resolved_overrides.model_client is None:
+            agent_model_client = _create_direct_model_client(
+                settings,
+                http_client=http_client,
+                deepseek_model=settings.agent_chat_model,
+                event_sink=event_sink,
+                metrics=metrics,
+            )
+        agent_structured_llm_provider = RemoteStructuredLlmProvider(
+            agent_model_client,
+            model=settings.agent_chat_model,
+            mode=StructuredOutputMode(settings.litellm_structured_output_mode),
+        )
 
     pdf_extractor = resolved_overrides.pdf_extractor
-    if pdf_extractor is None:
+    if pdf_extractor is None and not direct_provider:
         pdf_extractor = RemotePdfExtractor(
             model_client,
             model=settings.litellm_model_profile,
@@ -297,11 +416,14 @@ def create_app(
             RepositoryExtractionArtifactPayloadProvider(artifact_repository),
             artifact_repository,
         )
+    ingestion_database = settings.data_root / "ingestion.sqlite3"
+    content_ledger = resolved_overrides.content_ledger
+    if content_ledger is None and settings.chunk_tagging_enabled:
+        content_ledger = SqliteContentLedger(ingestion_database)
     embedding_reuse = resolved_overrides.embedding_reuse
     if embedding_reuse is None:
-        embedding_reuse = FileEmbeddingReuseStore(
-            settings.data_root / "embedding-reuse.json",
-            io_limiter=io_limiter,
+        embedding_reuse = content_ledger or FileEmbeddingReuseStore(
+            settings.data_root / "embedding-reuse.json", io_limiter=io_limiter
         )
     vector_index = resolved_overrides.vector_index
     if vector_index is None and not resolved_overrides.disable_vector_index:
@@ -321,11 +443,9 @@ def create_app(
     vector_state: SqliteVectorIndexStateRepository | None = None
     document_ingestion = resolved_overrides.document_ingestion
     if settings.chunk_tagging_enabled:
-        chunk_tagger = resolved_overrides.chunk_tagger or RemoteChunkTagger(
-            model_client,
-            model=settings.litellm_model_profile,
+        chunk_tagger = resolved_overrides.chunk_tagger or StructuredChunkTagger(
+            structured_llm_provider
         )
-        ingestion_database = settings.data_root / "ingestion.sqlite3"
         ingestion_transaction_repository = SqliteIngestionTransactionRepository(
             ingestion_database
         )
@@ -335,7 +455,8 @@ def create_app(
             ChunkTaggingTransactionService(
                 ChunkTaggingService(chunk_tagger),
                 ingestion_transaction_repository,
-            )
+            ),
+            content_ledger=content_ledger,
         )
     ingest_extracted_document = resolved_overrides.ingest_extracted_document
     if ingest_extracted_document is None and index_document is not None:
@@ -375,6 +496,7 @@ def create_app(
                 ingest_workflow,
                 vector_sync=vector_sync,
                 lifecycle=lifecycle,
+                event_sink=event_sink,
             )
         ingest_extracted_document = IngestExtractedDocument(
             artifact_repository,
@@ -395,11 +517,45 @@ def create_app(
                 resolved_overrides.image_artifact_gate,
             )
 
+    question_retrieval: QuestionRetrievalService | None = None
+    grounded_answer: GroundedAnswerService | None = None
+    agent_chat = resolved_overrides.agent_chat
+    extract_topic: ExtractTopicService | None = None
+    if (
+        chunk_tagging is not None
+        and document_ingestion is not None
+        and ingestion_transaction_repository is not None
+        and _supports_topic_retrieval(vector_index, embedding_provider)
+    ):
+        question_retrieval = QuestionRetrievalService(
+            retriever=VectorIndexChunkRetriever(embedding_provider, vector_index),
+            selector=StructuredConceptRoleSelector(structured_llm_provider),
+            context_repository=SqliteRetrievalContextRepository(ingestion_database),
+        )
+        grounded_answer = GroundedAnswerService(
+            retrieval=question_retrieval,
+            provider=structured_llm_provider,
+            model_version=settings.litellm_model_profile,
+        )
+        if agent_chat is None:
+            agent_chat = GroundedAnswerService(
+                retrieval=question_retrieval,
+                provider=agent_structured_llm_provider,
+                model_version=settings.agent_chat_model,
+            )
+        extract_topic = ExtractTopicService(
+            ingestion=DocumentIngestionFacadeAdapter(document_ingestion),
+            tagging=DocumentTaggingFacadeAdapter(chunk_tagging),
+            retrieval=question_retrieval,
+            answering=grounded_answer,
+        )
+
     container = AppContainer(
         settings=settings,
         remote_gpu_gateway=remote_gpu_gateway,
         model_client=model_client,
         structured_llm_provider=structured_llm_provider,
+        agent_structured_llm_provider=agent_structured_llm_provider,
         event_sink=event_sink,
         metrics=metrics,
         http_client=http_client,
@@ -408,6 +564,7 @@ def create_app(
         pdf_extractor=pdf_extractor,
         embedding_provider=embedding_provider,
         embedding_reuse=embedding_reuse,
+        content_ledger=content_ledger,
         vector_index=vector_index,
         artifact_repository=artifact_repository,
         image_artifact_resolver=resolved_overrides.image_artifact_resolver,
@@ -426,6 +583,10 @@ def create_app(
         ingestion_transaction_repository=ingestion_transaction_repository,
         concept_catalog_repository=concept_catalog_repository,
         document_ingestion=document_ingestion,
+        question_retrieval=question_retrieval,
+        grounded_answer=grounded_answer,
+        agent_chat=agent_chat,
+        extract_topic=extract_topic,
     )
 
     @asynccontextmanager
@@ -472,6 +633,7 @@ def create_app(
             max_upload_bytes=settings.max_upload_bytes,
         ),
     )
+    app.include_router(build_agent_chat_router(agent_chat=container.agent_chat))
     app.mount("/pdf-layout", pdf_layout_app)
 
     @app.get("/api/v1/health")

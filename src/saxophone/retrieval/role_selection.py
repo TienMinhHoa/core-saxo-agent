@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
 from saxophone.platform.model_client import ModelClient, ModelRequest, ModelTask, ModelValidationError
 from saxophone.tagging.models import ContentRole
+from saxophone.tagging.structured_provider import StructuredLlmProvider
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +95,99 @@ class ConceptRoleSelector(Protocol):
         ...
 
 
+@dataclass(frozen=True, slots=True)
+class _StructuredSelection:
+    concept: str
+    selected_roles: tuple[ContentRole, ...]
+    selection_rank: int
+
+
+@dataclass(frozen=True, slots=True)
+class _StructuredSelectionResult:
+    selections: tuple[_StructuredSelection, ...]
+
+    @classmethod
+    def model_json_schema(cls) -> dict[str, object]:
+        return {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["selections"],
+            "properties": {
+                "selections": {"type": "array", "items": {"type": "object"}},
+            },
+        }
+
+    @classmethod
+    def model_validate(cls, value: object) -> "_StructuredSelectionResult":
+        if not isinstance(value, Mapping) or set(value) != {"selections"}:
+            raise ValueError("role selection output fields do not match the contract")
+        raw_selections = value.get("selections")
+        if not isinstance(raw_selections, list):
+            raise ValueError("selections must be a list")
+        selections: list[_StructuredSelection] = []
+        for raw in raw_selections:
+            if not isinstance(raw, Mapping) or set(raw) != {
+                "concept",
+                "selected_roles",
+                "selection_rank",
+            }:
+                raise ValueError("selection fields do not match the contract")
+            concept = raw.get("concept")
+            roles = raw.get("selected_roles")
+            rank = raw.get("selection_rank")
+            if not isinstance(concept, str) or not concept.strip():
+                raise ValueError("selection concept must not be blank")
+            if not isinstance(roles, list):
+                raise ValueError("selected_roles must be a list")
+            if isinstance(rank, bool) or not isinstance(rank, int):
+                raise ValueError("selection_rank must be an integer")
+            selections.append(
+                _StructuredSelection(
+                    concept.strip(),
+                    tuple(ContentRole(role) for role in roles),
+                    rank,
+                )
+            )
+        return cls(tuple(selections))
+
+
+class StructuredConceptRoleSelector:
+    """Select only candidate concept-role pairs through the shared provider."""
+
+    def __init__(self, provider: StructuredLlmProvider) -> None:
+        if not callable(getattr(provider, "generate_structured", None)):
+            raise TypeError("provider must provide generate_structured")
+        self._provider = provider
+
+    async def select(
+        self,
+        request: ConceptRoleSelectionRequest,
+    ) -> ConceptRoleSelectionResult:
+        if not isinstance(request, ConceptRoleSelectionRequest):
+            raise ValueError("request must be a ConceptRoleSelectionRequest")
+        payload = await self._provider.generate_structured(
+            task_type="concept_role_selection",
+            system_prompt=(
+                "Select only relevant concepts and roles from the supplied candidate list. "
+                "Never invent a concept or role."
+            ),
+            user_prompt=_selection_markdown(request),
+            response_model=_StructuredSelectionResult,
+        )
+        result = ConceptRoleSelectionResult(
+            tuple(
+                ConceptRoleSelection(
+                    item.concept,
+                    tuple(item.selected_roles),
+                    item.selection_rank,
+                )
+                for item in payload.selections
+            )
+        )
+        result.validate_against(request)
+        return result
+
+
 class RemoteConceptRoleSelector:
     """Map one role-selection request to one validated retrieval model call."""
 
@@ -165,3 +260,26 @@ def _roles(values: tuple[ContentRole, ...]) -> tuple[ContentRole, ...]:
     if len(set(roles)) != len(roles):
         raise ValueError("roles must not contain duplicates")
     return roles
+
+
+def _selection_markdown(request: ConceptRoleSelectionRequest) -> str:
+    lines = [
+        "# Concept and Role Selection",
+        "",
+        "## User question",
+        "",
+        request.question,
+        "",
+        "## Candidate concepts from retrieved chunks",
+        "",
+    ]
+    for candidate in request.candidates:
+        lines.extend((f"### Concept: {candidate.canonical_concept}", ""))
+        lines.extend(
+            f"- Available role: {role.value}"
+            for role in candidate.available_roles
+        )
+        if candidate.chunk_refs:
+            lines.append(f"- Parent chunks: {', '.join(candidate.chunk_refs)}")
+        lines.append("")
+    return "\n".join(lines).strip()

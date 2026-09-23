@@ -168,11 +168,13 @@ def test_structured_event_includes_optional_usage_fields_when_present() -> None:
         input_tokens=10,
         output_tokens=4,
         cost_usd=0.0001,
+        pricing_basis="test-pricing-v1",
     )
 
     assert event.as_dict()["input_tokens"] == 10
     assert event.as_dict()["output_tokens"] == 4
     assert event.as_dict()["cost_usd"] == 0.0001
+    assert event.as_dict()["pricing_basis"] == "test-pricing-v1"
 
 
 @pytest.mark.parametrize("field,value", [("input_tokens", -1), ("output_tokens", -1), ("cost_usd", -0.1)])

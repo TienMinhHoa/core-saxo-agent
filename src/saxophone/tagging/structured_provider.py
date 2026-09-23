@@ -86,7 +86,7 @@ class RemoteStructuredLlmProvider:
         schema_factory = getattr(response_model, "model_json_schema", None)
         validator = getattr(response_model, "model_validate", None)
         if not callable(schema_factory) or not callable(validator):
-            raise TypeError("response_model must be a Pydantic model class")
+            raise TypeError("response_model must implement the structured model contract")
         schema = schema_factory()
         if not isinstance(schema, dict):
             raise TypeError("response_model schema must be a mapping")
@@ -146,7 +146,7 @@ class FakeStructuredLlmProvider:
         _require_prompt("user_prompt", user_prompt)
         validator = getattr(response_model, "model_validate", None)
         if not callable(validator):
-            raise TypeError("response_model must be a Pydantic model class")
+            raise TypeError("response_model must implement the structured model contract")
         if task_type not in self._responses:
             raise ValueError(f"no fake response configured for task_type: {task_type}")
         try:

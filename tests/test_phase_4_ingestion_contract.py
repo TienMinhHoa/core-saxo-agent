@@ -548,6 +548,29 @@ async def test_chroma_upsert_projects_nested_tuple_metadata_without_provider_err
 
 
 @pytest.mark.anyio
+async def test_chroma_upsert_omits_empty_metadata_lists_rejected_by_provider() -> None:
+    collection = _FakeChromaCollection()
+    index = ChromaVectorIndex(collection)
+    record = _index_record()
+    record = ChunkIndexRecord(
+        chunk_id=record.chunk_id,
+        document_ref=record.document_ref,
+        source_version=record.source_version,
+        search_text=record.search_text,
+        embedding=record.embedding,
+        embedding_profile=record.embedding_profile,
+        access_scope=record.access_scope,
+        metadata={"tags": (), "heading": "Dedication"},
+    )
+
+    await index.upsert_chunks([record])
+
+    metadata = collection.upsert_call["metadatas"][0]
+    assert "tags" not in metadata
+    assert metadata["heading"] == "Dedication"
+
+
+@pytest.mark.anyio
 async def test_chroma_upsert_rejects_recursive_metadata_before_provider_io() -> None:
     class _CollectionThatMustNotBeCalled:
         def upsert(self, **kwargs):

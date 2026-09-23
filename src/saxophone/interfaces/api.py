@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
 from saxophone.chat import ChatResult, ImageArtifactGate
@@ -21,7 +22,7 @@ from saxophone.documents import (
 )
 from saxophone.extraction import PdfExtractionRequest, PdfExtractionResult
 from saxophone.ingestion import IndexDocument, IndexInputRecord, IngestionCommand, IngestionReport
-from saxophone.retrieval import EvidenceBundle
+from saxophone.retrieval import EvidenceBundle, QuestionRequest
 from saxophone.workflows import IngestExtractedDocument, ProcessAndPersistDocument, ProcessDocument
 
 
@@ -35,6 +36,14 @@ class ChatRequest(BaseModel):
     question: str = Field(min_length=1)
     limit: int = Field(default=10, ge=1, le=100)
     filters: dict[str, object] | None = None
+
+
+class AgentChatMessageRequest(BaseModel):
+    question: str = Field(min_length=1)
+    filters: dict[str, object] | None = None
+    chunk_limit: int = Field(default=10, ge=1, le=100)
+    max_paragraphs: int = Field(default=20, ge=1, le=100)
+    max_tokens: int = Field(default=4000, ge=1, le=100_000)
 
 
 class ArtifactRequest(BaseModel):
@@ -297,6 +306,58 @@ def build_capability_router(
     return router
 
 
+def build_agent_chat_router(
+    *,
+    agent_chat: Any = None,
+    assets_root: Path | None = None,
+) -> APIRouter:
+    """Serve the browser chat console and its grounded-answer JSON boundary."""
+
+    root = assets_root or Path(__file__).with_name("api") / "assets" / "chat"
+    if not isinstance(root, Path):
+        raise TypeError("assets_root must be a Path")
+    router = APIRouter()
+    assets = {
+        "chat.css": (root / "chat.css", "text/css"),
+        "chat.js": (root / "chat.js", "application/javascript"),
+    }
+
+    @router.get("/agent/chat", include_in_schema=False)
+    async def agent_chat_page() -> FileResponse:
+        return FileResponse(root / "index.html", media_type="text/html")
+
+    @router.get("/agent/chat/assets/{asset_name}", include_in_schema=False)
+    async def agent_chat_asset(asset_name: str) -> FileResponse:
+        asset = assets.get(asset_name)
+        if asset is None:
+            raise HTTPException(status_code=404, detail="chat asset not found")
+        path, media_type = asset
+        return FileResponse(path, media_type=media_type)
+
+    @router.post("/agent/chat/messages")
+    async def agent_chat_message(
+        request: AgentChatMessageRequest,
+    ) -> dict[str, object]:
+        question = _normalized_text(request.question, "question")
+        if agent_chat is None:
+            raise HTTPException(
+                status_code=503,
+                detail="agent chat capability is not configured",
+            )
+        result = await agent_chat.answer(
+            QuestionRequest(
+                question,
+                filters=request.filters,
+                chunk_limit=request.chunk_limit,
+                max_paragraphs=request.max_paragraphs,
+                max_tokens=request.max_tokens,
+            )
+        )
+        return _agent_chat_response(result)
+
+    return router
+
+
 def _evidence_response(evidence: EvidenceBundle) -> dict[str, object]:
     return {
         "query": evidence.query,
@@ -318,6 +379,26 @@ def _chat_response(result: ChatResult) -> dict[str, object]:
         "token_usage": dict(result.token_usage),
         "cost": result.cost,
         "insufficiency_reason": result.insufficiency_reason,
+    }
+
+
+def _agent_chat_response(result: object) -> dict[str, object]:
+    sources = tuple(getattr(result, "sources", ()))
+    return {
+        "status": str(getattr(result, "status")),
+        "answer": getattr(result, "answer", None),
+        "sources": [
+            {
+                "paragraph_ref": source.paragraph_ref,
+                "chunk_id": source.chunk_id,
+                "source": source.source,
+                "page_start": source.page_start,
+                "page_end": source.page_end,
+                "image_refs": list(source.image_refs),
+            }
+            for source in sources
+        ],
+        "model_version": getattr(result, "model_version", None),
     }
 
 

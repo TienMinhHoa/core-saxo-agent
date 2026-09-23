@@ -11,7 +11,7 @@ from dataclasses import dataclass
 import asyncio
 import math
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Literal, Protocol
 
 import httpx
@@ -153,6 +153,68 @@ class HttpRemoteGpuGateway:
         return RemoteGpuHealth(status="unavailable")
 
 
+class DirectProviderHealthGateway:
+    """Probe direct DeepSeek and OpenAI APIs without billable inference."""
+
+    def __init__(
+        self,
+        *,
+        http_client: httpx.AsyncClient,
+        deepseek_api_base_url: str,
+        deepseek_api_key: str,
+        openai_api_base_url: str,
+        openai_api_key: str,
+        timeout_seconds: float,
+    ) -> None:
+        if not callable(getattr(http_client, "get", None)):
+            raise TypeError("http_client.get must be callable")
+        if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be finite and positive")
+        self._http_client = http_client
+        self._deepseek_url = _direct_models_url(
+            deepseek_api_base_url,
+            "deepseek_api_base_url",
+        )
+        self._openai_url = _direct_models_url(
+            openai_api_base_url,
+            "openai_api_base_url",
+        )
+        self._deepseek_headers = _direct_headers(deepseek_api_key, "deepseek_api_key")
+        self._openai_headers = _direct_headers(openai_api_key, "openai_api_key")
+        self._timeout_seconds = float(timeout_seconds)
+
+    async def health(self) -> RemoteGpuHealth:
+        deepseek_ready, openai_ready = await asyncio.gather(
+            self._probe(self._deepseek_url, self._deepseek_headers),
+            self._probe(self._openai_url, self._openai_headers),
+        )
+        capabilities: list[str] = []
+        if deepseek_ready:
+            capabilities.extend(("chunk_tagging", "retrieval_select", "answer_generate"))
+        if openai_ready:
+            capabilities.append("embed")
+        status: RemoteGpuStatus
+        if deepseek_ready and openai_ready:
+            status = "ready"
+        elif capabilities:
+            status = "degraded"
+        else:
+            status = "unavailable"
+        return RemoteGpuHealth(status=status, capabilities=tuple(capabilities))
+
+    async def _probe(self, url: str, headers: Mapping[str, str]) -> bool:
+        try:
+            response = await self._http_client.get(
+                url,
+                headers=dict(headers),
+                timeout=self._timeout_seconds,
+            )
+            response.raise_for_status()
+            return True
+        except (httpx.HTTPError, TypeError, ValueError):
+            return False
+
+
 def _parse_capabilities(value: object) -> tuple[str, ...]:
     """Keep only stable, non-sensitive capability names from remote health."""
 
@@ -168,3 +230,26 @@ def _parse_capabilities(value: object) -> tuple[str, ...]:
         ) and normalized not in capabilities:
             capabilities.append(normalized)
     return tuple(capabilities)
+
+
+def _direct_models_url(base_url: str, field_name: str) -> str:
+    if not isinstance(base_url, str) or not base_url.strip():
+        raise ValueError(f"{field_name} must be non-blank")
+    normalized = base_url.strip().rstrip("/")
+    try:
+        parsed = httpx.URL(normalized)
+        parsed.port
+    except (httpx.InvalidURL, ValueError) as error:
+        raise ValueError(f"{field_name} must be an HTTPS URL") from error
+    if parsed.scheme != "https" or not parsed.host or parsed.query or parsed.fragment:
+        raise ValueError(f"{field_name} must be an HTTPS URL")
+    return f"{normalized}/models"
+
+
+def _direct_headers(api_key: str, field_name: str) -> dict[str, str]:
+    if not isinstance(api_key, str) or not api_key.strip():
+        raise ValueError(f"{field_name} must be non-blank")
+    key = api_key.strip()
+    if any(ord(character) < 32 or ord(character) == 127 for character in key):
+        raise ValueError(f"{field_name} must not contain control characters")
+    return {"Authorization": f"Bearer {key}"}

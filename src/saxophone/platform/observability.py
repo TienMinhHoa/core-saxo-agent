@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from datetime import datetime
 import logging
 from collections import Counter, defaultdict
+from collections.abc import Callable, Mapping
+from pathlib import Path
 from threading import Lock
-from typing import Protocol
+from typing import Protocol, TextIO
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +29,16 @@ class StructuredEvent:
     input_tokens: int | None = None
     output_tokens: int | None = None
     cost_usd: float | None = None
+    pricing_basis: str | None = None
+    document_ref: str | None = None
+    stage: str | None = None
+    chunk_id: str | None = None
+    current_count: int | None = None
+    completed_count: int | None = None
+    total_count: int | None = None
+    progress_percent: float | None = None
+    elapsed_seconds: float | None = None
+    eta_seconds: float | None = None
 
     def __post_init__(self) -> None:
         for field_name in ("name", "correlation_id", "task", "model", "result"):
@@ -43,6 +56,36 @@ class StructuredEvent:
         if self.reason_code is not None and not self.reason_code.strip():
             raise ValueError("reason_code must be non-blank when provided")
         for field_name in ("input_tokens", "output_tokens", "cost_usd"):
+            value = getattr(self, field_name)
+            if value is not None and value < 0:
+                raise ValueError(f"{field_name} must not be negative")
+        if self.pricing_basis is not None and not self.pricing_basis.strip():
+            raise ValueError("pricing_basis must be non-blank when provided")
+        for field_name in ("document_ref", "stage", "chunk_id"):
+            value = getattr(self, field_name)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"{field_name} must be non-blank when provided")
+        for field_name in ("current_count", "completed_count", "total_count"):
+            value = getattr(self, field_name)
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int) or value < 0
+            ):
+                raise ValueError(f"{field_name} must be a non-negative integer")
+        if (
+            self.completed_count is not None
+            and self.total_count is not None
+            and self.completed_count > self.total_count
+        ):
+            raise ValueError("completed_count must not exceed total_count")
+        if (
+            self.current_count is not None
+            and self.total_count is not None
+            and self.current_count > self.total_count
+        ):
+            raise ValueError("current_count must not exceed total_count")
+        if self.progress_percent is not None and not 0 <= self.progress_percent <= 100:
+            raise ValueError("progress_percent must be between 0 and 100")
+        for field_name in ("elapsed_seconds", "eta_seconds"):
             value = getattr(self, field_name)
             if value is not None and value < 0:
                 raise ValueError(f"{field_name} must not be negative")
@@ -180,4 +223,133 @@ class LoggingEventSink:
     def emit(self, event: StructuredEvent) -> None:
         if self.metrics is not None:
             self.metrics.observe(event)
-        self._logger.info(event.name, extra={"structured_event": event.as_dict()})
+        log = self._logger.warning if event.result == "warning" else self._logger.info
+        log(event.name, extra={"structured_event": event.as_dict()})
+
+
+class DailyTextFileEventSink(LoggingEventSink):
+    """Write safe human-readable events to ``logs/YYYY-MM-DD.log``."""
+
+    def __init__(
+        self,
+        log_directory: Path,
+        *,
+        metrics: EventMetrics | None = None,
+        clock: Callable[[], datetime] | None = None,
+        progress_stream: TextIO | None = None,
+    ) -> None:
+        if not isinstance(log_directory, Path):
+            raise TypeError("log_directory must be a Path")
+        if clock is not None and not callable(clock):
+            raise TypeError("clock must be callable")
+        self.log_directory = log_directory
+        handler = _DailyTextFileHandler(
+            log_directory,
+            clock=clock or (lambda: datetime.now().astimezone()),
+        )
+        logger = logging.Logger("saxophone.daily-events", level=logging.INFO)
+        logger.propagate = False
+        logger.addHandler(handler)
+        super().__init__(logger, metrics=metrics)
+        self._progress_stream = progress_stream
+
+    def emit(self, event: StructuredEvent) -> None:
+        super().emit(event)
+        if event.name == "ingestion.progress" and self._progress_stream is not None:
+            self._progress_stream.write(_format_console_progress(event.as_dict()))
+            self._progress_stream.write("\n")
+            self._progress_stream.flush()
+
+
+class _DailyTextFileHandler(logging.Handler):
+    def __init__(
+        self,
+        log_directory: Path,
+        *,
+        clock: Callable[[], datetime],
+    ) -> None:
+        super().__init__(level=logging.INFO)
+        self._log_directory = log_directory
+        self._clock = clock
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            event = getattr(record, "structured_event", None)
+            if not isinstance(event, Mapping):
+                return
+            now = self._clock()
+            self._log_directory.mkdir(parents=True, exist_ok=True)
+            target = self._log_directory / f"{now.date().isoformat()}.log"
+            with target.open("a", encoding="utf-8", newline="\n") as stream:
+                stream.write(_format_text_event(now, record.levelname, event))
+                stream.write("\n")
+        except Exception:
+            self.handleError(record)
+
+
+def _format_text_event(
+    timestamp: datetime,
+    level: str,
+    event: Mapping[str, object],
+) -> str:
+    input_tokens = event.get("input_tokens")
+    output_tokens = event.get("output_tokens")
+    total_tokens = (
+        input_tokens + output_tokens
+        if isinstance(input_tokens, int) and isinstance(output_tokens, int)
+        else "n/a"
+    )
+    cost = event.get("cost_usd")
+    estimated_cost = f"{cost:.12f}" if isinstance(cost, (int, float)) else "n/a"
+    fields = (
+        ("timestamp", timestamp.isoformat()),
+        ("level", level),
+        ("event", event.get("name", "unknown")),
+        ("correlation_id", event.get("correlation_id", "unknown")),
+        ("task", event.get("task", "unknown")),
+        ("model", event.get("model", "unknown")),
+        ("attempt", event.get("attempt", "unknown")),
+        ("duration_ms", event.get("duration_ms", "unknown")),
+        ("input_tokens", input_tokens if input_tokens is not None else "n/a"),
+        ("output_tokens", output_tokens if output_tokens is not None else "n/a"),
+        ("total_tokens", total_tokens),
+        ("estimated_cost_usd", estimated_cost),
+        ("pricing_basis", event.get("pricing_basis", "n/a")),
+        ("result", event.get("result", "unknown")),
+        ("reason_code", event.get("reason_code", "n/a")),
+        ("document_ref", event.get("document_ref", "n/a")),
+        ("stage", event.get("stage", "n/a")),
+        ("chunk_id", event.get("chunk_id", "n/a")),
+        ("current", event.get("current_count", "n/a")),
+        ("completed", event.get("completed_count", "n/a")),
+        ("total", event.get("total_count", "n/a")),
+        ("progress_percent", _format_decimal(event.get("progress_percent"), 2)),
+        ("elapsed_seconds", _format_decimal(event.get("elapsed_seconds"), 1)),
+        ("eta_seconds", _format_decimal(event.get("eta_seconds"), 1)),
+    )
+    return " | ".join(f"{name}={value}" for name, value in fields)
+
+
+def _format_console_progress(event: Mapping[str, object]) -> str:
+    completed = event.get("completed_count", 0)
+    total = event.get("total_count", 0)
+    current = event.get("current_count")
+    count = f"completed={completed}/{total}"
+    if isinstance(current, int):
+        count = f"chunk={current}/{total} {count}"
+    percentage = _format_decimal(event.get("progress_percent"), 2)
+    elapsed = _format_decimal(event.get("elapsed_seconds"), 1)
+    eta = _format_decimal(event.get("eta_seconds"), 1)
+    chunk = event.get("chunk_id")
+    chunk_field = f" chunk_id={chunk}" if isinstance(chunk, str) else ""
+    return (
+        f"[INGEST] stage={event.get('stage', 'unknown')} "
+        f"status={event.get('result', 'unknown')} {count} "
+        f"progress={percentage}% elapsed={elapsed}s eta={eta}s{chunk_field}"
+    )
+
+
+def _format_decimal(value: object, digits: int) -> str:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return f"{value:.{digits}f}"
+    return "n/a"

@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Saxophone Grounded Agent</title>
+  <link rel="stylesheet" href="/agent/chat/assets/chat.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="masthead">
+      <div>
+        <p class="eyebrow">Saxophone knowledge room</p>
+        <h1>Hỏi tài liệu,<br><em>nghe câu trả lời có nguồn.</em></h1>
+      </div>
+      <div class="model-badge" aria-label="Mô hình trả lời">
+        <span class="status-dot"></span>
+        DeepSeek Pro
+      </div>
+    </header>
+
+    <section class="workspace" aria-label="Giao diện chat">
+      <aside class="sidebar">
+        <div class="sidebar-block">
+          <span class="section-number">01</span>
+          <h2>Phạm vi tìm kiếm</h2>
+          <label for="document-ref">Document ref</label>
+          <input id="document-ref" type="text" value="music-theory-pilot" autocomplete="off">
+          <p class="hint">Để trống nếu muốn tìm trong toàn bộ kho dữ liệu.</p>
+        </div>
+
+        <details class="advanced">
+          <summary><span class="section-number">02</span> Giới hạn context</summary>
+          <label for="chunk-limit">Số chunk</label>
+          <input id="chunk-limit" type="number" value="10" min="1" max="100">
+          <label for="max-paragraphs">Số paragraph</label>
+          <input id="max-paragraphs" type="number" value="20" min="1" max="100">
+          <label for="max-tokens">Context tokens</label>
+          <input id="max-tokens" type="number" value="4000" min="1" max="100000">
+        </details>
+
+        <div class="sidebar-block examples">
+          <span class="section-number">03</span>
+          <h2>Thử nhanh</h2>
+          <button type="button" data-question="What is rhythm in music?">Rhythm là gì?</button>
+          <button type="button" data-question="Explain the role of harmony.">Vai trò của harmony</button>
+          <button type="button" data-question="How is a major triad constructed?">Cấu tạo major triad</button>
+        </div>
+      </aside>
+
+      <section class="conversation">
+        <div class="conversation-head">
+          <div>
+            <span class="live-label"><i></i> Grounded retrieval</span>
+            <p>Mỗi câu trả lời đều được đối chiếu với paragraph đã ingest và gắn tag.</p>
+          </div>
+          <button id="clear-chat" class="quiet-button" type="button">Xóa hội thoại</button>
+        </div>
+
+        <div id="messages" class="messages" aria-live="polite">
+          <article class="message assistant welcome-message">
+            <div class="speaker">Agent</div>
+            <div class="bubble">
+              <p>Chào bạn. Hãy hỏi một câu về tài liệu âm nhạc đã ingest. Tôi sẽ tìm chunk, chọn concept-role phù hợp và trả lời kèm nguồn.</p>
+            </div>
+          </article>
+        </div>
+
+        <form id="chat-form" class="composer">
+          <label class="sr-only" for="question">Câu hỏi</label>
+          <textarea id="question" rows="2" placeholder="Hỏi về rhythm, harmony, triad..." required></textarea>
+          <div class="composer-actions">
+            <span id="request-status" class="request-status">Sẵn sàng</span>
+            <button id="send-button" type="submit">
+              <span>Gửi câu hỏi</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M5 12h13M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+          </div>
+        </form>
+      </section>
+    </section>
+  </main>
+  <script src="/agent/chat/assets/chat.js" defer></script>
+</body>
+</html>

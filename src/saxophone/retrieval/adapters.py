@@ -12,9 +12,72 @@ from typing import Any, Mapping
 
 import anyio
 
+from saxophone.ingestion.models import VectorHit
 from saxophone.platform.concurrency import create_blocking_io_limiter
 from .models import ChunkHit
 from .ports import ChunkRetriever
+
+
+class VectorIndexChunkRetriever(ChunkRetriever):
+    """Embed one query asynchronously and search the shared chunk vector index."""
+
+    def __init__(
+        self,
+        embedding_provider: Any,
+        vector_index: Any,
+        *,
+        retrieval_version: str = "topic-v1",
+    ) -> None:
+        if not callable(getattr(embedding_provider, "embed_texts", None)):
+            raise TypeError("embedding_provider must provide embed_texts")
+        if not callable(getattr(vector_index, "search", None)):
+            raise TypeError("vector_index must provide search")
+        _require_canonical_version(retrieval_version)
+        self._embedding_provider = embedding_provider
+        self._vector_index = vector_index
+        self._retrieval_version = retrieval_version
+
+    async def search(
+        self,
+        query: str,
+        *,
+        filters: Mapping[str, object] | None = None,
+        limit: int = 10,
+    ) -> list[ChunkHit]:
+        if not isinstance(query, str) or not query.strip():
+            raise ValueError("query must not be blank")
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+            return []
+        normalized_query = query.strip()
+        embeddings = await self._embedding_provider.embed_texts((normalized_query,))
+        query_vector = _validated_async_embedding_output(embeddings)
+        vector_hits = await self._vector_index.search(
+            query_vector,
+            filters=filters,
+            limit=limit,
+        )
+        if not isinstance(vector_hits, Sequence) or isinstance(vector_hits, (str, bytes)):
+            raise ValueError("vector index must return a sequence")
+        hits: list[ChunkHit] = []
+        for rank, hit in enumerate(vector_hits, start=1):
+            if not isinstance(hit, VectorHit):
+                raise ValueError("vector index must return VectorHit values")
+            metadata = dict(hit.metadata)
+            metadata["document"] = hit.document
+            source_ref = metadata.get("source") or metadata.get("document_ref")
+            if not isinstance(source_ref, str) or not source_ref.strip():
+                raise ValueError("vector hit metadata must identify its source")
+            hits.append(
+                ChunkHit(
+                    source_ref.strip(),
+                    hit.chunk_id,
+                    rank,
+                    self._retrieval_version,
+                    metadata,
+                    semantic_score=1.0 - hit.distance,
+                )
+            )
+        return hits
 
 
 class ChromaSemanticRetriever(ChunkRetriever):
@@ -290,6 +353,24 @@ def _validated_embedding_output(value: object) -> list[float]:
     ):
         raise ValueError("embedding provider output must contain finite numbers")
     return [float(item) for item in vector]
+
+
+def _validated_async_embedding_output(value: object) -> tuple[float, ...]:
+    """Validate the provider-independent async text embedding contract."""
+
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence) or len(value) != 1:
+        raise ValueError("embedding provider output must contain exactly one vector")
+    vector = value[0]
+    if isinstance(vector, (str, bytes)) or not isinstance(vector, Sequence) or not vector:
+        raise ValueError("embedding provider output must contain one non-empty vector")
+    if any(
+        isinstance(item, bool)
+        or not isinstance(item, (int, float))
+        or not math.isfinite(item)
+        for item in vector
+    ):
+        raise ValueError("embedding provider output must contain finite numbers")
+    return tuple(float(item) for item in vector)
 
 
 def _is_chroma_filter_scalar(value: object) -> bool:

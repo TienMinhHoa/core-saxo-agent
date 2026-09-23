@@ -8,6 +8,8 @@ import inspect
 from typing import Protocol
 
 from .models import IngestionCommand, IngestionReport
+from .progress import IngestionProgressReporter
+from saxophone.platform.observability import EventSink
 
 
 class _IngestWorkflow(Protocol):
@@ -20,6 +22,7 @@ class _IngestWorkflow(Protocol):
         resolution_profile: str,
         ingestion_run_id: str | None = None,
         previous_source_versions: Sequence[str] = (),
+        progress: IngestionProgressReporter | None = None,
     ) -> IngestionReport: ...
 
 
@@ -85,6 +88,7 @@ class DocumentIngestionService:
         vector_sync: _VectorSync | None = None,
         lifecycle: _Lifecycle | None = None,
         artifact_exporter: _ArtifactExporter | None = None,
+        event_sink: EventSink | None = None,
     ) -> None:
         if not callable(getattr(ingest_workflow, "execute", None)):
             raise TypeError("ingest workflow must provide execute")
@@ -103,10 +107,13 @@ class DocumentIngestionService:
                     raise TypeError(f"lifecycle must provide {method}")
         if artifact_exporter is not None and not callable(getattr(artifact_exporter, "export", None)):
             raise TypeError("artifact exporter must provide export")
+        if event_sink is not None and not callable(getattr(event_sink, "emit", None)):
+            raise TypeError("event_sink must provide emit")
         self._ingest_workflow = ingest_workflow
         self._vector_sync = vector_sync
         self._lifecycle = lifecycle
         self._artifact_exporter = artifact_exporter
+        self._event_sink = event_sink
 
     async def ingest_document(
         self,
@@ -127,6 +134,11 @@ class DocumentIngestionService:
         if not isinstance(sync_limit, int) or isinstance(sync_limit, bool) or sync_limit <= 0:
             raise ValueError("sync_limit must be positive")
         self._validate_lifecycle_identity(ingestion_run_id, source_hash)
+        normalized_chunks = tuple(chunks)
+        normalized_paragraphs = tuple(paragraphs)
+        progress = self._create_progress(command, normalized_chunks, ingestion_run_id)
+        if progress is not None:
+            progress.started()
         previous_source_versions = await _load_previous_source_versions(
             self._lifecycle,
             document_ref=command.document_ref,
@@ -145,19 +157,34 @@ class DocumentIngestionService:
             report = await _execute_ingest_workflow(
                 self._ingest_workflow,
                 command,
-                tuple(chunks),
-                tuple(paragraphs),
+                normalized_chunks,
+                normalized_paragraphs,
                 resolution_profile=resolution_profile,
                 ingestion_run_id=ingestion_run_id,
                 previous_source_versions=previous_source_versions,
+                progress=progress,
             )
-        except Exception:
+        except Exception as error:
+            if progress is not None:
+                progress.failed(
+                    "ingestion",
+                    reason_code=type(error).__name__,
+                )
             if self._lifecycle is not None:
                 await self._lifecycle.mark_failed(ingestion_run_id, error_code="ingestion_exception")
             raise
         if not isinstance(report, IngestionReport):
             raise TypeError("ingest workflow must return IngestionReport")
         if not report.indexed:
+            if progress is not None:
+                if report.errors:
+                    progress.failed("indexing", reason_code="ingestion_failed")
+                else:
+                    progress.stage_warning(
+                        "indexing",
+                        completed_chunks=report.chunk_count,
+                        reason_code="ingestion_incomplete",
+                    )
             if self._lifecycle is not None:
                 await self._lifecycle.mark_failed(ingestion_run_id, error_code="ingestion_failed")
             return report
@@ -165,6 +192,11 @@ class DocumentIngestionService:
             await self._lifecycle.mark_tagged_pending_vector_sync(ingestion_run_id)
         if report.indexed and self._vector_sync is not None:
             try:
+                if progress is not None:
+                    progress.stage_started(
+                        "vector_sync",
+                        completed_chunks=len(normalized_chunks),
+                    )
                 if self._lifecycle is None:
                     sync_result = await self._vector_sync.sync_pending(limit=sync_limit)
                 else:
@@ -185,6 +217,11 @@ class DocumentIngestionService:
                             ingestion_run_id,
                             error_code="vector_sync_failed",
                         )
+                    if progress is not None:
+                        progress.failed(
+                            "vector_sync",
+                            reason_code="vector_sync_failed",
+                        )
                 elif self._lifecycle is not None:
                     pending = await _pending_vector_event_count(
                         self._vector_sync,
@@ -197,12 +234,22 @@ class DocumentIngestionService:
                             indexed=False,
                             errors=(*report.errors, f"vector sync pending for {pending} event(s)"),
                         )
+                        if progress is not None:
+                            progress.failed(
+                                "vector_sync",
+                                reason_code="vector_sync_pending",
+                            )
                     else:
                         await self._lifecycle.mark_ready(
                             ingestion_run_id,
                             pending_event_count=0,
                         )
-            except Exception:
+            except Exception as error:
+                if progress is not None:
+                    progress.failed(
+                        "vector_sync",
+                        reason_code=type(error).__name__,
+                    )
                 if self._lifecycle is not None:
                     await self._lifecycle.mark_failed(
                         ingestion_run_id,
@@ -210,6 +257,11 @@ class DocumentIngestionService:
                     )
                 raise
         if report.indexed and self._artifact_exporter is not None:
+            if progress is not None:
+                progress.stage_started(
+                    "artifact_export",
+                    completed_chunks=len(normalized_chunks),
+                )
             self._artifact_exporter.export(
                 document_ref=command.document_ref,
                 source_version=command.source_version,
@@ -217,7 +269,27 @@ class DocumentIngestionService:
                 relations=tuple(relations),
                 ingestion_report=report,
             )
+        if report.indexed and progress is not None:
+            progress.completed()
         return report
+
+    def _create_progress(
+        self,
+        command: IngestionCommand,
+        chunks: Sequence[object],
+        ingestion_run_id: str | None,
+    ) -> IngestionProgressReporter | None:
+        if self._event_sink is None or not chunks:
+            return None
+        run_id = ingestion_run_id or (
+            f"{command.document_ref}-{command.source_version[:12]}"
+        )
+        return IngestionProgressReporter(
+            self._event_sink,
+            ingestion_run_id=run_id,
+            document_ref=command.document_ref,
+            total_chunks=len(chunks),
+        )
 
     def _validate_lifecycle_identity(
         self,
@@ -271,6 +343,7 @@ async def _execute_ingest_workflow(
     resolution_profile: str,
     ingestion_run_id: str | None,
     previous_source_versions: Sequence[str],
+    progress: IngestionProgressReporter | None,
 ) -> IngestionReport:
     """Pass optional run and re-ingestion identity to capable workflows."""
 
@@ -284,11 +357,17 @@ async def _execute_ingest_workflow(
         parameter.kind is inspect.Parameter.VAR_KEYWORD
         for parameter in parameters.values()
     )
+    accepts_progress = "progress" in parameters or any(
+        parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    )
     kwargs: dict[str, object] = {"resolution_profile": resolution_profile}
     if accepts_run_id:
         kwargs["ingestion_run_id"] = ingestion_run_id
     if accepts_previous_versions:
         kwargs["previous_source_versions"] = previous_source_versions
+    if accepts_progress:
+        kwargs["progress"] = progress
     return await execute(command, chunks, paragraphs, **kwargs)
 
 

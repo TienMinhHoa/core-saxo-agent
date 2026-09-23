@@ -347,6 +347,8 @@ class FakeEmbeddingProvider(EmbeddingProvider):
         vectors: Mapping[str, Sequence[float]],
         *,
         model: str = "fake-embedding",
+        text_vectors: Mapping[str, Sequence[float]] | None = None,
+        default_text_vector: Sequence[float] | None = None,
     ) -> None:
         if not isinstance(model, str) or not model.strip():
             raise ValueError("model must not be empty")
@@ -368,6 +370,12 @@ class FakeEmbeddingProvider(EmbeddingProvider):
                 raise ValueError("vectors must contain finite numeric sequences")
             normalized[chunk_id] = tuple(float(item) for item in values)
         self._vectors = normalized
+        self._text_vectors = _normalized_fake_vectors(text_vectors or {}, "text_vectors")
+        self._default_text_vector = (
+            _normalized_fake_vector(default_text_vector, "default_text_vector")
+            if default_text_vector is not None
+            else None
+        )
         self._model = model.strip()
 
     @property
@@ -390,8 +398,10 @@ class FakeEmbeddingProvider(EmbeddingProvider):
         if len(chunk_ids) != len(set(chunk_ids)):
             raise ValueError("chunk IDs must be unique")
         records: list[EmbeddingRecord] = []
-        for chunk_id in chunk_ids:
-            vector = self._vectors.get(chunk_id)
+        for chunk_id, text in chunks:
+            vector = self._vectors.get(chunk_id) or self._text_vectors.get(text)
+            if vector is None:
+                vector = self._default_text_vector
             if vector is None:
                 raise ValueError(f"missing vector for chunk {chunk_id}")
             records.append(
@@ -403,6 +413,137 @@ class FakeEmbeddingProvider(EmbeddingProvider):
                 )
             )
         return tuple(records)
+
+    async def embed_texts(
+        self,
+        texts: Sequence[str],
+    ) -> tuple[tuple[float, ...], ...]:
+        if isinstance(texts, (str, bytes)) or not isinstance(texts, Sequence):
+            raise ValueError("texts must be a sequence")
+        normalized = tuple(texts)
+        if any(not isinstance(text, str) or not text.strip() for text in normalized):
+            raise ValueError("texts must contain non-blank strings")
+        vectors: list[tuple[float, ...]] = []
+        for text in normalized:
+            vector = self._text_vectors.get(text)
+            if vector is None:
+                vector = self._default_text_vector
+            if vector is None:
+                raise ValueError(f"missing vector for text {text}")
+            vectors.append(vector)
+        if len({len(vector) for vector in vectors}) > 1:
+            raise ValueError("embedding vectors must have one shared dimension")
+        return tuple(vectors)
+
+
+class FakeVectorIndex(VectorIndex, ConceptVectorIndex):
+    """Deterministic in-memory vector index for complete offline service tests."""
+
+    def __init__(self) -> None:
+        self._chunks: dict[str, ChunkIndexRecord] = {}
+        self._concepts: dict[str, ConceptVectorRecord] = {}
+
+    @property
+    def chunk_records(self) -> tuple[ChunkIndexRecord, ...]:
+        return tuple(self._chunks[key] for key in sorted(self._chunks))
+
+    @property
+    def concept_records(self) -> tuple[ConceptVectorRecord, ...]:
+        return tuple(self._concepts[key] for key in sorted(self._concepts))
+
+    async def list_chunk_ids(self, *, document_ref: str) -> tuple[str, ...]:
+        validated = _validated_document_ref(document_ref)
+        return tuple(
+            sorted(
+                record.chunk_id
+                for record in self._chunks.values()
+                if record.document_ref == validated
+            )
+        )
+
+    async def upsert_chunks(self, records: Sequence[ChunkIndexRecord]) -> None:
+        for record in records:
+            if not isinstance(record, ChunkIndexRecord):
+                raise ValueError("records must contain ChunkIndexRecord values")
+            self._chunks[record.chunk_id] = record
+
+    async def delete_chunks(self, chunk_ids: Sequence[str]) -> None:
+        for chunk_id in _validated_chunk_ids(chunk_ids):
+            self._chunks.pop(chunk_id, None)
+
+    async def upsert_concepts(self, records: Sequence[ConceptVectorRecord]) -> None:
+        for record in records:
+            if not isinstance(record, ConceptVectorRecord):
+                raise ValueError("records must contain ConceptVectorRecord values")
+            self._concepts[record.record_id] = record
+
+    async def delete_concepts(self, record_ids: Sequence[str]) -> None:
+        for record_id in _validated_concept_ids(record_ids):
+            self._concepts.pop(record_id, None)
+
+    async def search(
+        self,
+        query_vector: Sequence[float],
+        *,
+        filters: Mapping[str, object] | None = None,
+        limit: int = 10,
+    ) -> list[VectorHit]:
+        vector = _validated_query_vector(query_vector, expected_dimension=None)
+        validated_filters = _validated_search_filters(filters)
+        ranked: list[tuple[float, ChunkIndexRecord]] = []
+        for record in self._chunks.values():
+            metadata = {
+                **dict(record.metadata),
+                "document_ref": record.document_ref,
+                "source_version": record.source_version,
+                "embedding_profile": record.embedding_profile,
+                "access_scope": record.access_scope,
+            }
+            if any(metadata.get(key) != value for key, value in (validated_filters or {}).items()):
+                continue
+            ranked.append((_cosine_distance(vector, record.embedding), record))
+        ranked.sort(key=lambda item: (item[0], item[1].chunk_id))
+        return [
+            VectorHit(
+                record.chunk_id,
+                record.search_text,
+                {
+                    **dict(record.metadata),
+                    "document_ref": record.document_ref,
+                    "source_version": record.source_version,
+                    "embedding_profile": record.embedding_profile,
+                    "access_scope": record.access_scope,
+                },
+                distance,
+            )
+            for distance, record in ranked[: _validated_search_limit(limit)]
+        ]
+
+    async def query_concepts(
+        self,
+        query_vector: Sequence[float],
+        *,
+        limit: int = 10,
+    ) -> list[ConceptVectorHit]:
+        vector = _validated_query_vector(query_vector, expected_dimension=None)
+        ranked = sorted(
+            (
+                (_cosine_distance(vector, record.embedding), record)
+                for record in self._concepts.values()
+            ),
+            key=lambda item: (item[0], item[1].record_id),
+        )
+        return [
+            ConceptVectorHit(
+                record.record_id,
+                record.canonical_label,
+                record.normalized_label,
+                record.search_text,
+                record.metadata,
+                distance,
+            )
+            for distance, record in ranked[: _validated_search_limit(limit)]
+        ]
 
 
 def _embedding_idempotency_key(
@@ -633,10 +774,12 @@ class ChromaVectorIndex(VectorIndex, ConceptVectorIndex):
         }
         if reserved_keys.intersection(record.metadata):
             raise ValueError("Chroma metadata contains reserved keys")
-        projected = {
-            key: _chroma_metadata_value(value)
-            for key, value in record.metadata.items()
-        }
+        projected = {}
+        for key, value in record.metadata.items():
+            normalized = _chroma_metadata_value(value)
+            if isinstance(normalized, list) and not normalized:
+                continue
+            projected[key] = normalized
         if any(
             not isinstance(key, str) or not key.strip()
             for key in projected
@@ -957,3 +1100,42 @@ def _validated_search_filters(
     if any(not _is_valid_chroma_metadata_scalar(value) for value in validated.values()):
         raise ValueError("filters values must be finite scalar values")
     return validated
+
+
+def _normalized_fake_vectors(
+    values: Mapping[str, Sequence[float]],
+    name: str,
+) -> dict[str, tuple[float, ...]]:
+    if not isinstance(values, Mapping):
+        raise ValueError(f"{name} must be a mapping")
+    normalized: dict[str, tuple[float, ...]] = {}
+    for key, vector in values.items():
+        if not isinstance(key, str) or not key.strip():
+            raise ValueError(f"{name} keys must be non-blank strings")
+        normalized[key] = _normalized_fake_vector(vector, name)
+    return normalized
+
+
+def _normalized_fake_vector(value: Sequence[float], name: str) -> tuple[float, ...]:
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        raise ValueError(f"{name} must contain finite numeric sequences")
+    vector = tuple(value)
+    if not vector or any(
+        isinstance(item, bool)
+        or not isinstance(item, (int, float))
+        or not math.isfinite(item)
+        for item in vector
+    ):
+        raise ValueError(f"{name} must contain finite numeric sequences")
+    return tuple(float(item) for item in vector)
+
+
+def _cosine_distance(left: Sequence[float], right: Sequence[float]) -> float:
+    if len(left) != len(right):
+        raise ValueError("query vector dimension does not match indexed vector")
+    left_norm = math.sqrt(sum(value * value for value in left))
+    right_norm = math.sqrt(sum(value * value for value in right))
+    if left_norm == 0 or right_norm == 0:
+        return 1.0
+    similarity = sum(a * b for a, b in zip(left, right)) / (left_norm * right_norm)
+    return 1.0 - max(-1.0, min(1.0, similarity))

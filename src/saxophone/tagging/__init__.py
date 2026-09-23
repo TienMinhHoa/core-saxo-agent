@@ -10,6 +10,7 @@ from .concepts import (
 from .models import (
     ExistingTagCandidate,
     ParagraphBlock,
+    ParagraphConceptRole,
     TagConflictResolution,
     TagConflictResolutionRequest,
     TagGenerationRequest,

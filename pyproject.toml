@@ -15,6 +15,7 @@ dependencies = [
     "openai>=1,<3",
     "python-dotenv>=1,<2",
     "python-multipart>=0.0.9,<1",
+    "tiktoken>=0.7,<1",
     "uvicorn>=0.30,<1",
 ]
 
@@ -39,6 +40,9 @@ package-dir = { "" = "src" }
 where = ["src"]
 include = ["saxophone*"]
 namespaces = true
+
+[tool.setuptools.package-data]
+"saxophone.interfaces" = ["api/assets/chat/*.html", "api/assets/chat/*.css", "api/assets/chat/*.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

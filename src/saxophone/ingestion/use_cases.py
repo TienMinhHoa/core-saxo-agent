@@ -9,8 +9,17 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from saxophone.documents import KnowledgeChunk, KnowledgeRepository
-from saxophone.tagging import ParagraphBlock, TagAndPersistParagraph, TaggedParagraph
-from saxophone.tagging.chunk_models import ChunkParagraphTaggingInput, ChunkTaggingRequest
+from saxophone.tagging import (
+    ParagraphBlock,
+    ParagraphConceptRole,
+    TagAndPersistParagraph,
+    TaggedParagraph,
+)
+from saxophone.tagging.chunk_models import (
+    ChunkParagraphTaggingInput,
+    ChunkTaggingRequest,
+    ChunkTaggingResult,
+)
 from saxophone.tagging.chunk_service import ChunkTaggingRun, ChunkTaggingTransactionService
 from saxophone.tagging.vector_outbox import VectorOutboxEvent
 
@@ -24,7 +33,13 @@ from .models import (
 )
 from .concept_catalog import ConceptCatalogEntry, build_concept_catalog
 from .concept_embedding import ConceptVectorPreparation
+from .content_ledger import (
+    ContentReservation,
+    ContentReservationStatus,
+    remap_chunk_tagging_result,
+)
 from .ports import EmbeddingProvider, EmbeddingReuseStore, VectorIndex
+from .progress import IngestionProgressReporter
 from .vector_events import build_chunk_vector_upsert_events
 from .vector_state import (
     VectorStateReconciliation,
@@ -48,6 +63,31 @@ class _PreparedChunkTagging:
 
     requests: tuple[ChunkTaggingRequest, ...]
     runs: tuple[ChunkTaggingRun, ...]
+    reservations: tuple[ContentReservation | None, ...] = ()
+    reused_count: int = 0
+    skipped_chunk_ids: tuple[str, ...] = ()
+
+
+class _ContentLedger(Protocol):
+    async def reserve(
+        self,
+        content: str,
+        *,
+        tagging_profile: str,
+        embedding_profile: str,
+        request: ChunkTaggingRequest,
+    ) -> ContentReservation: ...
+
+    async def complete(
+        self,
+        reservation: ContentReservation,
+        *,
+        request: ChunkTaggingRequest,
+        result: ChunkTaggingResult,
+        embedding: Sequence[float],
+    ) -> None: ...
+
+    async def fail(self, reservation: ContentReservation) -> None: ...
 
 
 class _VectorStatePlanner(Protocol):
@@ -176,6 +216,7 @@ class IndexDocument:
         paragraph_count: int,
         tagged_paragraph_count: int,
         publish_vectors: bool = True,
+        skipped_count: int = 0,
     ) -> IngestionReport:
         """Persist the prepared projection and optionally publish vector records."""
 
@@ -219,7 +260,7 @@ class IndexDocument:
             failed_paragraph_count=0,
             embedded_count=len(normalized_records) - prepared.reused_count,
             reused_embedding_count=prepared.reused_count,
-            skipped_count=0,
+            skipped_count=skipped_count,
             index_version=command.index_profile,
             indexed=True,
             warnings=(),
@@ -236,6 +277,7 @@ class IndexDocument:
         embedded_count: int,
         reused_count: int,
         error: Exception,
+        skipped_count: int = 0,
     ) -> IngestionReport:
         """Build the same typed failure report used by the one-step workflow."""
 
@@ -246,6 +288,7 @@ class IndexDocument:
             tagged_count=tagged_count,
             embedded_count=embedded_count,
             reused_count=reused_count,
+            skipped_count=skipped_count,
             error=error,
         )
 
@@ -260,20 +303,25 @@ class IndexDocument:
             else {}
         )
         missing = tuple(record for record in records if record.chunk_id not in cached)
+        representatives, representative_by_chunk = self._embedding_representatives(missing)
         embeddings = await self._embedding_provider.embed(
-            tuple((record.chunk_id, record.search_text) for record in missing),
+            tuple((record.chunk_id, record.search_text) for record in representatives),
             source_version=command.source_version,
-        ) if missing else ()
-        if len(embeddings) != len(missing):
+        ) if representatives else ()
+        if len(embeddings) != len(representatives):
             raise ValueError("embedding count does not match chunk count")
-        for record, embedding in zip(missing, embeddings):
+        vectors_by_chunk: dict[str, tuple[float, ...]] = {}
+        for record, embedding in zip(representatives, embeddings):
             self._validate_embedding(command, record, embedding)
+            vectors_by_chunk[record.chunk_id] = embedding.vector
+        for record in missing:
+            representative_id = representative_by_chunk[record.chunk_id]
             cached[record.chunk_id] = ChunkIndexRecord(
                 chunk_id=record.chunk_id,
                 document_ref=record.document_ref,
                 source_version=record.source_version,
                 search_text=record.search_text,
-                embedding=embedding.vector,
+                embedding=vectors_by_chunk[representative_id],
                 embedding_profile=record.embedding_profile,
                 access_scope=record.access_scope,
                 metadata=record.metadata,
@@ -284,7 +332,22 @@ class IndexDocument:
             raise ValueError("embedding dimensions must match")
         if self._embedding_reuse is not None and missing:
             await self._embedding_reuse.save(tuple(cached[record.chunk_id] for record in missing))
-        return resolved, len(records) - len(missing)
+        return resolved, len(records) - len(representatives)
+
+    def _embedding_representatives(
+        self,
+        records: Sequence[IndexInputRecord],
+    ) -> tuple[tuple[IndexInputRecord, ...], dict[str, str]]:
+        if not getattr(self._embedding_reuse, "content_addressed", False):
+            normalized = tuple(records)
+            return normalized, {record.chunk_id: record.chunk_id for record in normalized}
+        representatives: dict[tuple[str, str], IndexInputRecord] = {}
+        representative_by_chunk: dict[str, str] = {}
+        for record in records:
+            key = (record.embedding_profile, record.search_text)
+            representative = representatives.setdefault(key, record)
+            representative_by_chunk[record.chunk_id] = representative.chunk_id
+        return tuple(representatives.values()), representative_by_chunk
 
     @staticmethod
     def _validate_embedding(
@@ -309,6 +372,7 @@ class IndexDocument:
         embedded_count: int,
         reused_count: int,
         error: Exception,
+        skipped_count: int = 0,
     ) -> IngestionReport:
         return IngestionReport(
             document_ref=command.document_ref,
@@ -319,7 +383,7 @@ class IndexDocument:
             failed_paragraph_count=len(records),
             embedded_count=embedded_count,
             reused_embedding_count=reused_count,
-            skipped_count=0,
+            skipped_count=skipped_count,
             index_version=command.index_profile,
             indexed=False,
             warnings=(),
@@ -354,10 +418,21 @@ class IndexDocument:
 class DocumentChunkTaggingService:
     """Build, validate, and commit one chunk-tagging call per source chunk."""
 
-    def __init__(self, transaction_service: ChunkTaggingTransactionService) -> None:
+    def __init__(
+        self,
+        transaction_service: ChunkTaggingTransactionService,
+        *,
+        content_ledger: _ContentLedger | None = None,
+    ) -> None:
         if not isinstance(transaction_service, ChunkTaggingTransactionService):
             raise TypeError("transaction_service must be a ChunkTaggingTransactionService")
         self._transaction_service = transaction_service
+        if content_ledger is not None and any(
+            not callable(getattr(content_ledger, method, None))
+            for method in ("reserve", "complete", "fail")
+        ):
+            raise TypeError("content_ledger must provide reserve, complete, and fail")
+        self._content_ledger = content_ledger
 
     async def execute(
         self,
@@ -367,12 +442,14 @@ class DocumentChunkTaggingService:
         *,
         existing_candidates: Mapping[str, Sequence[str]] | None = None,
         outbox_events: Mapping[str, Sequence[VectorOutboxEvent]] | None = None,
+        progress: IngestionProgressReporter | None = None,
     ) -> tuple[ChunkTaggingRun, ...]:
         prepared = await self.prepare(
             command,
             chunks,
             paragraphs,
             existing_candidates=existing_candidates,
+            progress=progress,
         )
         await self.commit(
             command,
@@ -388,6 +465,7 @@ class DocumentChunkTaggingService:
         paragraphs: Sequence[ParagraphBlock],
         *,
         existing_candidates: Mapping[str, Sequence[str]] | None = None,
+        progress: IngestionProgressReporter | None = None,
     ) -> _PreparedChunkTagging:
         """Run provider calls and return validated results before persistence."""
 
@@ -401,10 +479,151 @@ class DocumentChunkTaggingService:
             normalized_paragraphs,
             existing_candidates=existing_candidates,
         )
+        prepared_requests: list[ChunkTaggingRequest] = []
         runs: list[ChunkTaggingRun] = []
-        for request in requests:
-            runs.append(await self._transaction_service.tag(request))
-        return _PreparedChunkTagging(tuple(requests), tuple(runs))
+        reservations: list[ContentReservation | None] = []
+        skipped_chunk_ids: list[str] = []
+        local_runs: dict[tuple[str, str, str, str], ChunkTaggingRun] = {}
+        reused_count = 0
+        try:
+            for index, (chunk, request) in enumerate(
+                zip(normalized_chunks, requests), start=1
+            ):
+                if progress is not None:
+                    progress.chunk_started(
+                        chunk.chunk_id,
+                        current_chunk=index,
+                        completed_chunks=index - 1,
+                    )
+                if self._content_ledger is None:
+                    runs.append(await self._transaction_service.tag(request))
+                    prepared_requests.append(request)
+                    reservations.append(None)
+                    if progress is not None:
+                        progress.chunk_completed(
+                            chunk.chunk_id,
+                            completed_chunks=index,
+                            reused=False,
+                        )
+                    continue
+                reservation = await self._content_ledger.reserve(
+                    chunk.search_text,
+                    tagging_profile=command.tagging_profile,
+                    embedding_profile=command.embedding_profile,
+                    request=request,
+                )
+                if reservation.recovered_stale_processing and progress is not None:
+                    progress.chunk_warning(
+                        chunk.chunk_id,
+                        current_chunk=index,
+                        completed_chunks=index - 1,
+                        reason_code="stale_processing_recovered",
+                    )
+                local = local_runs.get(reservation.identity)
+                if local is not None:
+                    runs.append(
+                        _run_from_result(
+                            remap_chunk_tagging_result(local.result, request)
+                        )
+                    )
+                    prepared_requests.append(request)
+                    reservations.append(None)
+                    reused_count += 1
+                    if progress is not None:
+                        progress.chunk_completed(
+                            chunk.chunk_id,
+                            completed_chunks=index,
+                            reused=True,
+                        )
+                    continue
+                if reservation.status is ContentReservationStatus.READY:
+                    assert reservation.cached_result is not None
+                    run = _run_from_result(reservation.cached_result)
+                    runs.append(run)
+                    prepared_requests.append(request)
+                    reservations.append(None)
+                    local_runs[reservation.identity] = run
+                    reused_count += 1
+                    if progress is not None:
+                        progress.chunk_completed(
+                            chunk.chunk_id,
+                            completed_chunks=index,
+                            reused=True,
+                        )
+                    continue
+                if reservation.status is ContentReservationStatus.PROCESSING:
+                    skipped_chunk_ids.append(chunk.chunk_id)
+                    if progress is not None:
+                        progress.chunk_warning(
+                            chunk.chunk_id,
+                            current_chunk=index,
+                            completed_chunks=index,
+                            reason_code="chunk_content_already_processing",
+                        )
+                    continue
+                prepared_requests.append(request)
+                reservations.append(reservation)
+                run = await self._transaction_service.tag(request)
+                runs.append(run)
+                local_runs[reservation.identity] = run
+                if progress is not None:
+                    progress.chunk_completed(
+                        chunk.chunk_id,
+                        completed_chunks=index,
+                        reused=False,
+                    )
+        except BaseException:
+            await self._fail_reservations(reservations)
+            raise
+        return _PreparedChunkTagging(
+            tuple(prepared_requests),
+            tuple(runs),
+            tuple(reservations),
+            reused_count,
+            tuple(skipped_chunk_ids),
+        )
+
+    async def complete(
+        self,
+        prepared: _PreparedChunkTagging,
+        indexed_records: Sequence[ChunkIndexRecord],
+    ) -> None:
+        """Mark newly processed content reusable after tagging and embedding succeed."""
+
+        if self._content_ledger is None:
+            return
+        records_by_chunk = {record.chunk_id: record for record in indexed_records}
+        for request, run, reservation in zip(
+            prepared.requests,
+            prepared.runs,
+            prepared.reservations,
+        ):
+            if reservation is None:
+                continue
+            record = records_by_chunk.get(request.chunk_id)
+            if record is None:
+                raise ValueError("indexed records must cover every reserved chunk")
+            await self._content_ledger.complete(
+                reservation,
+                request=request,
+                result=run.result,
+                embedding=record.embedding,
+            )
+
+    async def fail(self, prepared: _PreparedChunkTagging) -> None:
+        """Release reservations so provider failures remain retryable."""
+
+        await self._fail_reservations(prepared.reservations)
+
+    async def _fail_reservations(
+        self,
+        reservations: Sequence[ContentReservation | None],
+    ) -> None:
+        if self._content_ledger is None:
+            return
+        for reservation in reservations:
+            if reservation is not None:
+                await self._content_ledger.fail(reservation)
 
     async def commit(
         self,
@@ -524,6 +743,16 @@ def build_chunk_tagging_requests(
     return tuple(requests)
 
 
+def _run_from_result(result: ChunkTaggingResult) -> ChunkTaggingRun:
+    relations = tuple(
+        ParagraphConceptRole(paragraph.paragraph_ref, label.resolved_concept, role)
+        for paragraph in result.paragraphs
+        for label in paragraph.labels
+        for role in label.roles
+    )
+    return ChunkTaggingRun(result=result, relations=relations)
+
+
 class IngestDocument:
     """Coordinate paragraph tagging, persistence, embedding, and indexing.
 
@@ -587,6 +816,7 @@ class IngestDocument:
         concept_outbox_events: Sequence[VectorOutboxEvent] = (),
         ingestion_run_id: str | None = None,
         previous_source_versions: Sequence[str] = (),
+        progress: IngestionProgressReporter | None = None,
     ) -> IngestionReport:
         normalized_chunks = tuple(chunks)
         normalized_paragraphs = tuple(paragraphs)
@@ -606,44 +836,86 @@ class IngestDocument:
             )
 
         if self._chunk_tagging is not None:
+            if progress is not None:
+                progress.stage_started("tagging", completed_chunks=0)
             prepared_tagging = await self._chunk_tagging.prepare(
                 command,
                 normalized_chunks,
                 normalized_paragraphs,
                 existing_candidates=existing_candidates,
+                progress=progress,
             )
-            tagged = _tagged_paragraphs_from_chunk_runs(
-                normalized_paragraphs, prepared_tagging.runs
-            )
-            if self._concept_vector_preparation is not None:
-                entries = build_concept_catalog(
-                    normalized_chunks,
-                    normalized_paragraphs,
-                    prepared_tagging.runs,
+            if prepared_tagging.skipped_chunk_ids:
+                await self._chunk_tagging.fail(prepared_tagging)
+                tagged_count = sum(
+                    len(run.result.paragraphs) for run in prepared_tagging.runs
                 )
-                if self._concept_catalog_repository is not None:
-                    entries = await self._concept_catalog_repository.replace_document_entries(
-                        command.document_ref,
-                        command.source_version,
-                        entries,
-                        previous_source_versions=normalized_previous_versions,
-                    )
-                prepared_concepts = await self._concept_vector_preparation.prepare(
-                    entries,
-                    embedding_model=command.embedding_profile,
-                    catalog_ref="concept-catalog",
-                    catalog_version=_concept_catalog_version(entries),
+                return IngestionReport(
+                    document_ref=command.document_ref,
+                    source_version=command.source_version,
+                    chunk_count=len(normalized_chunks),
+                    paragraph_count=len(normalized_paragraphs),
+                    tagged_paragraph_count=tagged_count,
+                    failed_paragraph_count=0,
+                    embedded_count=0,
+                    reused_embedding_count=0,
+                    skipped_count=len(prepared_tagging.skipped_chunk_ids),
                     index_version=command.index_profile,
-                    ingestion_run_id=ingestion_run_id,
+                    indexed=False,
+                    warnings=(
+                        "skipped "
+                        f"{len(prepared_tagging.skipped_chunk_ids)} chunk(s) "
+                        "already being processed",
+                    ),
+                    errors=(),
                 )
-                normalized_concept_events = _append_unique_events(
-                    normalized_concept_events,
-                    prepared_concepts.events,
-                )
-            records = build_index_inputs(command, normalized_chunks, tagged)
             try:
+                tagged = _tagged_paragraphs_from_chunk_runs(
+                    normalized_paragraphs, prepared_tagging.runs
+                )
+                if self._concept_vector_preparation is not None:
+                    if progress is not None:
+                        progress.stage_started(
+                            "concept_catalog",
+                            completed_chunks=len(normalized_chunks),
+                        )
+                    entries = build_concept_catalog(
+                        normalized_chunks,
+                        normalized_paragraphs,
+                        prepared_tagging.runs,
+                    )
+                    if self._concept_catalog_repository is not None:
+                        entries = await self._concept_catalog_repository.replace_document_entries(
+                            command.document_ref,
+                            command.source_version,
+                            entries,
+                            previous_source_versions=normalized_previous_versions,
+                        )
+                    prepared_concepts = await self._concept_vector_preparation.prepare(
+                        entries,
+                        embedding_model=command.embedding_profile,
+                        catalog_ref="concept-catalog",
+                        catalog_version=_concept_catalog_version(entries),
+                        index_version=command.index_profile,
+                        ingestion_run_id=ingestion_run_id,
+                    )
+                    normalized_concept_events = _append_unique_events(
+                        normalized_concept_events,
+                        prepared_concepts.events,
+                    )
+                records = build_index_inputs(command, normalized_chunks, tagged)
+            except Exception:
+                await self._chunk_tagging.fail(prepared_tagging)
+                raise
+            try:
+                if progress is not None:
+                    progress.stage_started(
+                        "embedding",
+                        completed_chunks=len(normalized_chunks),
+                    )
                 prepared_index = await self._index_document.prepare(command, records)
             except Exception as error:
+                await self._chunk_tagging.fail(prepared_tagging)
                 return self._index_document.failure_report(
                     command,
                     records,
@@ -651,7 +923,35 @@ class IngestDocument:
                     tagged_count=len(tagged),
                     embedded_count=0,
                     reused_count=0,
+                    skipped_count=prepared_tagging.reused_count,
                     error=error,
+                )
+            try:
+                if progress is not None:
+                    progress.stage_started(
+                        "content_ledger",
+                        completed_chunks=len(normalized_chunks),
+                    )
+                await self._chunk_tagging.complete(
+                    prepared_tagging,
+                    prepared_index.indexed_records,
+                )
+            except Exception as error:
+                await self._chunk_tagging.fail(prepared_tagging)
+                return self._index_document.failure_report(
+                    command,
+                    records,
+                    paragraph_count=len(normalized_paragraphs),
+                    tagged_count=len(tagged),
+                    embedded_count=0,
+                    reused_count=prepared_index.reused_count,
+                    skipped_count=prepared_tagging.reused_count,
+                    error=error,
+                )
+            if progress is not None:
+                progress.stage_started(
+                    "vector_plan",
+                    completed_chunks=len(normalized_chunks),
                 )
             reconciliation = await self._plan_vector_reconciliation(
                 command,
@@ -678,6 +978,11 @@ class IngestDocument:
                 ),
             )
             if ingestion_run_id is None:
+                if progress is not None:
+                    progress.stage_started(
+                        "persistence",
+                        completed_chunks=len(normalized_chunks),
+                    )
                 await self._chunk_tagging.commit(
                     command,
                     prepared_tagging,
@@ -700,6 +1005,11 @@ class IngestDocument:
                     else ()
                 )
                 document_events = _append_unique_events(document_events, stale_events)
+                if progress is not None:
+                    progress.stage_started(
+                        "persistence",
+                        completed_chunks=len(normalized_chunks),
+                    )
                 await self._chunk_tagging.commit_document(
                     command,
                     prepared_tagging,
@@ -709,12 +1019,18 @@ class IngestDocument:
                     chunks=normalized_chunks,
                     paragraphs=normalized_paragraphs,
                 )
+            if progress is not None:
+                progress.stage_started(
+                    "index_publish",
+                    completed_chunks=len(normalized_chunks),
+                )
             return await self._index_document.publish(
                 command,
                 prepared_index,
                 paragraph_count=len(normalized_paragraphs),
                 tagged_paragraph_count=len(tagged),
                 publish_vectors=ingestion_run_id is None,
+                skipped_count=prepared_tagging.reused_count,
             )
         else:
             if (
