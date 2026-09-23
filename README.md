@@ -4,6 +4,27 @@
 ingestion, retrieval và chat dựa trên evidence. Entrypoint duy nhất là
 `saxophone-api`.
 
+## Bootstrap va chay nhanh bang Bash
+
+Tren Linux hoac WSL, sau khi clone repository:
+
+```bash
+bash bin/run_app.sh
+```
+
+Script se tu tim hoac cai `uv`, cai Python 3.12, dong bo dependency theo
+`uv.lock` (bao gom extra `paddle-client`), tao `.env` tu `.env.example` neu
+chua co, roi chay API tren `0.0.0.0:8000`.
+
+Co the doi dia chi bind bang bien moi truong:
+
+```bash
+SAXO_HOST=127.0.0.1 SAXO_PORT=8000 bash bin/run_app.sh
+```
+
+Neu `.env` vua duoc tao tu template, hay dien credential/model service truoc
+khi su dung cac endpoint can LLM.
+
 ## Kiến trúc
 
 - `saxophone.documents`: định danh document, artifact và metadata source.
