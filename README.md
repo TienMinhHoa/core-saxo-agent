@@ -184,3 +184,127 @@ smoke với endpoint, credential và catalog production đã được phê duy�
 - `docs/LIVE_MODEL_SERVICE_SMOKE_STATUS.md`: trạng thái live smoke tách riêng.
 - `docs/TOPIC_TAGGING_RUNBOOK.md`: chạy ingest/tag/retrieve/answer không qua HTTP.
 - `docs/TOPIC_TAGGING_IMPLEMENTATION_STATUS.md`: đối chiếu implementation hiện tại.
+## Quy trinh ingest de copy/paste
+
+Chay cac lenh sau tu thu muc goc cua repository. `--execute` moi bat dau goi
+DeepSeek/OpenAI va co the phat sinh chi phi; bo `--execute` chi xem uoc luong.
+
+### 1. Chuan bi moi truong
+
+Windows PowerShell:
+
+```powershell
+uv sync
+if (-not (Test-Path -LiteralPath .env)) { Copy-Item -LiteralPath .env.example -Destination .env }
+notepad .env
+```
+
+Linux/VPS:
+
+```bash
+uv sync --locked
+cp -n .env.example .env
+nano .env
+```
+
+Voi direct DeepSeek/OpenAI, `.env` toi thieu can co:
+
+```dotenv
+SAXO_MODEL_PROVIDER=direct
+DEEPSEEK_API_KEY=<deepseek-key>
+OPENAI_API_KEY=<openai-key>
+SAXO_DEEPSEEK_MODEL=<model-duoc-api-deepseek-cap-phep>
+SAXO_AGENT_CHAT_MODEL=<model-dung-cho-chat>
+SAXO_CHUNK_TAGGING_ENABLED=true
+SAXO_LITELLM_STRUCTURED_OUTPUT_MODE=json_object
+```
+
+Khong commit `.env`, API key, `runtime/`, `logs/` hoac database SQLite len Git.
+
+### 2. Kiem tra dau vao va uoc luong token
+
+Lenh nay doc du lieu da co trong `output_v3/input-vl`, khong goi LLM:
+
+```powershell
+uv run python -m saxophone.cli.topic_input_vl --document-ref music-theory-pilot --limit 5
+```
+
+Output phai cho biet `chunks`, `paragraphs` va
+`approximate_tagging_input_tokens`. Day la uoc luong input; output/thinking
+tokens va chi phi thuc te phu thuoc provider.
+
+### 3. Chay pilot 5 chunk
+
+Nen chay pilot truoc de kiem tra credential, model, JSON output va vector store:
+
+```powershell
+uv run python -m saxophone.cli.topic_input_vl --limit 5 --document-ref music-theory-pilot --ingest-only --execute
+```
+
+Thanh cong khi report co `failed_paragraph_count=0`, `indexed=true`,
+`errors=[]` va `vector_sync_failed=0`.
+
+### 4. Chay full ingest
+
+Sau khi pilot thanh cong:
+
+```powershell
+uv run python -m saxophone.cli.topic_input_vl --document-ref music-theory-full --ingest-only --execute
+```
+
+Neu muon chay them cau hoi smoke test sau ingest, bo `--ingest-only` va them
+`--question`.
+
+### 5. Doc log tien trinh va cache
+
+Tien trinh duoc in ra terminal va ghi vao `logs/YYYY-MM-DD.log`:
+
+```text
+[INGEST] stage=tagging status=reused chunk=1/315 completed=1/315
+[INGEST] stage=tagging status=completed chunk=6/315 completed=6/315
+[INGEST] stage=tagging status=warning chunk=6/315 completed=5/315
+```
+
+- `status=reused`: chunk da co ket qua tagging trong content cache (SHA/MD5),
+  khong can goi LLM lai.
+- `status=completed`: chunk vua duoc xu ly moi, thuong co goi LLM.
+- `status=warning` roi `completed`: reservation `processing` cu het han 60
+  phut, duoc thu hoi va xu ly lai.
+- `status=warning` ma khong co `completed`: chunk dang duoc tien trinh khac
+  xu ly va bi bo qua de tranh inject trung.
+- `failed`: chunk that bai; xem `errors` va log provider de retry.
+
+Cache tagging va cache embedding la hai lop khac nhau. Cache embedding duoc
+bao cao bang `reused_embedding_count` trong report cuoi.
+
+### 6. Kiem tra sau ingest
+
+Windows PowerShell:
+
+```powershell
+Get-ChildItem logs
+Get-Content (Get-ChildItem logs -Filter '*.log' | Sort-Object LastWriteTime | Select-Object -Last 1).FullName -Tail 80
+```
+
+Linux/VPS:
+
+```bash
+tail -n 80 "logs/$(date +%F).log"
+```
+
+Chi coi la ingest san sang khi `indexed=true`, `errors=[]` va
+`vector_sync_failed=0`. Neu co `vector sync failed`, tagging co the da xong
+nhung vector index chua dong bo day du.
+
+## Xem du lieu ChromaDB
+
+Sau khi backend dang chay, mo giao dien read-only:
+
+```text
+http://127.0.0.1:8000/db
+```
+
+Giao dien cho phep chon collection, tim trong document text, loc theo
+`document_ref`, phan trang va xem metadata. Endpoint khong tra embedding vector
+va khong co thao tac sua/xoa du lieu. Neu deploy cong khai tren VPS, can bao ve
+route `/db` o reverse proxy vi metadata va noi dung tai lieu co the nhay cam.

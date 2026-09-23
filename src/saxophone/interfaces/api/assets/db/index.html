@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Saxophone Chroma Inspector</title>
+  <link rel="stylesheet" href="/db/assets/db.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="masthead">
+      <div>
+        <p class="eyebrow">Saxophone data observatory</p>
+        <h1>ChromaDB,<br><em>nhin tan mat du lieu.</em></h1>
+      </div>
+      <div class="readonly-badge"><span></span> Read only</div>
+    </header>
+
+    <section class="toolbar" aria-label="Bo loc du lieu">
+      <label>
+        <span>Collection</span>
+        <select id="collection-select"></select>
+      </label>
+      <label class="wide">
+        <span>Tim trong noi dung</span>
+        <input id="query-input" type="search" placeholder="Vi du: harmony, rhythm...">
+      </label>
+      <label class="wide">
+        <span>Document ref</span>
+        <input id="document-ref-input" type="text" placeholder="music-theory-full">
+      </label>
+      <label>
+        <span>Moi trang</span>
+        <select id="page-size">
+          <option>10</option>
+          <option selected>25</option>
+          <option>50</option>
+          <option>100</option>
+        </select>
+      </label>
+      <button id="search-button" type="button">Tai du lieu</button>
+    </section>
+
+    <section class="summary" aria-live="polite">
+      <div><span>Collection</span><strong id="summary-collection">-</strong></div>
+      <div><span>Ket qua</span><strong id="summary-count">0</strong></div>
+      <div><span>Trang</span><strong id="summary-page">1</strong></div>
+      <p id="status">Dang ket noi ChromaDB...</p>
+    </section>
+
+    <section id="records" class="records" aria-label="Danh sach vector records"></section>
+
+    <nav class="pager" aria-label="Phan trang">
+      <button id="previous-button" type="button">Trang truoc</button>
+      <button id="next-button" type="button">Trang sau</button>
+    </nav>
+  </main>
+  <template id="record-template">
+    <article class="record-card">
+      <div class="record-head">
+        <code class="record-id"></code>
+        <button class="copy-button" type="button">Copy ID</button>
+      </div>
+      <p class="record-document"></p>
+      <details>
+        <summary>Metadata</summary>
+        <pre class="record-metadata"></pre>
+      </details>
+    </article>
+  </template>
+  <script src="/db/assets/db.js" defer></script>
+</body>
+</html>

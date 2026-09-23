@@ -42,7 +42,14 @@ include = ["saxophone*"]
 namespaces = true
 
 [tool.setuptools.package-data]
-"saxophone.interfaces" = ["api/assets/chat/*.html", "api/assets/chat/*.css", "api/assets/chat/*.js"]
+"saxophone.interfaces" = [
+    "api/assets/chat/*.html",
+    "api/assets/chat/*.css",
+    "api/assets/chat/*.js",
+    "api/assets/db/*.html",
+    "api/assets/db/*.css",
+    "api/assets/db/*.js",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

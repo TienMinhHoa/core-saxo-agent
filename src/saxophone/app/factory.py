@@ -98,6 +98,7 @@ from saxophone.tagging.structured_provider import (
     StructuredOutputMode,
 )
 from saxophone.interfaces.api import build_agent_chat_router, build_capability_router
+from saxophone.interfaces.db_browser import build_database_browser_router
 from saxophone.interfaces.pdf_layout_web import app as pdf_layout_app
 from saxophone.workflows import (
     IngestExtractedDocument,
@@ -144,6 +145,13 @@ def _supports_topic_retrieval(
         and embedding_provider is not None
         and callable(getattr(vector_index, "search", None))
         and callable(getattr(embedding_provider, "embed_texts", None))
+    )
+
+
+def _supports_database_browser(vector_index: object | None) -> bool:
+    return vector_index is not None and all(
+        callable(getattr(vector_index, method, None))
+        for method in ("list_collections", "get_records")
     )
 
 
@@ -634,6 +642,14 @@ def create_app(
         ),
     )
     app.include_router(build_agent_chat_router(agent_chat=container.agent_chat))
+    database_browser = (
+        container.vector_index
+        if _supports_database_browser(container.vector_index)
+        else None
+    )
+    app.include_router(
+        build_database_browser_router(browser=database_browser)
+    )
     app.mount("/pdf-layout", pdf_layout_app)
 
     @app.get("/api/v1/health")

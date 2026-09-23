@@ -3,10 +3,60 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Mapping, Sequence
 
 from .concept_records import ConceptVectorHit, ConceptVectorRecord
 from .models import ChunkIndexRecord, EmbeddingRecord, IndexInputRecord, VectorHit
+
+
+@dataclass(frozen=True, slots=True)
+class VectorCollectionSummary:
+    """Safe collection metadata exposed by the read-only database browser."""
+
+    name: str
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
+class VectorRecord:
+    """One Chroma record without its potentially large embedding vector."""
+
+    record_id: str
+    document: str
+    metadata: Mapping[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class VectorRecordPage:
+    """A bounded page returned by the vector database browser port."""
+
+    collection_name: str
+    offset: int
+    limit: int
+    total_count: int
+    records: tuple[VectorRecord, ...]
+    has_more: bool
+
+
+class VectorDatabaseBrowser(ABC):
+    """Read-only administrative view over configured vector collections."""
+
+    @abstractmethod
+    async def list_collections(self) -> tuple[VectorCollectionSummary, ...]:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def get_records(
+        self,
+        collection_name: str,
+        *,
+        offset: int,
+        limit: int,
+        query: str | None,
+        document_ref: str | None,
+    ) -> VectorRecordPage:
+        raise NotImplementedError
 
 
 class EmbeddingReuseStore(ABC):

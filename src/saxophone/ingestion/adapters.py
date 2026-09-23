@@ -25,7 +25,16 @@ from saxophone.platform.model_client import (
 
 from .concept_records import ConceptVectorHit, ConceptVectorRecord
 from .models import ChunkIndexRecord, EmbeddingRecord, IndexInputRecord, VectorHit
-from .ports import ConceptVectorIndex, EmbeddingProvider, EmbeddingReuseStore, VectorIndex
+from .ports import (
+    ConceptVectorIndex,
+    EmbeddingProvider,
+    EmbeddingReuseStore,
+    VectorCollectionSummary,
+    VectorDatabaseBrowser,
+    VectorIndex,
+    VectorRecord,
+    VectorRecordPage,
+)
 
 
 class InMemoryEmbeddingReuseStore(EmbeddingReuseStore):
@@ -555,7 +564,7 @@ def _embedding_idempotency_key(
     return f"embed-{hashlib.sha256(payload.encode('utf-8')).hexdigest()}"
 
 
-class ChromaVectorIndex(VectorIndex, ConceptVectorIndex):
+class ChromaVectorIndex(VectorIndex, ConceptVectorIndex, VectorDatabaseBrowser):
     """Async Chroma adapter; every blocking SDK call runs in a worker thread."""
 
     def __init__(
@@ -614,6 +623,93 @@ class ChromaVectorIndex(VectorIndex, ConceptVectorIndex):
         if len(ids) != len(set(ids)):
             raise ValueError("Chroma result ids must be unique")
         return tuple(ids)
+
+    async def list_collections(self) -> tuple[VectorCollectionSummary, ...]:
+        """Return the configured collections without exposing Chroma internals."""
+
+        summaries = []
+        for collection in self._browser_collections().values():
+            count = await anyio.to_thread.run_sync(
+                collection.count,
+                limiter=self._io_limiter,
+            )
+            if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+                raise ValueError("Chroma collection count must be non-negative")
+            summaries.append(VectorCollectionSummary(collection.name, count))
+        return tuple(summaries)
+
+    async def get_records(
+        self,
+        collection_name: str,
+        *,
+        offset: int,
+        limit: int,
+        query: str | None,
+        document_ref: str | None,
+    ) -> VectorRecordPage:
+        """Read one bounded page without returning embedding vectors."""
+
+        collection = self._browser_collections().get(
+            _required_browser_text(collection_name, "collection")
+        )
+        if collection is None:
+            raise ValueError("unknown Chroma collection")
+        if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+            raise ValueError("offset must be a non-negative integer")
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 100:
+            raise ValueError("limit must be between 1 and 100")
+        normalized_query = _optional_browser_text(query, "query")
+        normalized_document_ref = _optional_browser_text(document_ref, "document_ref")
+        where = (
+            {"document_ref": normalized_document_ref}
+            if normalized_document_ref is not None
+            else None
+        )
+        where_document = (
+            {"$contains": normalized_query}
+            if normalized_query is not None
+            else None
+        )
+        filters = {
+            key: value
+            for key, value in {"where": where, "where_document": where_document}.items()
+            if value is not None
+        }
+        count_result = await anyio.to_thread.run_sync(
+            partial(collection.get, **filters, include=[]),
+            limiter=self._io_limiter,
+        )
+        count_ids = count_result.get("ids") if isinstance(count_result, Mapping) else None
+        if not isinstance(count_ids, list) or any(
+            not isinstance(item, str) or not item.strip() for item in count_ids
+        ):
+            raise ValueError("Chroma browser count ids must be non-blank strings")
+        result = await anyio.to_thread.run_sync(
+            partial(
+                collection.get,
+                limit=limit,
+                offset=offset,
+                **filters,
+                include=["documents", "metadatas"],
+            ),
+            limiter=self._io_limiter,
+        )
+        records = _validated_browser_records(result)
+        total_count = len(count_ids)
+        return VectorRecordPage(
+            collection_name=collection.name,
+            offset=offset,
+            limit=limit,
+            total_count=total_count,
+            records=records,
+            has_more=offset + len(records) < total_count,
+        )
+
+    def _browser_collections(self) -> dict[str, Any]:
+        collections = {self._collection.name: self._collection}
+        if self._concept_collection is not None:
+            collections[self._concept_collection.name] = self._concept_collection
+        return collections
 
     async def upsert_chunks(self, records: Sequence[ChunkIndexRecord]) -> None:
         if isinstance(records, (str, bytes)) or not isinstance(records, Sequence):
@@ -952,6 +1048,52 @@ def _is_valid_chroma_metadata_mapping(value: Mapping[object, object]) -> bool:
     return (
         all(isinstance(key, str) and key.strip() for key in value)
         and all(_is_valid_chroma_metadata_value(item) for item in value.values())
+    )
+
+
+def _required_browser_text(value: object, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field} must be non-blank")
+    normalized = value.strip()
+    if any(character in normalized for character in ("\r", "\n", "\x00")):
+        raise ValueError(f"{field} contains unsupported characters")
+    return normalized
+
+
+def _optional_browser_text(value: object, field: str) -> str | None:
+    if value is None:
+        return None
+    normalized = _required_browser_text(value, field)
+    if len(normalized) > 500:
+        raise ValueError(f"{field} is too long")
+    return normalized
+
+
+def _validated_browser_records(result: object) -> tuple[VectorRecord, ...]:
+    if not isinstance(result, Mapping):
+        raise ValueError("Chroma browser result must be a mapping")
+    ids = result.get("ids")
+    documents = result.get("documents")
+    metadatas = result.get("metadatas")
+    if not isinstance(ids, list) or not isinstance(documents, list) or not isinstance(metadatas, list):
+        raise ValueError("Chroma browser result fields must be lists")
+    if not (len(ids) == len(documents) == len(metadatas)):
+        raise ValueError("Chroma browser result rows must have equal lengths")
+    if any(not isinstance(record_id, str) or not record_id.strip() for record_id in ids):
+        raise ValueError("Chroma browser ids must be non-blank strings")
+    if len(ids) != len(set(ids)):
+        raise ValueError("Chroma browser ids must be unique")
+    if any(not isinstance(document, str) for document in documents):
+        raise ValueError("Chroma browser documents must be strings")
+    if any(not isinstance(metadata, Mapping) for metadata in metadatas):
+        raise ValueError("Chroma browser metadata must be mappings")
+    return tuple(
+        VectorRecord(
+            record_id=record_id,
+            document=document,
+            metadata=dict(metadata),
+        )
+        for record_id, document, metadata in zip(ids, documents, metadatas)
     )
 
 
