@@ -316,6 +316,77 @@ async def test_structured_role_selector_uses_markdown_and_validates_candidates()
 
 
 @pytest.mark.anyio
+async def test_structured_role_selector_prompt_teaches_exact_json_output_with_few_shots() -> None:
+    provider = _StructuredProvider(
+        {
+            "concept_role_selection": {
+                "selections": [
+                    {
+                        "concept": "Major triad",
+                        "selected_roles": ["Definition"],
+                        "selection_rank": 1,
+                    }
+                ]
+            }
+        }
+    )
+    selector = StructuredConceptRoleSelector(provider)
+    request = ConceptRoleSelectionRequest(
+        "What is a major triad?",
+        (
+            ConceptRoleCandidate(
+                "Major triad",
+                (ContentRole.DEFINITION, ContentRole.EXAMPLE),
+            ),
+        ),
+    )
+
+    await selector.select(request)
+
+    prompt = provider.calls[0]["user_prompt"]
+    assert "## Output contract" in prompt
+    assert "exactly one JSON object" in prompt
+    assert "Do not add any other keys" in prompt
+    assert "## Few-shot examples" in prompt
+    assert prompt.count('"selection_rank"') >= 2
+    assert '"selected_roles"' in prompt
+    assert '"Definition"' in prompt
+
+
+@pytest.mark.anyio
+async def test_structured_role_selector_exposes_strict_nested_schema() -> None:
+    provider = _StructuredProvider(
+        {
+            "concept_role_selection": {
+                "selections": [
+                    {
+                        "concept": "Major triad",
+                        "selected_roles": ["Definition"],
+                        "selection_rank": 1,
+                    }
+                ]
+            }
+        }
+    )
+
+    await StructuredConceptRoleSelector(provider).select(
+        ConceptRoleSelectionRequest(
+            "What is a major triad?",
+            (ConceptRoleCandidate("Major triad", (ContentRole.DEFINITION,)),),
+        )
+    )
+
+    schema = provider.calls[0]["response_model"].model_json_schema()
+    selection_schema = schema["properties"]["selections"]["items"]
+    assert selection_schema["additionalProperties"] is False
+    assert selection_schema["required"] == [
+        "concept",
+        "selected_roles",
+        "selection_rank",
+    ]
+
+
+@pytest.mark.anyio
 async def test_structured_role_selector_rejects_foreign_concept() -> None:
     provider = _StructuredProvider(
         {

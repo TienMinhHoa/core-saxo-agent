@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+import json
 from typing import Protocol
 
 from saxophone.platform.model_client import ModelClient, ModelRequest, ModelTask, ModelValidationError
@@ -108,12 +109,30 @@ class _StructuredSelectionResult:
 
     @classmethod
     def model_json_schema(cls) -> dict[str, object]:
+        selection_schema = {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["concept", "selected_roles", "selection_rank"],
+            "properties": {
+                "concept": {"type": "string", "minLength": 1},
+                "selected_roles": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": True,
+                    "items": {
+                        "type": "string",
+                        "enum": [role.value for role in ContentRole],
+                    },
+                },
+                "selection_rank": {"type": "integer", "minimum": 1},
+            },
+        }
         return {
             "type": "object",
             "additionalProperties": False,
             "required": ["selections"],
             "properties": {
-                "selections": {"type": "array", "items": {"type": "object"}},
+                "selections": {"type": "array", "items": selection_schema},
             },
         }
 
@@ -169,7 +188,10 @@ class StructuredConceptRoleSelector:
             task_type="concept_role_selection",
             system_prompt=(
                 "Select only relevant concepts and roles from the supplied candidate list. "
-                "Never invent a concept or role."
+                "Never invent a concept or role. Return exactly one JSON object with only "
+                "the key selections. Every selection must contain exactly concept, "
+                "selected_roles, and selection_rank. Do not include explanations or any "
+                "other keys."
             ),
             user_prompt=_selection_markdown(request),
             response_model=_StructuredSelectionResult,
@@ -266,13 +288,43 @@ def _selection_markdown(request: ConceptRoleSelectionRequest) -> str:
     lines = [
         "# Concept and Role Selection",
         "",
-        "## User question",
+        "## Output contract",
         "",
-        request.question,
+        "Return exactly one JSON object with only the key `selections`.",
+        "Each item in `selections` must contain exactly these three keys:",
+        "`concept`, `selected_roles`, and `selection_rank`.",
+        "`selected_roles` must be a non-empty JSON array of roles listed for that concept.",
+        "`selection_rank` must be a positive integer, unique within the response.",
+        "Do not add any other keys. Do not include explanations or Markdown fences.",
         "",
-        "## Candidate concepts from retrieved chunks",
+        "## Few-shot examples",
         "",
     ]
+    for index, example in enumerate(_selection_few_shots(), start=1):
+        lines.extend(
+            (
+                f"### Example {index} input",
+                "",
+                example["input"],
+                "",
+                f"### Example {index} output",
+                "",
+                "```json",
+                example["output"],
+                "```",
+                "",
+            )
+        )
+    lines.extend(
+        (
+            "## User question",
+            "",
+            request.question,
+            "",
+            "## Candidate concepts from retrieved chunks",
+            "",
+        )
+    )
     for candidate in request.candidates:
         lines.extend((f"### Concept: {candidate.canonical_concept}", ""))
         lines.extend(
@@ -283,3 +335,50 @@ def _selection_markdown(request: ConceptRoleSelectionRequest) -> str:
             lines.append(f"- Parent chunks: {', '.join(candidate.chunk_refs)}")
         lines.append("")
     return "\n".join(lines).strip()
+
+
+def _selection_few_shots() -> tuple[dict[str, str], ...]:
+    return (
+        {
+            "input": (
+                "Question: What is a major triad?\n"
+                "Candidate: Major triad\n"
+                "Available roles: Definition, Example"
+            ),
+            "output": json.dumps(
+                {
+                    "selections": [
+                        {
+                            "concept": "Major triad",
+                            "selected_roles": ["Definition"],
+                            "selection_rank": 1,
+                        }
+                    ]
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+        },
+        {
+            "input": (
+                "Question: How does the circle of fifths help identify keys?\n"
+                "Candidate: Circle of fifths\n"
+                "Available roles: Definition, Procedure\n"
+                "Candidate: Cadence\n"
+                "Available roles: Definition"
+            ),
+            "output": json.dumps(
+                {
+                    "selections": [
+                        {
+                            "concept": "Circle of fifths",
+                            "selected_roles": ["Procedure"],
+                            "selection_rank": 1,
+                        }
+                    ]
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+        },
+    )
