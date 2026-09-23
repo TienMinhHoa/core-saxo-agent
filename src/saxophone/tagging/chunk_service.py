@@ -67,6 +67,18 @@ class _ChunkTransactionRepository(Protocol):
         outbox_events: Sequence[VectorOutboxEvent],
     ) -> None: ...
 
+    async def commit_chunk_checkpoint(
+        self,
+        *,
+        document_ref: str,
+        source_version: str,
+        paragraph_ids: Sequence[str],
+        relations: Sequence[ParagraphConceptRole],
+        outbox_events: Sequence[VectorOutboxEvent],
+        chunk: object,
+        paragraphs: Sequence[object],
+    ) -> None: ...
+
 
 class _DocumentTransactionRepository(Protocol):
     async def commit_document(
@@ -130,6 +142,40 @@ class ChunkTaggingTransactionService:
             paragraph_ids=tuple(item.paragraph.paragraph_id for item in request.paragraphs),
             relations=run.relations,
             outbox_events=normalized_events,
+        )
+
+    async def commit_checkpoint(
+        self,
+        document_ref: str,
+        source_version: str,
+        request: ChunkTaggingRequest,
+        run: ChunkTaggingRun,
+        *,
+        chunk: object,
+        paragraphs: Sequence[object],
+        outbox_events: Sequence[VectorOutboxEvent] = (),
+    ) -> None:
+        """Persist one chunk's source, relations, and vector work atomically."""
+
+        _validate_commit_scope(document_ref, source_version)
+        if not isinstance(request, ChunkTaggingRequest):
+            raise TypeError("request must be a ChunkTaggingRequest")
+        if not isinstance(run, ChunkTaggingRun):
+            raise TypeError("run must be a ChunkTaggingRun")
+        repository = self._transaction_repository
+        commit_checkpoint = getattr(repository, "commit_chunk_checkpoint", None)
+        if not callable(commit_checkpoint):
+            raise TypeError("transaction_repository must provide commit_chunk_checkpoint")
+        run.result.validate_against(request)
+        normalized_events = _validate_outbox_events(outbox_events)
+        await commit_checkpoint(
+            document_ref=document_ref,
+            source_version=source_version,
+            paragraph_ids=tuple(item.paragraph.paragraph_id for item in request.paragraphs),
+            relations=run.relations,
+            outbox_events=normalized_events,
+            chunk=chunk,
+            paragraphs=tuple(paragraphs),
         )
 
     async def commit_document(

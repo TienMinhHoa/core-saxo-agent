@@ -267,7 +267,8 @@ Tien trinh duoc in ra terminal va ghi vao `logs/YYYY-MM-DD.log`:
 
 - `status=reused`: chunk da co ket qua tagging trong content cache (SHA/MD5),
   khong can goi LLM lai.
-- `status=completed`: chunk vua duoc xu ly moi, thuong co goi LLM.
+- `status=completed`: chunk da tag, embed, persist SQLite/content cache va sync
+  vector Chroma thanh cong. Pipeline chi bat dau chunk tiep theo sau checkpoint nay.
 - `status=warning` roi `completed`: reservation `processing` cu het han 60
   phut, duoc thu hoi va xu ly lai.
 - `status=warning` ma khong co `completed`: chunk dang duoc tien trinh khac
@@ -276,6 +277,11 @@ Tien trinh duoc in ra terminal va ghi vao `logs/YYYY-MM-DD.log`:
 
 Cache tagging va cache embedding la hai lop khac nhau. Cache embedding duoc
 bao cao bang `reused_embedding_count` trong report cuoi.
+
+Ingest full duoc checkpoint theo tung chunk. Neu process dung sau chunk 153,
+lan chay lai se reuse cac chunk da `completed` va tiep tuc phan con lai. Concept
+catalog va stale-vector cleanup van duoc tong hop/finalize sau khi tat ca chunk
+da checkpoint thanh cong.
 
 ### 6. Kiem tra sau ingest
 

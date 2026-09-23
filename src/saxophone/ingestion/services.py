@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
+from functools import partial
 import inspect
-from typing import Protocol
+from typing import Awaitable, Callable, Protocol
 
 from .models import IngestionCommand, IngestionReport
 from .progress import IngestionProgressReporter
@@ -23,6 +24,7 @@ class _IngestWorkflow(Protocol):
         ingestion_run_id: str | None = None,
         previous_source_versions: Sequence[str] = (),
         progress: IngestionProgressReporter | None = None,
+        checkpoint: Callable[[], Awaitable[None]] | None = None,
     ) -> IngestionReport: ...
 
 
@@ -154,6 +156,15 @@ class DocumentIngestionService:
                 source_hash=source_hash,
             )
         try:
+            checkpoint = (
+                partial(
+                    self._sync_chunk_checkpoint,
+                    ingestion_run_id=ingestion_run_id,
+                    sync_limit=sync_limit,
+                )
+                if self._lifecycle is not None and self._vector_sync is not None
+                else None
+            )
             report = await _execute_ingest_workflow(
                 self._ingest_workflow,
                 command,
@@ -163,6 +174,7 @@ class DocumentIngestionService:
                 ingestion_run_id=ingestion_run_id,
                 previous_source_versions=previous_source_versions,
                 progress=progress,
+                checkpoint=checkpoint,
             )
         except Exception as error:
             if progress is not None:
@@ -273,6 +285,37 @@ class DocumentIngestionService:
             progress.completed()
         return report
 
+    async def _sync_chunk_checkpoint(
+        self,
+        *,
+        ingestion_run_id: str | None,
+        sync_limit: int,
+    ) -> None:
+        """Drain checkpoint events before allowing the next chunk to start."""
+
+        assert self._vector_sync is not None
+        assert ingestion_run_id is not None
+        while True:
+            result = await self._vector_sync.sync_pending(
+                ingestion_run_id=ingestion_run_id,
+                limit=sync_limit,
+            )
+            failed = _vector_sync_failure_count(result)
+            if failed:
+                raise RuntimeError(
+                    f"vector sync failed for {failed} checkpoint event(s)"
+                )
+            pending = await _pending_vector_event_count(
+                self._vector_sync,
+                result,
+                ingestion_run_id=ingestion_run_id,
+            )
+            if pending == 0:
+                return
+            succeeded = result.get("succeeded")
+            if isinstance(succeeded, bool) or not isinstance(succeeded, int) or succeeded < 1:
+                raise RuntimeError("vector checkpoint sync made no progress")
+
     def _create_progress(
         self,
         command: IngestionCommand,
@@ -344,6 +387,7 @@ async def _execute_ingest_workflow(
     ingestion_run_id: str | None,
     previous_source_versions: Sequence[str],
     progress: IngestionProgressReporter | None,
+    checkpoint: Callable[[], Awaitable[None]] | None,
 ) -> IngestionReport:
     """Pass optional run and re-ingestion identity to capable workflows."""
 
@@ -361,6 +405,10 @@ async def _execute_ingest_workflow(
         parameter.kind is inspect.Parameter.VAR_KEYWORD
         for parameter in parameters.values()
     )
+    accepts_checkpoint = "checkpoint" in parameters or any(
+        parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    )
     kwargs: dict[str, object] = {"resolution_profile": resolution_profile}
     if accepts_run_id:
         kwargs["ingestion_run_id"] = ingestion_run_id
@@ -368,6 +416,8 @@ async def _execute_ingest_workflow(
         kwargs["previous_source_versions"] = previous_source_versions
     if accepts_progress:
         kwargs["progress"] = progress
+    if accepts_checkpoint:
+        kwargs["checkpoint"] = checkpoint
     return await execute(command, chunks, paragraphs, **kwargs)
 
 

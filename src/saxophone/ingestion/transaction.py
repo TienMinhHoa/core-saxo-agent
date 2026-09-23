@@ -55,6 +55,44 @@ class SqliteIngestionTransactionRepository:
             tuple(outbox_events),
         )
 
+    async def commit_chunk_checkpoint(
+        self,
+        *,
+        document_ref: str,
+        source_version: str,
+        paragraph_ids: Sequence[str],
+        relations: Sequence[ParagraphConceptRole],
+        outbox_events: Sequence[VectorOutboxEvent],
+        chunk: IngestionSourceChunk,
+        paragraphs: Sequence[ParagraphBlock],
+    ) -> None:
+        """Persist one restart-safe chunk checkpoint in a single transaction."""
+
+        normalized_paragraph_ids = self._validate_inputs(
+            document_ref=document_ref,
+            source_version=source_version,
+            paragraph_ids=paragraph_ids,
+            relations=relations,
+            outbox_events=outbox_events,
+        )
+        self._validate_source_context(
+            document_ref=document_ref,
+            source_version=source_version,
+            paragraph_ids=normalized_paragraph_ids,
+            chunks=(chunk,),
+            paragraphs=paragraphs,
+        )
+        await asyncio.to_thread(
+            self._commit_chunk_checkpoint,
+            document_ref,
+            source_version,
+            normalized_paragraph_ids,
+            tuple(relations),
+            tuple(outbox_events),
+            chunk,
+            tuple(paragraphs),
+        )
+
     async def commit_document(
         self,
         *,
@@ -119,6 +157,110 @@ class SqliteIngestionTransactionRepository:
                   AND paragraph_id IN ({placeholders})
                 """,
                 (document_ref, source_version, *paragraph_ids),
+            )
+            connection.executemany(
+                """
+                INSERT INTO paragraph_concept_roles
+                    (document_ref, source_version, paragraph_id, canonical_concept, content_role)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    (
+                        document_ref,
+                        source_version,
+                        relation.paragraph_id,
+                        relation.canonical_concept,
+                        relation.content_role.value,
+                    )
+                    for relation in relations
+                ),
+            )
+            for event in outbox_events:
+                self._enqueue_event(connection, event)
+
+    def _commit_chunk_checkpoint(
+        self,
+        document_ref: str,
+        source_version: str,
+        paragraph_ids: tuple[str, ...],
+        relations: tuple[ParagraphConceptRole, ...],
+        outbox_events: tuple[VectorOutboxEvent, ...],
+        chunk: IngestionSourceChunk,
+        paragraphs: tuple[ParagraphBlock, ...],
+    ) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(self._path) as connection:
+            SqliteTaggingRepository._create_schema(connection)
+            SqliteVectorOutboxRepository._create_schema(connection)
+            SqliteRetrievalContextRepository._create_schema(connection)
+
+            existing_ids = tuple(
+                row[0]
+                for row in connection.execute(
+                    """
+                    SELECT paragraph_id FROM source_paragraphs
+                    WHERE document_ref = ? AND source_version = ? AND chunk_id = ?
+                    """,
+                    (document_ref, source_version, chunk.chunk_id),
+                ).fetchall()
+            )
+            relation_ids = tuple(dict.fromkeys((*existing_ids, *paragraph_ids)))
+            placeholders = ", ".join("?" for _ in relation_ids)
+            connection.execute(
+                f"""
+                DELETE FROM paragraph_concept_roles
+                WHERE document_ref = ? AND source_version = ?
+                  AND paragraph_id IN ({placeholders})
+                """,
+                (document_ref, source_version, *relation_ids),
+            )
+            connection.execute(
+                """
+                DELETE FROM source_paragraphs
+                WHERE document_ref = ? AND source_version = ? AND chunk_id = ?
+                """,
+                (document_ref, source_version, chunk.chunk_id),
+            )
+            connection.execute(
+                """
+                INSERT INTO source_chunks
+                    (document_ref, source_version, chunk_id, search_text, metadata_json)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT (document_ref, source_version, chunk_id) DO UPDATE SET
+                    search_text = excluded.search_text,
+                    metadata_json = excluded.metadata_json
+                """,
+                (
+                    chunk.document_ref,
+                    chunk.source_version,
+                    chunk.chunk_id,
+                    chunk.search_text,
+                    json.dumps(dict(chunk.metadata), ensure_ascii=False, sort_keys=True),
+                ),
+            )
+            connection.executemany(
+                """
+                INSERT INTO source_paragraphs
+                    (document_ref, source_version, paragraph_id, chunk_id,
+                     order_index, text, exact_content_hash,
+                     normalized_identity_hash, heading_path_json, image_refs_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    (
+                        document_ref,
+                        source_version,
+                        paragraph.paragraph_id,
+                        paragraph.chunk_id,
+                        paragraph.ordinal,
+                        paragraph.text,
+                        paragraph.exact_content_hash,
+                        paragraph.normalized_identity_hash,
+                        json.dumps(paragraph.heading_path, ensure_ascii=False),
+                        json.dumps(paragraph.image_refs, ensure_ascii=False),
+                    )
+                    for paragraph in paragraphs
+                ),
             )
             connection.executemany(
                 """

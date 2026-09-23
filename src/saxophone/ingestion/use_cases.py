@@ -6,7 +6,7 @@ import hashlib
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Awaitable, Callable, Protocol
 
 from saxophone.documents import KnowledgeChunk, KnowledgeRepository
 from saxophone.tagging import (
@@ -66,6 +66,14 @@ class _PreparedChunkTagging:
     reservations: tuple[ContentReservation | None, ...] = ()
     reused_count: int = 0
     skipped_chunk_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class _CheckpointedChunk:
+    """One fully durable chunk and the prepared state needed for finalization."""
+
+    tagging: _PreparedChunkTagging
+    index: _PreparedIndex
 
 
 class _ContentLedger(Protocol):
@@ -653,6 +661,33 @@ class DocumentChunkTaggingService:
                 outbox_events=events_by_chunk.get(request.chunk_id, ()),
             )
 
+    async def commit_checkpoint(
+        self,
+        command: IngestionCommand,
+        prepared: _PreparedChunkTagging,
+        *,
+        chunk: IngestionSourceChunk,
+        paragraphs: Sequence[ParagraphBlock],
+        outbox_events: Sequence[VectorOutboxEvent],
+    ) -> None:
+        """Atomically persist one chunk before the document workflow continues."""
+
+        if not isinstance(command, IngestionCommand):
+            raise TypeError("command must be an IngestionCommand")
+        if not isinstance(prepared, _PreparedChunkTagging):
+            raise TypeError("prepared must be a chunk tagging preparation")
+        if len(prepared.requests) != 1 or len(prepared.runs) != 1:
+            raise ValueError("a chunk checkpoint must contain exactly one tagging run")
+        await self._transaction_service.commit_checkpoint(
+            command.document_ref,
+            command.source_version,
+            prepared.requests[0],
+            prepared.runs[0],
+            chunk=chunk,
+            paragraphs=tuple(paragraphs),
+            outbox_events=tuple(outbox_events),
+        )
+
     async def commit_document(
         self,
         command: IngestionCommand,
@@ -817,6 +852,7 @@ class IngestDocument:
         ingestion_run_id: str | None = None,
         previous_source_versions: Sequence[str] = (),
         progress: IngestionProgressReporter | None = None,
+        checkpoint: Callable[[], Awaitable[None]] | None = None,
     ) -> IngestionReport:
         normalized_chunks = tuple(chunks)
         normalized_paragraphs = tuple(paragraphs)
@@ -836,6 +872,19 @@ class IngestDocument:
             )
 
         if self._chunk_tagging is not None:
+            if ingestion_run_id is not None and checkpoint is not None:
+                return await self._execute_checkpointed_chunks(
+                    command,
+                    normalized_chunks,
+                    normalized_paragraphs,
+                    existing_candidates=existing_candidates,
+                    outbox_events=outbox_events,
+                    concept_outbox_events=normalized_concept_events,
+                    ingestion_run_id=ingestion_run_id,
+                    previous_source_versions=normalized_previous_versions,
+                    progress=progress,
+                    checkpoint=checkpoint,
+                )
             if progress is not None:
                 progress.stage_started("tagging", completed_chunks=0)
             prepared_tagging = await self._chunk_tagging.prepare(
@@ -1055,6 +1104,260 @@ class IngestDocument:
             records,
             paragraph_count=len(normalized_paragraphs),
             tagged_paragraph_count=len(tagged),
+        )
+
+    async def _execute_checkpointed_chunks(
+        self,
+        command: IngestionCommand,
+        chunks: tuple[IngestionSourceChunk, ...],
+        paragraphs: tuple[ParagraphBlock, ...],
+        *,
+        existing_candidates: Mapping[str, Sequence[str]] | None,
+        outbox_events: Mapping[str, Sequence[VectorOutboxEvent]] | None,
+        concept_outbox_events: tuple[VectorOutboxEvent, ...],
+        ingestion_run_id: str,
+        previous_source_versions: tuple[str, ...],
+        progress: IngestionProgressReporter | None,
+        checkpoint: Callable[[], Awaitable[None]],
+    ) -> IngestionReport:
+        """Durably publish each chunk before starting the next provider call."""
+
+        assert self._chunk_tagging is not None
+        if progress is not None:
+            progress.stage_started("tagging", completed_chunks=0)
+        paragraphs_by_chunk: dict[str, tuple[ParagraphBlock, ...]] = {
+            chunk.chunk_id: tuple(
+                paragraph for paragraph in paragraphs if paragraph.chunk_id == chunk.chunk_id
+            )
+            for chunk in chunks
+        }
+        provided_events_by_chunk = _normalize_outbox_events(outbox_events, chunks)
+        checkpointed: list[_CheckpointedChunk] = []
+        for index, chunk in enumerate(chunks, start=1):
+            chunk_paragraphs = paragraphs_by_chunk[chunk.chunk_id]
+            if progress is not None:
+                progress.chunk_started(
+                    chunk.chunk_id,
+                    current_chunk=index,
+                    completed_chunks=index - 1,
+                )
+            scoped_candidates = (
+                {
+                    paragraph.paragraph_id: existing_candidates[paragraph.paragraph_id]
+                    for paragraph in chunk_paragraphs
+                    if paragraph.paragraph_id in existing_candidates
+                }
+                if existing_candidates is not None
+                else None
+            )
+            completed = await self._checkpoint_chunk(
+                command,
+                chunk,
+                chunk_paragraphs,
+                existing_candidates=scoped_candidates,
+                provided_events=provided_events_by_chunk.get(chunk.chunk_id, ()),
+                ingestion_run_id=ingestion_run_id,
+                checkpoint=checkpoint,
+            )
+            if completed is None:
+                if progress is not None:
+                    progress.chunk_warning(
+                        chunk.chunk_id,
+                        current_chunk=index,
+                        completed_chunks=index,
+                        reason_code="chunk_content_already_processing",
+                    )
+                return self._checkpoint_incomplete_report(
+                    command,
+                    chunks,
+                    paragraphs,
+                    checkpointed,
+                )
+            checkpointed.append(completed)
+            if progress is not None:
+                progress.chunk_completed(
+                    chunk.chunk_id,
+                    completed_chunks=index,
+                    reused=bool(completed.tagging.reused_count),
+                )
+
+        return await self._finalize_checkpointed_document(
+            command,
+            chunks,
+            paragraphs,
+            checkpointed,
+            concept_outbox_events=concept_outbox_events,
+            ingestion_run_id=ingestion_run_id,
+            previous_source_versions=previous_source_versions,
+            progress=progress,
+        )
+
+    async def _checkpoint_chunk(
+        self,
+        command: IngestionCommand,
+        chunk: IngestionSourceChunk,
+        paragraphs: tuple[ParagraphBlock, ...],
+        *,
+        existing_candidates: Mapping[str, Sequence[str]] | None,
+        provided_events: Sequence[VectorOutboxEvent],
+        ingestion_run_id: str,
+        checkpoint: Callable[[], Awaitable[None]],
+    ) -> _CheckpointedChunk | None:
+        assert self._chunk_tagging is not None
+        prepared = await self._chunk_tagging.prepare(
+            command,
+            (chunk,),
+            paragraphs,
+            existing_candidates=existing_candidates,
+        )
+        if prepared.skipped_chunk_ids:
+            await self._chunk_tagging.fail(prepared)
+            return None
+        try:
+            tagged = _tagged_paragraphs_from_chunk_runs(paragraphs, prepared.runs)
+            records = build_index_inputs(command, (chunk,), tagged)
+            prepared_index = await self._index_document.prepare(command, records)
+            generated_events = build_chunk_vector_upsert_events(
+                prepared_index.indexed_records,
+                index_version=command.index_profile,
+                ingestion_run_id=ingestion_run_id,
+            )
+            events = _append_unique_events(tuple(provided_events), generated_events)
+            await self._chunk_tagging.commit_checkpoint(
+                command,
+                prepared,
+                chunk=chunk,
+                paragraphs=paragraphs,
+                outbox_events=events,
+            )
+            await self._chunk_tagging.complete(prepared, prepared_index.indexed_records)
+            await checkpoint()
+        except BaseException:
+            await self._chunk_tagging.fail(prepared)
+            raise
+        return _CheckpointedChunk(prepared, prepared_index)
+
+    @staticmethod
+    def _checkpoint_incomplete_report(
+        command: IngestionCommand,
+        chunks: tuple[IngestionSourceChunk, ...],
+        paragraphs: tuple[ParagraphBlock, ...],
+        checkpointed: Sequence[_CheckpointedChunk],
+    ) -> IngestionReport:
+        return IngestionReport(
+            document_ref=command.document_ref,
+            source_version=command.source_version,
+            chunk_count=len(chunks),
+            paragraph_count=len(paragraphs),
+            tagged_paragraph_count=sum(
+                len(run.result.paragraphs)
+                for item in checkpointed
+                for run in item.tagging.runs
+            ),
+            failed_paragraph_count=0,
+            embedded_count=sum(
+                len(item.index.input_records) - item.index.reused_count
+                for item in checkpointed
+            ),
+            reused_embedding_count=sum(item.index.reused_count for item in checkpointed),
+            skipped_count=1,
+            index_version=command.index_profile,
+            indexed=False,
+            warnings=("skipped 1 chunk(s) already being processed",),
+            errors=(),
+        )
+
+    async def _finalize_checkpointed_document(
+        self,
+        command: IngestionCommand,
+        chunks: tuple[IngestionSourceChunk, ...],
+        paragraphs: tuple[ParagraphBlock, ...],
+        checkpointed: Sequence[_CheckpointedChunk],
+        *,
+        concept_outbox_events: tuple[VectorOutboxEvent, ...],
+        ingestion_run_id: str,
+        previous_source_versions: tuple[str, ...],
+        progress: IngestionProgressReporter | None,
+    ) -> IngestionReport:
+        assert self._chunk_tagging is not None
+        reused_tagging_count = sum(
+            item.tagging.reused_count for item in checkpointed
+        )
+        combined_tagging = _PreparedChunkTagging(
+            requests=tuple(
+                request for item in checkpointed for request in item.tagging.requests
+            ),
+            runs=tuple(run for item in checkpointed for run in item.tagging.runs),
+            reservations=(),
+            reused_count=reused_tagging_count,
+        )
+        combined_index = _PreparedIndex(
+            input_records=tuple(
+                record for item in checkpointed for record in item.index.input_records
+            ),
+            indexed_records=tuple(
+                record for item in checkpointed for record in item.index.indexed_records
+            ),
+            reused_count=sum(item.index.reused_count for item in checkpointed),
+        )
+        tagged = _tagged_paragraphs_from_chunk_runs(paragraphs, combined_tagging.runs)
+        normalized_concept_events = concept_outbox_events
+        if self._concept_vector_preparation is not None:
+            if progress is not None:
+                progress.stage_started("concept_catalog", completed_chunks=len(chunks))
+            entries = build_concept_catalog(chunks, paragraphs, combined_tagging.runs)
+            if self._concept_catalog_repository is not None:
+                entries = await self._concept_catalog_repository.replace_document_entries(
+                    command.document_ref,
+                    command.source_version,
+                    entries,
+                    previous_source_versions=previous_source_versions,
+                )
+            prepared_concepts = await self._concept_vector_preparation.prepare(
+                entries,
+                embedding_model=command.embedding_profile,
+                catalog_ref="concept-catalog",
+                catalog_version=_concept_catalog_version(entries),
+                index_version=command.index_profile,
+                ingestion_run_id=ingestion_run_id,
+            )
+            normalized_concept_events = _append_unique_events(
+                normalized_concept_events,
+                prepared_concepts.events,
+            )
+        reconciliation = await self._plan_vector_reconciliation(
+            command,
+            combined_index,
+            ingestion_run_id=ingestion_run_id,
+        )
+        stale_events = (
+            build_stale_delete_events(
+                reconciliation,
+                ingestion_run_id=ingestion_run_id,
+                document_ref=command.document_ref,
+                source_version=command.source_version,
+            )
+            if reconciliation is not None
+            else ()
+        )
+        if progress is not None:
+            progress.stage_started("persistence", completed_chunks=len(chunks))
+        await self._chunk_tagging.commit_document(
+            command,
+            combined_tagging,
+            outbox_events=stale_events,
+            concept_outbox_events=normalized_concept_events,
+            previous_source_versions=previous_source_versions,
+            chunks=chunks,
+            paragraphs=paragraphs,
+        )
+        return await self._index_document.publish(
+            command,
+            combined_index,
+            paragraph_count=len(paragraphs),
+            tagged_paragraph_count=len(tagged),
+            publish_vectors=False,
+            skipped_count=reused_tagging_count,
         )
 
     @staticmethod
