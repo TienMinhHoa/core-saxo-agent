@@ -99,4 +99,4 @@ def test_retrieve_orchestrates_candidate_context_into_validated_markdown() -> No
     assert retriever.calls == [("What is a major triad?", {"source": "music.md"}, 10)]
     assert selector.requests[0].question == "What is a major triad?"
     assert result.answer_context_markdown is not None
-    assert "### [p-1]" in result.answer_context_markdown
+    assert "### [1]" in result.answer_context_markdown

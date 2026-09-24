@@ -389,6 +389,7 @@ def _agent_chat_response(result: object) -> dict[str, object]:
         "answer": getattr(result, "answer", None),
         "sources": [
             {
+                "citation": f"[{index}]",
                 "paragraph_ref": source.paragraph_ref,
                 "chunk_id": source.chunk_id,
                 "source": source.source,
@@ -396,7 +397,7 @@ def _agent_chat_response(result: object) -> dict[str, object]:
                 "page_end": source.page_end,
                 "image_refs": list(source.image_refs),
             }
-            for source in sources
+            for index, source in enumerate(sources, start=1)
         ],
         "model_version": getattr(result, "model_version", None),
     }

@@ -58,7 +58,7 @@ def _bundle() -> RetrievalBundle:
         RetrievalBundleStatus.READY,
         "What is a major triad?",
         (hit,),
-        "# Retrieval Context\n\n### [paragraph-1]",
+        "# Retrieval Context\n\n### [1]",
         context,
     )
 
@@ -87,8 +87,8 @@ class _StructuredProvider:
 async def test_grounded_answer_uses_retrieved_paragraphs_and_returns_typed_sources() -> None:
     provider = _StructuredProvider(
         {
-            "answer": "A major triad contains a root, third, and fifth.",
-            "used_paragraph_refs": ["paragraph-1"],
+            "answer": "A major triad contains a root, third, and fifth [1].",
+            "used_paragraph_refs": ["1"],
         }
     )
     service = GroundedAnswerService(
@@ -101,7 +101,7 @@ async def test_grounded_answer_uses_retrieved_paragraphs_and_returns_typed_sourc
 
     assert result == GroundedAnswerResponse(
         status=GroundedAnswerStatus.ANSWERED,
-        answer="A major triad contains a root, third, and fifth.",
+        answer="A major triad contains a root, third, and fifth [1].",
         sources=(
             AnswerSource(
                 paragraph_ref="paragraph-1",
@@ -115,7 +115,28 @@ async def test_grounded_answer_uses_retrieved_paragraphs_and_returns_typed_sourc
         model_version="fake-deepseek",
     )
     assert provider.calls[0]["task_type"] == "answer_generation"
-    assert "### [paragraph-1]" in provider.calls[0]["user_prompt"]
+    assert "### [1]" in provider.calls[0]["user_prompt"]
+    assert "paragraph-1" not in provider.calls[0]["user_prompt"]
+    assert "citation key" in provider.calls[0]["system_prompt"].lower()
+
+
+@pytest.mark.anyio
+async def test_grounded_answer_normalizes_raw_internal_ref_in_model_text() -> None:
+    provider = _StructuredProvider(
+        {
+            "answer": "A major triad is explained in paragraph-1.",
+            "used_paragraph_refs": ["paragraph-1"],
+        }
+    )
+    service = GroundedAnswerService(
+        retrieval=_Retrieval(_bundle()),
+        provider=provider,
+        model_version="fake-deepseek",
+    )
+
+    result = await service.answer(QuestionRequest("What is a major triad?"))
+
+    assert result.answer == "A major triad is explained in [1]."
     assert provider.calls[0]["response_model"].model_json_schema() == {
         "type": "object",
         "additionalProperties": False,

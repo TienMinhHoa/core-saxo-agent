@@ -202,8 +202,10 @@ class GroundedAnswerService:
         payload = await self._provider.generate_structured(
             task_type="answer_generation",
             system_prompt=(
-                "Answer only from the supplied paragraph context and cite only paragraph "
-                "references present in that context."
+                "Answer only from the supplied paragraph context. Cite sources in the answer "
+                "using short citation keys such as [1] and [2], never raw paragraph references. "
+                "Return used_paragraph_refs as the corresponding numeric citation keys when "
+                "possible; do not include any extra fields."
             ),
             user_prompt=bundle.answer_context_markdown.strip(),
             response_model=_StructuredAnswer,
@@ -212,15 +214,27 @@ class GroundedAnswerService:
             paragraph.paragraph_ref: paragraph
             for paragraph in bundle.answer_context.paragraphs
         }
-        refs = tuple(payload.used_paragraph_refs)
+        citation_refs = _ordered_context_refs(bundle.answer_context, paragraphs)
+        key_to_ref = {
+            str(index): ref
+            for index, ref in enumerate(citation_refs, start=1)
+        }
+        refs = tuple(
+            value if value in paragraphs else key_to_ref.get(value, value)
+            for value in payload.used_paragraph_refs
+        )
         if len(refs) != len(set(refs)):
             raise ValueError("used paragraph refs must be unique")
         if any(ref not in paragraphs for ref in refs):
             raise ValueError("used paragraph refs must belong to retrieved paragraph context")
-        sources = tuple(_answer_source(paragraphs[ref]) for ref in refs)
+        sources = tuple(
+            _answer_source(paragraphs[ref])
+            for ref in citation_refs
+            if ref in refs
+        )
         return GroundedAnswerResponse(
             GroundedAnswerStatus.ANSWERED,
-            payload.answer,
+            _normalize_answer_citations(payload.answer, citation_refs),
             sources,
             self._model_version,
         )
@@ -237,6 +251,36 @@ def _answer_source(paragraph: object) -> AnswerSource:
         page_end=numeric_pages[-1] if numeric_pages else None,
         image_refs=tuple(getattr(paragraph, "image_refs", ())),
     )
+
+
+def _normalize_answer_citations(
+    answer: str,
+    citation_refs: tuple[str, ...],
+) -> str:
+    """Replace leaked internal refs with the short labels shown to the model."""
+
+    labels = {
+        ref: f"[{index}]"
+        for index, ref in enumerate(citation_refs, start=1)
+    }
+    normalized = answer
+    for ref in sorted(labels, key=len, reverse=True):
+        normalized = normalized.replace(ref, labels[ref])
+    return normalized
+
+
+def _ordered_context_refs(
+    context: object,
+    paragraphs: Mapping[str, object],
+) -> tuple[str, ...]:
+    selected_refs = tuple(getattr(context, "selected_paragraph_refs", ()))
+    if not selected_refs:
+        selected_refs = tuple(
+            ref
+            for selection in getattr(context, "selected_roles", ())
+            for ref in selection.paragraph_refs
+        )
+    return tuple(dict.fromkeys(ref for ref in selected_refs if ref in paragraphs))
 
 
 def _non_blank_text(value: object, field_name: str) -> str:

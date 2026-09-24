@@ -140,4 +140,4 @@ async def test_question_retrieval_hydrates_context_for_current_hits() -> None:
         "paragraph-1",
     )
     assert result.answer_context_markdown is not None
-    assert "### [paragraph-1]" in result.answer_context_markdown
+    assert "### [1]" in result.answer_context_markdown

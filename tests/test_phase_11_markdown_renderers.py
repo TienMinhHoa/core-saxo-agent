@@ -53,3 +53,5 @@ def test_answer_context_renders_each_source_once_and_rejects_dangling_refs() -> 
     rendered = AnswerContextMarkdownRenderer().render_answer_context("What is it?", context)
     assert rendered.count("A major triad — root, third, fifth.") == 1
     assert "## Concept-role map" in rendered
+    assert "### [1]" in rendered
+    assert "paragraph-A" not in rendered

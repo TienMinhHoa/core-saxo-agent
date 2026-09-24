@@ -59,6 +59,7 @@ def test_agent_chat_page_serves_separate_html_css_and_javascript_assets() -> Non
     assert "document.createElement(\"details\")" in script.text
     assert '"Bạn"' in script.text
     assert "nguồn đã sử dụng" in script.text
+    assert "source.citation" in script.text
 
 
 def test_agent_chat_message_endpoint_runs_grounded_question_flow() -> None:
@@ -107,6 +108,7 @@ def test_agent_chat_message_endpoint_runs_grounded_question_flow() -> None:
         "answer": "Rhythm organizes the musical pulse.",
         "sources": [
             {
+                "citation": "[1]",
                 "paragraph_ref": "paragraph-1",
                 "chunk_id": "chunk-1",
                 "source": "music-theory.md",

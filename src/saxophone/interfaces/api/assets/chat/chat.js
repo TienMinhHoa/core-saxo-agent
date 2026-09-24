@@ -38,12 +38,12 @@
 
       const list = document.createElement("ol");
       list.className = "source-list";
-      payload.sources.forEach((source) => {
+      payload.sources.forEach((source, index) => {
         const item = document.createElement("li");
         const pages = source.page_start === null
           ? "không có số trang"
           : `trang ${source.page_start}${source.page_end !== source.page_start ? `-${source.page_end}` : ""}`;
-        item.textContent = `${source.source} · ${pages} · ${source.paragraph_ref} · ${source.chunk_id}`;
+        item.textContent = `${source.citation || `[${index + 1}]`} ${source.source} · ${pages} · ${source.chunk_id}`;
         list.appendChild(item);
       });
       details.appendChild(list);

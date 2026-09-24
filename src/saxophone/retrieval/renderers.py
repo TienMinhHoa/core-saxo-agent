@@ -139,15 +139,18 @@ class AnswerContextMarkdownRenderer:
                 refs.append(ref)
         if any(ref not in paragraphs for ref in refs):
             raise ValueError("selected role contains a dangling paragraph ref")
+        citation_labels = {ref: str(index) for index, ref in enumerate(refs, start=1)}
         lines = ["# Retrieval Context", "", "## User question", "", question, "", "## Concept-role map", ""]
         for selection in context.selected_roles:
-            refs_text = ", ".join(f"[{ref}]" for ref in selection.paragraph_refs)
+            refs_text = ", ".join(
+                f"[{citation_labels[ref]}]" for ref in selection.paragraph_refs
+            )
             parents = ", ".join(f"{chunk.chunk_id} (rank {chunk.rank})" for chunk in selection.parent_chunks)
             lines.extend((f"### Concept: {selection.concept}", "", f"- Selected role: {selection.role}", f"- Paragraphs: {refs_text}", f"- Parent chunks: {parents}", ""))
         lines.extend(("## Source paragraphs", ""))
         for ref in refs:
             paragraph = paragraphs[ref]
-            lines.extend((f"### [{paragraph.paragraph_ref}]", "", f"- Source: {paragraph.source}", f"- Parent header: {paragraph.parent_header}"))
+            lines.extend((f"### [{citation_labels[ref]}]", "", f"- Source: {paragraph.source}", f"- Parent header: {paragraph.parent_header}"))
             if paragraph.nested_headings:
                 lines.append(f"- Nested heading: {'; '.join(paragraph.nested_headings)}")
             if paragraph.pages:
