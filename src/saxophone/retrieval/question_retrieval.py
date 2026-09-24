@@ -11,10 +11,16 @@ from saxophone.tagging.models import ParagraphConceptRole
 
 from .context_limiter import ContextLimiter
 from .models import ChunkHit
+from .paragraph_selection import (
+    ParagraphSelectionRequest,
+    StructuredParagraphSelector,
+    build_paragraph_choices,
+)
 from .paragraph_traversal import ParagraphTraversal
 from .ports import ChunkRetriever
 from .renderers import (
     AnswerContextMarkdownRenderer,
+    AnswerContextModel,
     ConceptInventoryBuilder,
     SelectedConceptRole,
     SourceParagraph,
@@ -77,7 +83,7 @@ class QuestionRetrievalService:
         self,
         *,
         retriever: ChunkRetriever,
-        selector: ConceptRoleSelector,
+        selector: ConceptRoleSelector | StructuredParagraphSelector,
         relations: tuple[ParagraphConceptRole, ...] = (),
         paragraphs: Mapping[str, SourceParagraph] | None = None,
         context_repository: RetrievalContextRepository | None = None,
@@ -127,6 +133,61 @@ class QuestionRetrievalService:
             relation for relation in relations
             if paragraph_chunks.get(relation.paragraph_id) in chunk_ranks
         )
+
+        if isinstance(self._selector, StructuredParagraphSelector):
+            relation_refs = {relation.paragraph_id for relation in relations}
+            choices = build_paragraph_choices(
+                tuple(
+                    paragraph
+                    for ref, paragraph in paragraphs.items()
+                    if ref in relation_refs
+                )
+            )
+            if not choices:
+                return RetrievalBundle(
+                    RetrievalBundleStatus.NO_RELEVANT_CONCEPT_ROLE,
+                    request.question,
+                    hits,
+                )
+            selection_result = await self._selector.select(
+                ParagraphSelectionRequest(request.question, choices)
+            )
+            if not selection_result.selections:
+                return RetrievalBundle(
+                    RetrievalBundleStatus.NO_RELEVANT_CONCEPT_ROLE,
+                    request.question,
+                    hits,
+                )
+            choices_by_key = {choice.key: choice for choice in choices}
+            selected_refs = tuple(
+                choices_by_key[selection.key].paragraph_ref
+                for selection in selection_result.selections
+            )
+            selected_paragraphs = tuple(
+                choices_by_key[selection.key].paragraph
+                for selection in selection_result.selections
+            )
+            context = self._limiter.limit(
+                AnswerContextModel(
+                    (),
+                    selected_paragraphs,
+                    selected_refs,
+                ),
+                max_paragraphs=request.max_paragraphs,
+                max_tokens=request.max_tokens,
+            )
+            markdown = AnswerContextMarkdownRenderer().render_answer_context(
+                request.question,
+                context,
+            )
+            return RetrievalBundle(
+                RetrievalBundleStatus.READY,
+                request.question,
+                hits,
+                markdown,
+                context,
+            )
+
         inventory = ConceptInventoryBuilder().build(
             relations,
             paragraph_chunks=paragraph_chunks,

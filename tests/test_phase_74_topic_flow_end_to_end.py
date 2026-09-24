@@ -75,12 +75,11 @@ async def test_existing_document_fixture_can_be_ingested_tagged_and_answered(tmp
                 "chunk_new_concepts": ["Rhythm"],
                 "paragraphs": tagging_paragraphs,
             },
-            "concept_role_selection": {
+            "paragraph_selection": {
                 "selections": [
                     {
-                        "concept": "Rhythm",
-                        "selected_roles": ["Definition"],
-                        "selection_rank": 1,
+                        "reason": "The paragraph defines rhythm.",
+                        "key": "1",
                     }
                 ]
             },

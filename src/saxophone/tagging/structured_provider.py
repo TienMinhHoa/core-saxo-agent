@@ -44,6 +44,7 @@ class StructuredLlmProvider(Protocol):
 _TASKS: dict[str, ModelTask] = {
     "chunk_tagging_and_conflict": ModelTask.CHUNK_TAGGING,
     "concept_role_selection": ModelTask.RETRIEVAL_SELECT,
+    "paragraph_selection": ModelTask.RETRIEVAL_SELECT,
     "answer_generation": ModelTask.ANSWER_GENERATE,
 }
 

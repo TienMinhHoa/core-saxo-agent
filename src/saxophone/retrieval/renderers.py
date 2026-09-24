@@ -111,6 +111,7 @@ class SourceParagraph:
 class AnswerContextModel:
     selected_roles: tuple[SelectedConceptRole, ...]
     paragraphs: tuple[SourceParagraph, ...]
+    selected_paragraph_refs: tuple[str, ...] = ()
 
 
 class RoleSelectionMarkdownRenderer:
@@ -127,9 +128,15 @@ class RoleSelectionMarkdownRenderer:
 class AnswerContextMarkdownRenderer:
     def render_answer_context(self, question: str, context: AnswerContextModel) -> str:
         paragraphs = {paragraph.paragraph_ref: paragraph for paragraph in context.paragraphs}
-        refs = [ref for selection in context.selected_roles for ref in selection.paragraph_refs]
-        if len(refs) != len(set(refs)):
-            raise ValueError("paragraph refs must not be duplicated")
+        raw_refs = (
+            list(context.selected_paragraph_refs)
+            if context.selected_paragraph_refs
+            else [ref for selection in context.selected_roles for ref in selection.paragraph_refs]
+        )
+        refs: list[str] = []
+        for ref in raw_refs:
+            if ref not in refs:
+                refs.append(ref)
         if any(ref not in paragraphs for ref in refs):
             raise ValueError("selected role contains a dangling paragraph ref")
         lines = ["# Retrieval Context", "", "## User question", "", question, "", "## Concept-role map", ""]

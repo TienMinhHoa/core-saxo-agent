@@ -13,6 +13,15 @@ from .role_selection import (
 )
 from .renderers import ConceptInventory, ConceptInventoryBuilder
 from .paragraph_traversal import ParagraphTraversal
+from .paragraph_selection import (
+    ParagraphChoice,
+    ParagraphSelection,
+    ParagraphSelectionRequest,
+    ParagraphSelectionResult,
+    StructuredParagraphSelector,
+    build_paragraph_choices,
+    render_paragraph_choices,
+)
 from .context_limiter import ContextLimiter
 from .question_retrieval import QuestionRequest, QuestionRetrievalService, RetrievalBundle, RetrievalBundleStatus
 
@@ -30,6 +39,13 @@ __all__ = [
     "ConceptInventory",
     "ConceptInventoryBuilder",
     "ParagraphTraversal",
+    "ParagraphChoice",
+    "ParagraphSelection",
+    "ParagraphSelectionRequest",
+    "ParagraphSelectionResult",
+    "StructuredParagraphSelector",
+    "build_paragraph_choices",
+    "render_paragraph_choices",
     "ContextLimiter",
     "QuestionRequest",
     "QuestionRetrievalService",

@@ -46,4 +46,11 @@ class ContextLimiter:
             for selection in context.selected_roles
             if any(ref in refs for ref in selection.paragraph_refs)
         )
-        return AnswerContextModel(selections, tuple(chosen))
+        selected_paragraph_refs = tuple(
+            ref for ref in context.selected_paragraph_refs if ref in refs
+        )
+        return AnswerContextModel(
+            selections,
+            tuple(chosen),
+            selected_paragraph_refs,
+        )

@@ -69,7 +69,7 @@ from saxophone.platform.remote_gpu import (
 )
 from saxophone.retrieval import ChunkRetriever, QuestionRetrievalService, RetrieveEvidence
 from saxophone.retrieval.adapters import VectorIndexChunkRetriever
-from saxophone.retrieval.role_selection import StructuredConceptRoleSelector
+from saxophone.retrieval.paragraph_selection import StructuredParagraphSelector
 from saxophone.retrieval.sqlite_context import SqliteRetrievalContextRepository
 from saxophone.services.extract_topic import (
     DocumentIngestionFacadeAdapter,
@@ -537,7 +537,7 @@ def create_app(
     ):
         question_retrieval = QuestionRetrievalService(
             retriever=VectorIndexChunkRetriever(embedding_provider, vector_index),
-            selector=StructuredConceptRoleSelector(structured_llm_provider),
+            selector=StructuredParagraphSelector(structured_llm_provider),
             context_repository=SqliteRetrievalContextRepository(ingestion_database),
         )
         grounded_answer = GroundedAnswerService(

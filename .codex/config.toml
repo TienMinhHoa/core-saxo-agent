@@ -1,0 +1,35 @@
+# -- Global Settings --
+
+# Options: workspace-write, danger-full-access, read-only
+sandbox_mode = "danger-full-access"
+# Options: untrusted, on-request, never
+approval_policy = "never"
+# Options: user, auto_review
+approvals_reviewer = "user"
+
+# -- Model -
+model_provider = "proxy"
+personality = "pragmatic"
+# model_context_window = 272000
+model = "gpt-5.6-sol"
+model_reasoning_effort = "high"
+service_tier = "default"
+plan_mode_reasoning_effort = "xhigh"
+
+[model_providers.proxy]
+name = "OpenAI using 9Router proxy"
+base_url = "http://localhost:20128/"
+env_key = "NINEROUTER_API_KEY"
+
+
+[features]
+memories = true
+chronicle = false
+multi_agent = true
+collaboration_modes = true
+default_mode_request_user_input = true
+plugin_hooks = true
+
+[memories]
+generate_memories = true
+use_memories = true
