@@ -65,6 +65,7 @@ from .web_search import (
     WebSearchToolAdapter,
 )
 from .events import AgentEvent, AgentEventSink, AgentEventType
+from .langchain_callbacks import AgentEventCallbackHandler
 from .streaming import AgentRunManager
 
 __all__ = [
@@ -133,5 +134,6 @@ __all__ = [
     "AgentEvent",
     "AgentEventSink",
     "AgentEventType",
+    "AgentEventCallbackHandler",
     "AgentRunManager",
 ]
