@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
 
 from .contracts import AgentQuestion, EvidenceLedger
 from .document_search import DocumentSearchResult
+from .evidence_selection import SelectionRequest, SelectionResult
 
 if TYPE_CHECKING:
     from .contracts import RunBudget

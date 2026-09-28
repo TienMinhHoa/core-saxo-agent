@@ -18,6 +18,13 @@ from .document_search import (
     DocumentSearchToolAdapter,
     SemanticDocumentSearchTool,
 )
+from .evidence_selection import (
+    ConceptRoleSelector,
+    ParagraphDirectSelector,
+    SelectionRequest,
+    SelectionResult,
+    adapt_legacy_selector,
+)
 from .ports import (
     AgentTool,
     AnswerSynthesizer,
@@ -42,6 +49,11 @@ __all__ = [
     "DocumentSearchStatus",
     "DocumentSearchToolAdapter",
     "SemanticDocumentSearchTool",
+    "SelectionRequest",
+    "SelectionResult",
+    "ParagraphDirectSelector",
+    "ConceptRoleSelector",
+    "adapt_legacy_selector",
     "AgentTool",
     "AnswerSynthesizer",
     "DocumentSearchTool",

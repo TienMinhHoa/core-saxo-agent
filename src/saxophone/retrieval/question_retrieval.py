@@ -5,32 +5,22 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
-from typing import Mapping, Protocol
+from typing import TYPE_CHECKING, Mapping, Protocol
 
 from saxophone.tagging.models import ParagraphConceptRole
 
 from .context_limiter import ContextLimiter
 from .models import ChunkHit
-from .paragraph_selection import (
-    ParagraphSelectionRequest,
-    StructuredParagraphSelector,
-    build_paragraph_choices,
-)
-from .paragraph_traversal import ParagraphTraversal
 from .ports import ChunkRetriever
 from .renderers import (
     AnswerContextMarkdownRenderer,
-    AnswerContextModel,
-    ConceptInventoryBuilder,
-    SelectedConceptRole,
     SourceParagraph,
 )
-from .role_selection import (
-    ConceptRoleCandidate,
-    ConceptRoleSelectionRequest,
-    ConceptRoleSelector,
-)
 from .sqlite_context import RetrievalContext
+
+if TYPE_CHECKING:
+    from saxophone.agent.document_search import DocumentSearchResult
+    from saxophone.agent.evidence_selection import SelectionRequest
 
 
 class RetrievalContextRepository(Protocol):
@@ -83,7 +73,7 @@ class QuestionRetrievalService:
         self,
         *,
         retriever: ChunkRetriever,
-        selector: ConceptRoleSelector | StructuredParagraphSelector,
+        selector: object,
         relations: tuple[ParagraphConceptRole, ...] = (),
         paragraphs: Mapping[str, SourceParagraph] | None = None,
         context_repository: RetrievalContextRepository | None = None,
@@ -91,8 +81,10 @@ class QuestionRetrievalService:
         max_paragraphs: int = 20,
         max_tokens: int = 4000,
     ) -> None:
+        from saxophone.agent.evidence_selection import adapt_legacy_selector
+
         self._retriever = retriever
-        self._selector = selector
+        self._selector = adapt_legacy_selector(selector)
         if context_repository is not None and not callable(
             getattr(context_repository, "load_for_hits", None)
         ):
@@ -133,102 +125,36 @@ class QuestionRetrievalService:
             relation for relation in relations
             if paragraph_chunks.get(relation.paragraph_id) in chunk_ranks
         )
+        candidate_paragraphs = tuple(
+            paragraph
+            for ref, paragraph in paragraphs.items()
+            if paragraph_chunks.get(ref) in chunk_ranks
+        )
+        candidate_refs = {paragraph.paragraph_ref for paragraph in candidate_paragraphs}
+        from saxophone.agent.document_search import DocumentSearchResult
+        from saxophone.agent.evidence_selection import SelectionRequest
 
-        if isinstance(self._selector, StructuredParagraphSelector):
-            relation_refs = {relation.paragraph_id for relation in relations}
-            choices = build_paragraph_choices(
-                tuple(
-                    paragraph
-                    for ref, paragraph in paragraphs.items()
-                    if ref in relation_refs
-                )
-            )
-            if not choices:
-                return RetrievalBundle(
-                    RetrievalBundleStatus.NO_RELEVANT_CONCEPT_ROLE,
-                    request.question,
-                    hits,
-                )
-            selection_result = await self._selector.select(
-                ParagraphSelectionRequest(request.question, choices)
-            )
-            if not selection_result.selections:
-                return RetrievalBundle(
-                    RetrievalBundleStatus.NO_RELEVANT_CONCEPT_ROLE,
-                    request.question,
-                    hits,
-                )
-            choices_by_key = {choice.key: choice for choice in choices}
-            selected_refs = tuple(
-                choices_by_key[selection.key].paragraph_ref
-                for selection in selection_result.selections
-            )
-            selected_paragraphs = tuple(
-                choices_by_key[selection.key].paragraph
-                for selection in selection_result.selections
-            )
-            context = self._limiter.limit(
-                AnswerContextModel(
-                    (),
-                    selected_paragraphs,
-                    selected_refs,
-                ),
-                max_paragraphs=request.max_paragraphs,
-                max_tokens=request.max_tokens,
-            )
-            markdown = AnswerContextMarkdownRenderer().render_answer_context(
-                request.question,
-                context,
-            )
+        search_result = DocumentSearchResult(
+            query=request.question,
+            hits=hits,
+            paragraph_candidates=candidate_paragraphs,
+            relations=tuple(
+                relation
+                for relation in relations
+                if relation.paragraph_id in candidate_refs
+            ),
+        )
+        selection_result = await self._selector.select(
+            SelectionRequest(request.question, search_result)
+        )
+        if not selection_result.selected_paragraph_refs:
             return RetrievalBundle(
-                RetrievalBundleStatus.READY,
+                RetrievalBundleStatus.NO_RELEVANT_CONCEPT_ROLE,
                 request.question,
                 hits,
-                markdown,
-                context,
             )
-
-        inventory = ConceptInventoryBuilder().build(
-            relations,
-            paragraph_chunks=paragraph_chunks,
-            chunk_ranks=chunk_ranks,
-        ) if relations else None
-        if inventory is None or not inventory.concepts:
-            return RetrievalBundle(RetrievalBundleStatus.NO_RELEVANT_CONCEPT_ROLE, request.question, hits)
-
-        candidates = tuple(
-            ConceptRoleCandidate(
-                item.concept,
-                tuple(role.role for role in item.available_roles),
-                tuple(chunk.chunk_id for chunk in item.parent_chunks),
-            )
-            for item in inventory.concepts
-        )
-        selection_request = ConceptRoleSelectionRequest(request.question, candidates)
-        selection_result = await self._selector.select(selection_request)
-        selection_result.validate_against(selection_request)
-        if not selection_result.selections:
-            return RetrievalBundle(RetrievalBundleStatus.NO_RELEVANT_CONCEPT_ROLE, request.question, hits)
-
-        selected = tuple(
-            SelectedConceptRole(
-                selection.concept,
-                role.value,
-                (),
-                tuple(
-                    next(
-                        item.parent_chunks
-                        for item in inventory.concepts
-                        if item.concept == selection.concept
-                    )
-                ),
-            )
-            for selection in selection_result.selections
-            for role in selection.selected_roles
-        )
-        context = ParagraphTraversal().resolve(selected, relations, paragraphs)
         context = self._limiter.limit(
-            context,
+            selection_result.answer_context,
             max_paragraphs=request.max_paragraphs,
             max_tokens=request.max_tokens,
         )
