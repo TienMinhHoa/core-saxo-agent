@@ -1683,6 +1683,13 @@ def build_index_inputs(
         metadata = dict(chunk.metadata)
         metadata["tags"] = tags
         metadata["tagged_paragraph_ids"] = tuple(paragraph.paragraph_id for paragraph in related)
+        image_captions = {
+            image_ref: caption
+            for paragraph in related
+            for image_ref, caption in paragraph.image_captions.items()
+        }
+        if image_captions:
+            metadata["image_captions"] = image_captions
         metadata["index_version"] = command.index_profile
         inputs.append(
             IndexInputRecord(

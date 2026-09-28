@@ -544,12 +544,14 @@ def create_app(
             retrieval=question_retrieval,
             provider=structured_llm_provider,
             model_version=settings.litellm_model_profile,
+            image_artifact_gate=image_artifact_gate,
         )
         if agent_chat is None:
             agent_chat = GroundedAnswerService(
                 retrieval=question_retrieval,
                 provider=agent_structured_llm_provider,
                 model_version=settings.agent_chat_model,
+                image_artifact_gate=image_artifact_gate,
             )
         extract_topic = ExtractTopicService(
             ingestion=DocumentIngestionFacadeAdapter(document_ingestion),
@@ -641,7 +643,13 @@ def create_app(
             max_upload_bytes=settings.max_upload_bytes,
         ),
     )
-    app.include_router(build_agent_chat_router(agent_chat=container.agent_chat))
+    app.include_router(
+        build_agent_chat_router(
+            agent_chat=container.agent_chat,
+            image_artifact_resolver=container.image_artifact_resolver,
+            image_artifact_gate=container.image_artifact_gate,
+        )
+    )
     database_browser = (
         container.vector_index
         if _supports_database_browser(container.vector_index)

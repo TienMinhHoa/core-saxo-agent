@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from saxophone.tagging.structured_provider import StructuredLlmProvider
@@ -225,6 +225,7 @@ def _merge(left: SourceParagraph, right: SourceParagraph) -> SourceParagraph:
         pages=_merge_values(left.pages, right.pages),
         image_refs=_merge_values(left.image_refs, right.image_refs),
         chunk_id=right.chunk_id or left.chunk_id,
+        image_captions=_merge_mappings(left.image_captions, right.image_captions),
     )
 
 
@@ -234,6 +235,14 @@ def _merge_values(left: Sequence[str], right: Sequence[str]) -> tuple[str, ...]:
         if value and value not in values:
             values.append(value)
     return tuple(values)
+
+
+def _merge_mappings(
+    left: Mapping[str, str], right: Mapping[str, str]
+) -> Mapping[str, str]:
+    merged = dict(left)
+    merged.update(right)
+    return merged
 
 
 def _normalized_text(value: str) -> str:

@@ -121,6 +121,7 @@ class SqliteRetrievalContextRepository:
             metadata = _json_mapping(metadata_json, "chunk metadata")
             headings = _json_strings(headings_json, "paragraph headings")
             images = _json_strings(images_json, "paragraph images")
+            image_captions = _metadata_string_mapping(metadata.get("image_captions"))
             source = _metadata_text(metadata, "source", fallback=document_ref)
             parent_header = _metadata_text(
                 metadata,
@@ -138,6 +139,11 @@ class SqliteRetrievalContextRepository:
                 pages=pages,
                 image_refs=images,
                 chunk_id=chunk_id,
+                image_captions={
+                    image_ref: image_captions[image_ref]
+                    for image_ref in images
+                    if image_ref in image_captions
+                },
             )
         if any(relation.paragraph_id not in paragraphs for relation in relations):
             raise ValueError("stored relation references a missing paragraph")
@@ -215,6 +221,21 @@ def _metadata_text(metadata: Mapping[str, object], key: str, *, fallback: object
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"stored chunk {key} is invalid")
     return value.strip()
+
+
+def _metadata_string_mapping(value: object) -> Mapping[str, str]:
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        return {}
+    return {
+        key.strip(): caption.strip()
+        for key, caption in value.items()
+        if isinstance(key, str)
+        and key.strip()
+        and isinstance(caption, str)
+        and caption.strip()
+    }
 
 
 def _pages(start: object, end: object) -> tuple[str, ...]:

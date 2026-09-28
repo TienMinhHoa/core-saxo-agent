@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
+from types import MappingProxyType
 
 from saxophone.retrieval import EvidenceBundle, RetrieveEvidence
 from saxophone.retrieval.question_retrieval import (
@@ -12,6 +13,7 @@ from saxophone.retrieval.question_retrieval import (
     RetrievalBundleStatus,
 )
 from saxophone.tagging.structured_provider import StructuredLlmProvider
+from saxophone.documents.policies import is_safe_relative_image_reference
 
 from .models import ChatResult, ChatStatus, evidence_reference
 from .ports import AnswerGenerator, ImageArtifactGate
@@ -95,6 +97,34 @@ class AnswerSource:
     page_start: int | None = None
     page_end: int | None = None
     image_refs: tuple[str, ...] = ()
+    image_captions: Mapping[str, str] = field(default_factory=dict)
+    image_errors: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.image_refs, tuple):
+            raise ValueError("image_refs must be a tuple")
+        if len(set(self.image_refs)) != len(self.image_refs):
+            raise ValueError("image_refs must be unique")
+        if not isinstance(self.image_errors, tuple):
+            raise ValueError("image_errors must be a tuple")
+        if any(not isinstance(error, str) or not error.strip() for error in self.image_errors):
+            raise ValueError("image_errors must contain non-blank strings")
+        if not isinstance(self.image_captions, Mapping):
+            raise ValueError("image_captions must be a mapping")
+        if any(ref not in self.image_refs for ref in self.image_captions):
+            raise ValueError("image_captions must reference image_refs")
+        if any(
+            not isinstance(caption, str) or not caption.strip()
+            for caption in self.image_captions.values()
+        ):
+            raise ValueError("image_captions must contain non-blank strings")
+        object.__setattr__(self, "image_refs", tuple(self.image_refs))
+        object.__setattr__(self, "image_errors", tuple(self.image_errors))
+        object.__setattr__(
+            self,
+            "image_captions",
+            MappingProxyType(dict(self.image_captions)),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,6 +182,7 @@ class GroundedAnswerService:
         retrieval: object | None = None,
         provider: StructuredLlmProvider | None = None,
         model_version: str | None = None,
+        image_artifact_gate: ImageArtifactGate | None = None,
     ) -> None:
         legacy = answer_question is not None
         structured = (
@@ -168,6 +199,7 @@ class GroundedAnswerService:
             self._retrieval = None
             self._provider = None
             self._model_version = None
+            self._image_artifact_gate = None
             return
         if not callable(getattr(retrieval, "retrieve", None)):
             raise ValueError("retrieval must provide retrieve")
@@ -179,6 +211,11 @@ class GroundedAnswerService:
         self._retrieval = retrieval
         self._provider = provider
         self._model_version = model_version.strip()
+        if image_artifact_gate is not None and not callable(
+            getattr(image_artifact_gate, "validate", None)
+        ):
+            raise ValueError("image_artifact_gate must provide validate")
+        self._image_artifact_gate = image_artifact_gate
 
     async def answer(
         self, request: QuestionRequest
@@ -241,6 +278,8 @@ class GroundedAnswerService:
         sources = tuple(
             _answer_source(paragraphs[ref]) for ref in citation_refs if ref in refs
         )
+        if self._image_artifact_gate is not None:
+            sources = await _validate_source_images(sources, self._image_artifact_gate)
         return GroundedAnswerResponse(
             GroundedAnswerStatus.ANSWERED,
             _normalize_answer_citations(payload.answer, citation_refs),
@@ -259,7 +298,40 @@ def _answer_source(paragraph: object) -> AnswerSource:
         page_start=numeric_pages[0] if numeric_pages else None,
         page_end=numeric_pages[-1] if numeric_pages else None,
         image_refs=tuple(getattr(paragraph, "image_refs", ())),
+        image_captions=getattr(paragraph, "image_captions", {}),
     )
+
+
+async def _validate_source_images(
+    sources: tuple[AnswerSource, ...],
+    gate: ImageArtifactGate,
+) -> tuple[AnswerSource, ...]:
+    validated_sources: list[AnswerSource] = []
+    for source in sources:
+        valid_refs: list[str] = []
+        errors = list(source.image_errors)
+        for image_ref in source.image_refs:
+            if not is_safe_relative_image_reference(image_ref):
+                if "image unavailable" not in errors:
+                    errors.append("image unavailable")
+                continue
+            try:
+                validated = await gate.validate((image_ref,))
+                if image_ref not in validated:
+                    raise ValueError("image reference was not validated")
+            except Exception:
+                if "image unavailable" not in errors:
+                    errors.append("image unavailable")
+                continue
+            valid_refs.append(image_ref)
+        validated_sources.append(
+            replace(
+                source,
+                image_refs=tuple(valid_refs),
+                image_errors=tuple(errors),
+            )
+        )
+    return tuple(validated_sources)
 
 
 def _normalize_answer_citations(

@@ -43,7 +43,34 @@
         const pages = source.page_start === null
           ? "không có số trang"
           : `trang ${source.page_start}${source.page_end !== source.page_start ? `-${source.page_end}` : ""}`;
-        item.textContent = `${source.citation || `[${index + 1}]`} ${source.source} · ${pages} · ${source.chunk_id}`;
+        const sourceLabel = document.createElement("div");
+        sourceLabel.textContent = `${source.citation || `[${index + 1}]`} ${source.source} · ${pages} · ${source.chunk_id}`;
+        item.appendChild(sourceLabel);
+
+        if (Array.isArray(source.images) && source.images.length > 0) {
+          const gallery = document.createElement("div");
+          gallery.className = "source-images";
+          source.images.forEach((image) => {
+            const figure = document.createElement("figure");
+            figure.className = "source-image";
+            const img = document.createElement("img");
+            img.src = image.url;
+            img.alt = image.alt || image.caption || "Source image";
+            img.loading = "lazy";
+            const caption = document.createElement("figcaption");
+            caption.textContent = image.caption || image.alt || "";
+            figure.append(img, caption);
+            gallery.appendChild(figure);
+          });
+          item.appendChild(gallery);
+        }
+
+        if (Array.isArray(source.image_errors) && source.image_errors.length > 0) {
+          const error = document.createElement("div");
+          error.className = "source-image-error";
+          error.textContent = "Không thể tải hình minh họa của nguồn này.";
+          item.appendChild(error);
+        }
         list.appendChild(item);
       });
       details.appendChild(list);

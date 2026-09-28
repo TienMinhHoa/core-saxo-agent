@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
+from typing import Mapping
 
 from saxophone.tagging.concepts import normalize_concept_label
 from saxophone.tagging.models import ParagraphConceptRole
@@ -105,6 +107,23 @@ class SourceParagraph:
     pages: tuple[str, ...]
     image_refs: tuple[str, ...]
     chunk_id: str = ""
+    image_captions: Mapping[str, str] = MappingProxyType({})
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.image_captions, Mapping):
+            raise ValueError("image_captions must be a mapping")
+        if any(ref not in self.image_refs for ref in self.image_captions):
+            raise ValueError("image_captions must reference image_refs")
+        if any(
+            not isinstance(caption, str) or not caption.strip()
+            for caption in self.image_captions.values()
+        ):
+            raise ValueError("image_captions must contain non-blank strings")
+        object.__setattr__(
+            self,
+            "image_captions",
+            MappingProxyType(dict(self.image_captions)),
+        )
 
 
 @dataclass(frozen=True, slots=True)

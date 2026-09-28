@@ -6,6 +6,7 @@ import hashlib
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
@@ -311,6 +312,8 @@ def build_agent_chat_router(
     *,
     agent_chat: Any = None,
     assets_root: Path | None = None,
+    image_artifact_resolver: ImageArtifactResolver | None = None,
+    image_artifact_gate: ImageArtifactGate | None = None,
 ) -> APIRouter:
     """Serve the browser chat console and its grounded-answer JSON boundary."""
 
@@ -354,7 +357,11 @@ def build_agent_chat_router(
                 max_tokens=request.max_tokens,
             )
         )
-        return _agent_chat_response(result)
+        return await _agent_chat_response(
+            result,
+            image_artifact_resolver=image_artifact_resolver,
+            image_artifact_gate=image_artifact_gate,
+        )
 
     return router
 
@@ -383,29 +390,156 @@ def _chat_response(result: ChatResult) -> dict[str, object]:
     }
 
 
-def _agent_chat_response(result: object) -> dict[str, object]:
+async def _agent_chat_response(
+    result: object,
+    *,
+    image_artifact_resolver: ImageArtifactResolver | None = None,
+    image_artifact_gate: ImageArtifactGate | None = None,
+) -> dict[str, object]:
     sources = tuple(getattr(result, "sources", ()))
+    if not sources:
+        sources = _agent_run_sources(result)
+    image_validation_enabled = image_artifact_gate is not None
     response: dict[str, object] = {
         "status": _enum_value(getattr(result, "status", getattr(result, "outcome", None))),
         "answer": getattr(result, "answer", None),
-        "sources": [
-            {
-                "citation": f"[{index}]",
-                "paragraph_ref": source.paragraph_ref,
-                "chunk_id": source.chunk_id,
-                "source": source.source,
-                "page_start": source.page_start,
-                "page_end": source.page_end,
-                "image_refs": list(source.image_refs),
-            }
-            for index, source in enumerate(sources, start=1)
-        ],
+        "sources": [],
         "model_version": getattr(result, "model_version", None),
     }
+    source_payloads: list[dict[str, object]] = []
+    for index, source in enumerate(sources, start=1):
+        source_payloads.append(
+            await _source_response(
+                source,
+                citation=f"[{index}]",
+                image_artifact_resolver=image_artifact_resolver,
+                image_artifact_gate=image_artifact_gate,
+                image_validation_enabled=image_validation_enabled,
+            )
+        )
+    response["sources"] = source_payloads
     clarification = _clarification_response(getattr(result, "clarification", None))
     if clarification is not None:
         response["clarification"] = clarification
     return response
+
+
+async def _source_response(
+    source: object,
+    *,
+    citation: str,
+    image_artifact_resolver: ImageArtifactResolver | None,
+    image_artifact_gate: ImageArtifactGate | None,
+    image_validation_enabled: bool,
+) -> dict[str, object]:
+    image_refs = tuple(getattr(source, "image_refs", ()))
+    payload: dict[str, object] = {
+        "citation": citation,
+        "paragraph_ref": getattr(source, "paragraph_ref", ""),
+        "chunk_id": getattr(source, "chunk_id", ""),
+        "source": getattr(source, "source", ""),
+        "page_start": getattr(source, "page_start", None),
+        "page_end": getattr(source, "page_end", None),
+        "image_refs": list(image_refs),
+    }
+    existing_errors = tuple(getattr(source, "image_errors", ()))
+    if existing_errors:
+        payload["image_errors"] = list(existing_errors)
+    if not image_refs or not image_validation_enabled or image_artifact_gate is None:
+        return payload
+
+    captions = getattr(source, "image_captions", {})
+    images: list[dict[str, str]] = []
+    errors: list[str] = []
+    for image_ref in image_refs:
+        if not is_safe_relative_image_reference(image_ref):
+            errors.append("image unavailable")
+            continue
+        try:
+            if image_artifact_resolver is not None:
+                artifact = await image_artifact_resolver.resolve(image_ref)
+                if artifact.kind is not ArtifactKind.IMAGE:
+                    raise ValueError("resolved artifact kind must be IMAGE")
+                if not is_image_media_type(artifact.media_type):
+                    raise ValueError("resolved image artifact must have an image media type")
+            validated = await image_artifact_gate.validate((image_ref,))
+            if image_ref not in validated:
+                raise ValueError("image reference was not validated")
+        except Exception:
+            # Keep the source visible while suppressing an unusable asset.
+            errors.append("image unavailable")
+            continue
+        caption = captions.get(image_ref) if isinstance(captions, Mapping) else None
+        if not isinstance(caption, str) or not caption.strip():
+            caption = _fallback_image_caption(image_ref)
+        images.append(
+            {
+                "ref": image_ref,
+                "url": f"/api/v1/assets/{quote(image_ref, safe='/')}",
+                "caption": caption.strip(),
+                "alt": f"Hình minh họa được trích từ nguồn {citation}",
+            }
+        )
+    if images:
+        payload["images"] = images
+    if errors:
+        payload["image_errors"] = errors
+    return payload
+
+
+def _fallback_image_caption(image_ref: str) -> str:
+    name = image_ref.rsplit("/", 1)[-1]
+    stem = name.rsplit(".", 1)[0]
+    return stem.replace("_", " ").replace("-", " ").strip() or "Source image"
+
+
+def _agent_run_sources(result: object) -> tuple[object, ...]:
+    """Project a typed agent result into the legacy source response shape."""
+
+    ledger = getattr(result, "ledger", None)
+    synthesis = getattr(result, "synthesis", None)
+    evidence = getattr(ledger, "evidence", ()) if ledger is not None else ()
+    if not evidence or synthesis is None:
+        return ()
+    evidence_by_id = {item.evidence_id: item for item in evidence}
+    image_ids = set(getattr(synthesis, "image_evidence_ids", ()))
+    citation_items = tuple(getattr(synthesis, "citations", ()))
+    ordered_ids = [citation.evidence_id for citation in citation_items]
+    if not ordered_ids:
+        ordered_ids.extend(getattr(synthesis, "used_evidence_ids", ()))
+    sources: list[object] = []
+    for evidence_id in dict.fromkeys(ordered_ids):
+        item = evidence_by_id.get(evidence_id)
+        if item is None:
+            continue
+        source_ref = item.source_ref or item.url or "web source"
+        refs = item.image_refs if evidence_id in image_ids else ()
+        sources.append(
+            _source_from_evidence(
+                item,
+                source_ref=source_ref,
+                image_refs=refs,
+            )
+        )
+    return tuple(sources)
+
+
+def _source_from_evidence(
+    item: object,
+    *,
+    source_ref: str,
+    image_refs: tuple[str, ...],
+) -> object:
+    from saxophone.chat.service import AnswerSource
+
+    return AnswerSource(
+        paragraph_ref=getattr(item, "paragraph", ""),
+        chunk_id=getattr(item, "chunk", ""),
+        source=source_ref,
+        page_start=getattr(item, "page", None),
+        page_end=getattr(item, "page", None),
+        image_refs=image_refs,
+    )
 
 
 def _clarification_response(value: object) -> dict[str, object] | None:
