@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Mapping
 from urllib.parse import urlsplit
 
@@ -445,11 +445,14 @@ def _parse_data_root(value: str | None) -> Path:
     if not value or not value.strip():
         raise SettingsValidationError("SAXO_DATA_ROOT must not be empty")
     path = Path(value)
-    if path.drive and not path.is_absolute():
+    windows_path = PureWindowsPath(value)
+    if (path.drive and not path.is_absolute()) or (
+        windows_path.drive and not windows_path.is_absolute()
+    ):
         raise SettingsValidationError("SAXO_DATA_ROOT must not be drive-relative")
     if path.root and not path.is_absolute():
         raise SettingsValidationError("SAXO_DATA_ROOT must not be root-relative")
-    if ".." in path.parts:
+    if ".." in path.parts or ".." in windows_path.parts:
         raise SettingsValidationError(
             "SAXO_DATA_ROOT must not traverse parent directories"
         )
@@ -460,7 +463,10 @@ def _parse_chroma_directory(value: str | None) -> Path:
     if not value or not value.strip():
         raise SettingsValidationError("SAXO_CHROMA_PERSIST_DIRECTORY must not be empty")
     path = Path(value)
-    if path.drive and not path.is_absolute():
+    windows_path = PureWindowsPath(value)
+    if (path.drive and not path.is_absolute()) or (
+        windows_path.drive and not windows_path.is_absolute()
+    ):
         raise SettingsValidationError(
             "SAXO_CHROMA_PERSIST_DIRECTORY must not be drive-relative"
         )
@@ -468,7 +474,7 @@ def _parse_chroma_directory(value: str | None) -> Path:
         raise SettingsValidationError(
             "SAXO_CHROMA_PERSIST_DIRECTORY must not be root-relative"
         )
-    if ".." in path.parts:
+    if ".." in path.parts or ".." in windows_path.parts:
         raise SettingsValidationError(
             "SAXO_CHROMA_PERSIST_DIRECTORY must not traverse parent directories",
         )
@@ -744,11 +750,14 @@ def _validate_runtime_path(value: object, field_name: str) -> None:
         )
     if value == Path("."):
         raise SettingsValidationError(f"{field_name} must not be empty")
-    if value.drive and not value.is_absolute():
+    windows_path = PureWindowsPath(str(value))
+    if (value.drive and not value.is_absolute()) or (
+        windows_path.drive and not windows_path.is_absolute()
+    ):
         raise SettingsValidationError(f"{field_name} must not be drive-relative")
     if value.root and not value.is_absolute():
         raise SettingsValidationError(f"{field_name} must not be root-relative")
-    if ".." in value.parts:
+    if ".." in value.parts or ".." in windows_path.parts:
         raise SettingsValidationError(
             f"{field_name} must not traverse parent directories"
         )
@@ -763,8 +772,9 @@ def _validate_windows_device_path_components(value: Path, field_name: str) -> No
     """Reject path segments that Windows resolves as device names."""
     reserved_names = {"CON", "PRN", "AUX", "NUL"}
     invalid_characters = set('<>:"|?*')
-    for component in value.parts:
-        if component == value.anchor:
+    windows_path = PureWindowsPath(str(value))
+    for component in windows_path.parts:
+        if component == windows_path.anchor:
             continue
         if component.endswith((" ", ".")):
             raise SettingsValidationError(
