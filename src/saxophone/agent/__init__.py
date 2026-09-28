@@ -11,6 +11,13 @@ from .contracts import (
     SearchTrace,
     SelectionStrategy,
 )
+from .document_search import (
+    DocumentSearchResult,
+    DocumentSearchService,
+    DocumentSearchStatus,
+    DocumentSearchToolAdapter,
+    SemanticDocumentSearchTool,
+)
 from .ports import (
     AgentTool,
     AnswerSynthesizer,
@@ -30,6 +37,11 @@ __all__ = [
     "EvidenceSourceType",
     "SearchTrace",
     "SelectionStrategy",
+    "DocumentSearchResult",
+    "DocumentSearchService",
+    "DocumentSearchStatus",
+    "DocumentSearchToolAdapter",
+    "SemanticDocumentSearchTool",
     "AgentTool",
     "AnswerSynthesizer",
     "DocumentSearchTool",
