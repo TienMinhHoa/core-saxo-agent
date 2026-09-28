@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import inspect
 import re
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Sequence
+from typing import Any
 from uuid import uuid4
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.graph import END, START, StateGraph
@@ -26,7 +28,12 @@ from .contracts import (
 from .document_search import DocumentSearchResult, DocumentSearchStatus
 from .evidence import EvidenceLedgerBuilder
 from .evidence_selection import SelectionRequest, SelectionResult
-from .ports import AnswerSynthesizer, DocumentSearchTool, EvidenceSelector, WebSearchTool
+from .ports import (
+    AnswerSynthesizer,
+    DocumentSearchTool,
+    EvidenceSelector,
+    WebSearchTool,
+)
 from .state import AgentDecision, AgentGraphState, AgentStage
 
 
@@ -420,7 +427,10 @@ async def _needs_clarification(state: AgentGraphState) -> AgentGraphState:
 
 
 def _synthesize(dependencies: AgentGraphDependencies):
-    async def node(state: AgentGraphState) -> AgentGraphState:
+    async def node(
+        state: AgentGraphState,
+        config: RunnableConfig,
+    ) -> AgentGraphState:
         if dependencies.synthesizer is None:
             return _insufficient("answer synthesizer is not configured")
         try:
@@ -431,7 +441,11 @@ def _synthesize(dependencies: AgentGraphDependencies):
             )
             if not isinstance(ledger, EvidenceLedger):
                 raise TypeError("ledger factory must return EvidenceLedger")
-            result = await _invoke_synthesizer(dependencies.synthesizer, ledger)
+            result = await _invoke_synthesizer(
+                dependencies.synthesizer,
+                ledger,
+                config=config,
+            )
             synthesis = _coerce_synthesis(result)
         except BudgetExhaustedError as error:
             return _budget_failure(error)
@@ -557,14 +571,43 @@ async def _invoke_selector(selector: object, request: SelectionRequest) -> objec
     raise TypeError("evidence selector must provide select or ainvoke")
 
 
-async def _invoke_synthesizer(synthesizer: object, ledger: EvidenceLedger) -> object:
+async def _invoke_synthesizer(
+    synthesizer: object,
+    ledger: EvidenceLedger,
+    *,
+    config: RunnableConfig | None = None,
+) -> object:
     synthesize = getattr(synthesizer, "synthesize", None)
     if callable(synthesize):
-        return await _await_result(synthesize(ledger))
+        return await _invoke_with_optional_config(synthesize, ledger, config)
     invoke = getattr(synthesizer, "ainvoke", None)
     if callable(invoke):
-        return await _await_result(invoke(ledger))
+        return await _invoke_with_optional_config(invoke, ledger, config)
     raise TypeError("synthesizer must provide synthesize or ainvoke")
+
+
+async def _invoke_with_optional_config(
+    callable_value: Callable[..., Any],
+    value: object,
+    config: RunnableConfig | None,
+) -> object:
+    """Pass LangChain runtime callbacks without breaking legacy test doubles."""
+
+    if config is not None and _accepts_keyword(callable_value, "config"):
+        return await _await_result(callable_value(value, config=config))
+    return await _await_result(callable_value(value))
+
+
+def _accepts_keyword(callable_value: Callable[..., Any], name: str) -> bool:
+    try:
+        parameters = inspect.signature(callable_value).parameters.values()
+    except (TypeError, ValueError):
+        return False
+    return any(
+        parameter.kind is inspect.Parameter.VAR_KEYWORD
+        or parameter.name == name
+        for parameter in parameters
+    )
 
 
 def _coerce_decision(value: object) -> AgentDecision | None:
