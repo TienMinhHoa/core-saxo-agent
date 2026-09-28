@@ -96,6 +96,18 @@ class _DocumentSearch:
 
 
 @dataclass
+class _FailingDocumentSearch:
+    error: BaseException
+    calls: list[tuple[AgentQuestion, RunBudget]] = field(default_factory=list)
+
+    async def search(
+        self, question: AgentQuestion, budget: RunBudget
+    ) -> DocumentSearchResult:
+        self.calls.append((question, budget))
+        raise self.error
+
+
+@dataclass
 class _WebSearch:
     result: WebSearchResult
     calls: list[tuple[AgentQuestion, RunBudget]] = field(default_factory=list)
@@ -305,6 +317,27 @@ async def test_pipeline_uses_web_once_when_local_evidence_has_no_hits() -> None:
     assert len(web.calls) == 1
     assert result.ledger is not None
     assert result.ledger.evidence[0].url == "https://example.test/rhythm"
+
+
+@pytest.mark.anyio
+async def test_pipeline_returns_structured_failure_when_document_search_errors() -> None:
+    document = _FailingDocumentSearch(RuntimeError("document backend unavailable"))
+    web = _WebSearch(
+        WebSearchResult(
+            "What is rhythm?",
+            (),
+            status="ready",
+        )
+    )
+    agent = MainAgent(document_search=document, web_search=web)
+
+    result = await agent.run("What is rhythm?", run_id="pipeline-document-error")
+
+    assert result.outcome is AgentOutcome.FAILED
+    assert result.answer is None
+    assert result.error == "document backend unavailable"
+    assert len(document.calls) == 1
+    assert web.calls == []
 
 
 @pytest.mark.anyio

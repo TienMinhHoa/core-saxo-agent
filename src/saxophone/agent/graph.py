@@ -274,6 +274,13 @@ def _document_search_tool(dependencies: AgentGraphDependencies):
 
 def _evaluate_local_evidence(dependencies: AgentGraphDependencies):
     async def node(state: AgentGraphState) -> AgentGraphState:
+        # Preserve terminal tool failures so a missing result cannot mask the
+        # original structured error before the graph reaches ``failed``.
+        if state.get("decision") is AgentDecision.FAILED or state.get("outcome") in {
+            AgentOutcome.FAILED,
+            AgentOutcome.BUDGET_EXHAUSTED,
+        }:
+            return state
         result = state.get("document_result")
         if not isinstance(result, DocumentSearchResult):
             return _failure("document search result is missing")
