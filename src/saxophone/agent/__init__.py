@@ -65,7 +65,7 @@ from .web_search import (
     WebSearchToolAdapter,
 )
 from .events import AgentEvent, AgentEventSink, AgentEventType
-from .langchain_callbacks import AgentEventCallbackHandler
+from .langchain_callbacks import AgentEventCallbackHandler, AgentTracingCallbackHandler
 from .streaming import AgentRunManager
 from .tracing import (
     AgentTracer,
@@ -146,6 +146,7 @@ __all__ = [
     "AgentEventSink",
     "AgentEventType",
     "AgentEventCallbackHandler",
+    "AgentTracingCallbackHandler",
     "AgentRunManager",
     "AgentTracer",
     "InMemoryTracer",

@@ -548,6 +548,7 @@ def create_app(
         agent_runner = MainAgent(
             dependencies=resolved_overrides.agent_graph_dependencies,
             checkpointer=resolved_overrides.agent_checkpointer,
+            tracer=tracer,
         )
     if agent_runner is not None and agent_run_manager is None:
         agent_run_manager = AgentRunManager()

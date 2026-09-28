@@ -16,7 +16,9 @@ from .contracts import (
     SynthesisResult,
 )
 from .graph import AgentGraphDependencies, build_agent_graph
+from .langchain_callbacks import AgentTracingCallbackHandler
 from .state import AgentGraphState, AgentStage
+from .tracing import AgentTracer, NoopTracer, TraceStatus
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +59,7 @@ class MainAgent:
         dependencies: AgentGraphDependencies | None = None,
         graph: object | None = None,
         checkpointer: object | None = None,
+        tracer: AgentTracer | None = None,
     ) -> None:
         document_search = _resolve_alias(
             document_search,
@@ -113,6 +116,7 @@ class MainAgent:
                     ledger_factory=ledger_factory,
                 )
             self._graph = build_agent_graph(dependencies, checkpointer=checkpointer)
+        self._tracer = tracer or NoopTracer()
 
     @property
     def graph(self) -> object:
@@ -144,8 +148,24 @@ class MainAgent:
         configurable = dict(run_config.get("configurable") or {})
         configurable["thread_id"] = normalized_run_id
         run_config["configurable"] = configurable
-        if callbacks is not None:
-            run_config["callbacks"] = callbacks
+        trace = self._tracer.start_trace(
+            run_id=normalized_run_id,
+            name="agent_run",
+            input={
+                "question": question.question,
+                "filters": dict(question.filters),
+                "context_limit": question.context_limit,
+            },
+            metadata={"component": "main_agent"},
+        )
+        tracing_callback = AgentTracingCallbackHandler(
+            run_id=normalized_run_id,
+            tracer=self._tracer,
+            root=trace,
+        )
+        callback_list = _callback_list(callbacks)
+        callback_list.append(tracing_callback)
+        run_config["callbacks"] = callback_list
         try:
             state = await self._graph.ainvoke(
                 {
@@ -156,6 +176,8 @@ class MainAgent:
                 config=run_config,
             )
         except BaseException as error:
+            tracing_callback.finish(error=error)
+            trace.end(error=error)
             return AgentRunResult(
                 normalized_run_id,
                 AgentOutcome.FAILED,
@@ -163,9 +185,34 @@ class MainAgent:
                 run_budget,
                 error=str(error) or error.__class__.__name__,
             )
-        return _result_from_state(normalized_run_id, run_budget, state)
+        result = _result_from_state(normalized_run_id, run_budget, state)
+        tracing_callback.finish()
+        trace_output = {
+            "outcome": result.outcome.value,
+            "stage": result.stage.value,
+            "used_tool_calls": result.budget.snapshot().used_tool_calls,
+        }
+        if result.outcome is AgentOutcome.FAILED:
+            trace.end(
+                status=TraceStatus.ERROR,
+                output=trace_output,
+                error_code="agent_failed",
+            )
+        else:
+            trace.end(status=TraceStatus.OK, output=trace_output)
+        return result
 
     execute = run
+
+
+def _callback_list(callbacks: object | None) -> list[object]:
+    """Normalize optional callback input before appending the tracing bridge."""
+
+    if callbacks is None:
+        return []
+    if isinstance(callbacks, (list, tuple)):
+        return list(callbacks)
+    return [callbacks]
 
 
 def _result_from_state(

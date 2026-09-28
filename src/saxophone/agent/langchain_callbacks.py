@@ -9,6 +9,7 @@ from uuid import UUID
 from langchain_core.callbacks import AsyncCallbackHandler
 
 from .events import AgentEvent, AgentEventSink, AgentEventType
+from .tracing import AgentTracer, ObservationKind, TraceObservation, TraceStatus
 
 _PUBLIC_TAGS = frozenset({"answer", "public_answer", "synthesis"})
 _STAGE_ALIASES = (
@@ -280,6 +281,267 @@ class AgentEventCallbackHandler(AsyncCallbackHandler):
             return
 
 
+class AgentTracingCallbackHandler(AsyncCallbackHandler):
+    """Translate LangChain lifecycle callbacks into nested trace observations.
+
+    The handler owns no provider SDK details. It receives the application
+    tracer port and keeps callback run IDs mapped to observations so LangChain
+    parent IDs become the same parent-child topology used by LangGraph.
+    Payloads are handed to the tracer, whose adapter performs redaction before
+    persistence. Callback failures are swallowed so tracing cannot change the
+    outcome of a model or tool call.
+    """
+
+    def __init__(
+        self,
+        *,
+        run_id: str,
+        tracer: AgentTracer,
+        root: TraceObservation | None = None,
+    ) -> None:
+        if not isinstance(run_id, str) or not run_id.strip():
+            raise ValueError("run_id must be non-blank")
+        if not callable(getattr(tracer, "start_trace", None)):
+            raise TypeError("tracer must provide start_trace")
+        self.run_id = run_id.strip()
+        self._tracer = tracer
+        self._owns_root = root is None
+        self._root = root or tracer.start_trace(run_id=self.run_id, name="agent_run")
+        if self._root.run_id != self.run_id:
+            raise ValueError("root observation must belong to the same run")
+        self._observations: dict[str, TraceObservation] = {}
+
+    @property
+    def root(self) -> TraceObservation:
+        """Return the root observation used for this callback stream."""
+
+        return self._root
+
+    def finish(
+        self,
+        *,
+        output: object | None = None,
+        error: BaseException | None = None,
+    ) -> None:
+        """Close callback observations and an owned root observation."""
+
+        for observation in tuple(self._observations.values()):
+            if observation.closed:
+                continue
+            try:
+                if error is None:
+                    observation.end(status=TraceStatus.OK)
+                else:
+                    observation.end(error=error)
+            except Exception:
+                continue
+        self._observations.clear()
+        if self._owns_root and not self._root.closed:
+            try:
+                self._root.end(output=output, error=error)
+            except Exception:
+                return
+
+    close = finish
+
+    async def on_chain_start(
+        self,
+        serialized: dict[str, Any] | None,
+        inputs: dict[str, Any],
+        *,
+        run_id: UUID,
+        parent_run_id: UUID | None = None,
+        tags: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        del kwargs
+        self._start(
+            callback_id=run_id,
+            name=_callback_name(serialized, tags=tags, metadata=metadata, default="chain"),
+            kind=ObservationKind.SPAN,
+            input_payload=inputs,
+            metadata=_trace_metadata(tags=tags, metadata=metadata),
+            parent_run_id=parent_run_id,
+        )
+
+    async def on_chain_end(
+        self,
+        outputs: Any,
+        *,
+        run_id: UUID,
+        parent_run_id: UUID | None = None,
+        **kwargs: Any,
+    ) -> None:
+        del parent_run_id, kwargs
+        self._end(run_id, output=outputs)
+
+    async def on_chain_error(
+        self,
+        error: BaseException,
+        *,
+        run_id: UUID,
+        parent_run_id: UUID | None = None,
+        **kwargs: Any,
+    ) -> None:
+        del parent_run_id, kwargs
+        self._end(run_id, error=error)
+
+    async def on_tool_start(
+        self,
+        serialized: dict[str, Any] | None,
+        input_str: str,
+        *,
+        run_id: UUID,
+        parent_run_id: UUID | None = None,
+        tags: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        inputs: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        del kwargs
+        tool = _tool_name(serialized)
+        self._start(
+            callback_id=run_id,
+            name=tool,
+            kind=ObservationKind.TOOL,
+            input_payload=inputs if inputs is not None else input_str,
+            metadata={"tool": tool, **_trace_metadata(tags=tags, metadata=metadata)},
+            parent_run_id=parent_run_id,
+        )
+
+    async def on_tool_end(
+        self,
+        output: Any,
+        *,
+        run_id: UUID,
+        parent_run_id: UUID | None = None,
+        **kwargs: Any,
+    ) -> None:
+        del parent_run_id, kwargs
+        self._end(run_id, output=output)
+
+    async def on_tool_error(
+        self,
+        error: BaseException,
+        *,
+        run_id: UUID,
+        parent_run_id: UUID | None = None,
+        **kwargs: Any,
+    ) -> None:
+        del parent_run_id, kwargs
+        self._end(run_id, error=error)
+
+    async def on_llm_start(
+        self,
+        serialized: dict[str, Any] | None,
+        prompts: list[str],
+        *,
+        run_id: UUID,
+        parent_run_id: UUID | None = None,
+        tags: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        del kwargs
+        self._start(
+            callback_id=run_id,
+            name=_callback_name(serialized, tags=tags, metadata=metadata, default="llm"),
+            kind=ObservationKind.GENERATION,
+            input_payload=prompts,
+            metadata=_trace_metadata(tags=tags, metadata=metadata),
+            parent_run_id=parent_run_id,
+        )
+
+    async def on_chat_model_start(
+        self,
+        serialized: dict[str, Any] | None,
+        messages: list[list[Any]],
+        *,
+        run_id: UUID,
+        parent_run_id: UUID | None = None,
+        tags: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        del kwargs
+        self._start(
+            callback_id=run_id,
+            name=_callback_name(serialized, tags=tags, metadata=metadata, default="chat_model"),
+            kind=ObservationKind.GENERATION,
+            input_payload=messages,
+            metadata=_trace_metadata(tags=tags, metadata=metadata),
+            parent_run_id=parent_run_id,
+        )
+
+    async def on_llm_end(
+        self,
+        response: Any,
+        *,
+        run_id: UUID,
+        parent_run_id: UUID | None = None,
+        **kwargs: Any,
+    ) -> None:
+        del parent_run_id, kwargs
+        self._end(run_id, output=response)
+
+    async def on_llm_error(
+        self,
+        error: BaseException,
+        *,
+        run_id: UUID,
+        parent_run_id: UUID | None = None,
+        **kwargs: Any,
+    ) -> None:
+        del parent_run_id, kwargs
+        self._end(run_id, error=error)
+
+    def _start(
+        self,
+        *,
+        callback_id: UUID,
+        name: str,
+        kind: ObservationKind,
+        input_payload: object | None,
+        metadata: Mapping[str, object] | None,
+        parent_run_id: UUID | None,
+    ) -> None:
+        key = str(callback_id)
+        if key in self._observations:
+            return
+        parent = self._observations.get(str(parent_run_id), self._root)
+        try:
+            observation = self._tracer.start_observation(
+                run_id=self.run_id,
+                name=name,
+                kind=kind,
+                input=input_payload,
+                metadata=metadata,
+                parent=parent,
+            )
+        except Exception:
+            return
+        self._observations[key] = observation
+
+    def _end(
+        self,
+        callback_id: UUID,
+        *,
+        output: object | None = None,
+        error: BaseException | None = None,
+    ) -> None:
+        observation = self._observations.pop(str(callback_id), None)
+        if observation is None or observation.closed:
+            return
+        try:
+            if error is not None:
+                observation.end(error=error)
+            else:
+                observation.end(output=output)
+        except Exception:
+            return
+
+
 def _stage_name(
     serialized: Mapping[str, Any] | None,
     *,
@@ -303,6 +565,61 @@ def _stage_name(
             if alias in normalized:
                 return stage
     return None
+
+
+def _callback_name(
+    serialized: Mapping[str, Any] | None,
+    *,
+    tags: Sequence[str] | None,
+    metadata: Mapping[str, Any] | None,
+    default: str,
+) -> str:
+    candidates: list[str] = []
+    if metadata is not None:
+        for key in ("langgraph_node", "name", "run_name"):
+            value = metadata.get(key)
+            if isinstance(value, str):
+                candidates.append(value)
+    for tag in tags or ():
+        if isinstance(tag, str):
+            candidates.append(tag.split(":", 1)[-1])
+    if isinstance(serialized, Mapping):
+        value = serialized.get("name")
+        if isinstance(value, str):
+            candidates.append(value)
+        identifier = serialized.get("id")
+        if isinstance(identifier, Sequence) and not isinstance(identifier, (str, bytes)):
+            if identifier and isinstance(identifier[-1], str):
+                candidates.append(identifier[-1])
+    for candidate in candidates:
+        label = _safe_label(candidate)
+        if label is not None:
+            return label
+    return default
+
+
+def _trace_metadata(
+    *,
+    tags: Sequence[str] | None,
+    metadata: Mapping[str, Any] | None,
+) -> dict[str, object]:
+    """Keep callback metadata small and allowlisted before tracing."""
+
+    values: dict[str, object] = {}
+    if tags:
+        safe_tags = tuple(
+            label
+            for tag in tags
+            if (label := _safe_label(tag)) is not None
+        )
+        if safe_tags:
+            values["tags"] = safe_tags
+    if metadata:
+        for key in ("model", "provider", "task_type", "langgraph_node", "stream_public"):
+            value = metadata.get(key)
+            if isinstance(value, (str, bool, int, float)):
+                values[key] = value
+    return values
 
 
 def _tool_name(serialized: Mapping[str, Any] | None) -> str:
@@ -350,4 +667,4 @@ def _safe_error_code(error: BaseException) -> str:
     return _safe_label(error.__class__.__name__) or "tool_error"
 
 
-__all__ = ["AgentEventCallbackHandler"]
+__all__ = ["AgentEventCallbackHandler", "AgentTracingCallbackHandler"]
