@@ -803,6 +803,36 @@ class ClarificationRequest:
         object.__setattr__(self, "reason_code", reason_code)
 
 
+@dataclass(frozen=True, slots=True)
+class ClarificationCandidate:
+    """One evidence-backed interpretation offered to the user."""
+
+    label: str
+    confidence: float
+    evidence_ids: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        label = _normalize_text("label", self.label)
+        confidence = self.confidence
+        if (
+            isinstance(confidence, bool)
+            or not isinstance(confidence, (int, float))
+            or not math.isfinite(float(confidence))
+            or not 0 <= confidence <= 1
+        ):
+            raise ValueError("confidence must be a finite number between 0 and 1")
+        evidence_ids = _require_unique_identifier_tuple(
+            "evidence_ids", self.evidence_ids
+        )
+        object.__setattr__(self, "label", label)
+        object.__setattr__(self, "confidence", float(confidence))
+        object.__setattr__(self, "evidence_ids", evidence_ids)
+
+
+# Keep the domain vocabulary discoverable for callers that use the longer name.
+InterpretationCandidate = ClarificationCandidate
+
+
 def _coerce_enum(enum_type: type[StrEnum], name: str, value: object) -> StrEnum:
     if isinstance(value, enum_type):
         return value

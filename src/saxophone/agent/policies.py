@@ -8,11 +8,19 @@ from __future__ import annotations
 
 import asyncio
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass
 from time import monotonic
 from typing import Awaitable, Callable, Generic, Sequence, TypeVar
 
-from .contracts import BudgetExhaustedError, BudgetSnapshot, RunBudget
+from .contracts import (
+    AgentQuestion,
+    BudgetExhaustedError,
+    BudgetSnapshot,
+    ClarificationCandidate,
+    ClarificationRequest,
+    RunBudget,
+)
 
 
 T = TypeVar("T")
@@ -97,6 +105,96 @@ class BudgetPolicy(Generic[T]):
             operation,
             timeout_seconds=timeout_seconds,
         )
+
+
+class ClarificationPolicy:
+    """Ask for a choice only when local evidence has competing meanings.
+
+    Candidate interpretations are supplied by the search/decision adapter in
+    ``clarification_candidates`` (with ``interpretations`` accepted as a
+    compatibility alias).  The policy deliberately returns ``None`` for an
+    empty or non-ready document result so a configured web-search fallback can
+    run before asking the user.
+    """
+
+    def __init__(
+        self,
+        *,
+        min_confidence: float = 0.6,
+        max_confidence_gap: float = 0.12,
+        max_options: int = 4,
+        reason_code: str = "multiple_supported_interpretations",
+        question_builder: Callable[[str, tuple[str, ...]], str] | None = None,
+    ) -> None:
+        self._min_confidence = _confidence_value(
+            "min_confidence", min_confidence
+        )
+        self._max_confidence_gap = _confidence_value(
+            "max_confidence_gap", max_confidence_gap
+        )
+        if (
+            isinstance(max_options, bool)
+            or not isinstance(max_options, int)
+            or max_options < 2
+        ):
+            raise ValueError("max_options must be an integer at least 2")
+        if not isinstance(reason_code, str) or not reason_code.strip():
+            raise ValueError("reason_code must not be blank")
+        if question_builder is not None and not callable(question_builder):
+            raise TypeError("question_builder must be callable")
+        self._max_options = max_options
+        self._reason_code = reason_code.strip()
+        self._question_builder = question_builder
+
+    def __call__(self, state: object) -> ClarificationRequest | None:
+        """Evaluate a graph state after document search has completed."""
+
+        values = _state_values(state)
+        result = values.get("document_result")
+        if result is None or _status_value(result) != "ready":
+            return None
+
+        raw_candidates = values.get("clarification_candidates")
+        if raw_candidates is None:
+            raw_candidates = values.get("interpretation_candidates")
+        if raw_candidates is None:
+            raw_candidates = values.get("interpretations")
+        if raw_candidates is None:
+            raw_candidates = getattr(result, "clarification_candidates", None)
+        if raw_candidates is None:
+            raw_candidates = getattr(result, "interpretations", None)
+
+        candidates = _coerce_clarification_candidates(raw_candidates)
+        supported = [
+            candidate
+            for candidate in candidates
+            if candidate.confidence >= self._min_confidence
+        ]
+        supported.sort(key=lambda candidate: (-candidate.confidence, candidate.label))
+        if len(supported) < 2:
+            return None
+        if (
+            supported[0].confidence - supported[1].confidence
+            > self._max_confidence_gap
+        ):
+            return None
+
+        options: list[str] = []
+        for candidate in supported[: self._max_options]:
+            if candidate.label not in options:
+                options.append(candidate.label)
+        if len(options) < 2:
+            return None
+
+        question = _question_text(values.get("question"))
+        custom_question = values.get("clarification_question")
+        if isinstance(custom_question, str) and custom_question.strip():
+            question = custom_question.strip()
+        if self._question_builder is not None:
+            question = self._question_builder(question, tuple(options))
+        return ClarificationRequest(question, tuple(options), self._reason_code)
+
+    evaluate = __call__
 
 
 def check_budget(budget: RunBudget, tool: str) -> BudgetDecision:
@@ -196,3 +294,86 @@ def _close_unawaited(operation: object) -> None:
     close = getattr(operation, "close", None)
     if callable(close):
         close()
+
+
+def _confidence_value(name: str, value: object) -> float:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+        or not 0 <= value <= 1
+    ):
+        raise ValueError(f"{name} must be a finite number between 0 and 1")
+    return float(value)
+
+
+def _state_values(state: object) -> Mapping[str, object]:
+    if isinstance(state, Mapping):
+        return state
+    values: dict[str, object] = {}
+    for name in (
+        "question",
+        "document_result",
+        "clarification_candidates",
+        "interpretation_candidates",
+        "interpretations",
+        "clarification_question",
+    ):
+        if hasattr(state, name):
+            values[name] = getattr(state, name)
+    return values
+
+
+def _status_value(result: object) -> object:
+    status = getattr(result, "status", None)
+    return getattr(status, "value", status)
+
+
+def _coerce_clarification_candidates(value: object) -> tuple[ClarificationCandidate, ...]:
+    if value is None or isinstance(value, (str, bytes)):
+        return ()
+    if isinstance(value, Mapping):
+        if any(key in value for key in ("label", "option", "name")):
+            values = (value,)
+        else:
+            values = tuple(value.items())
+    elif isinstance(value, Sequence):
+        values = value
+    else:
+        return ()
+
+    candidates: list[ClarificationCandidate] = []
+    for item in values:
+        candidate = _coerce_clarification_candidate(item)
+        if candidate is not None:
+            candidates.append(candidate)
+    return tuple(candidates)
+
+
+def _coerce_clarification_candidate(value: object) -> ClarificationCandidate | None:
+    if isinstance(value, ClarificationCandidate):
+        return value
+    if isinstance(value, Mapping):
+        label = value.get("label", value.get("option", value.get("name")))
+        confidence = value.get("confidence", 1.0)
+        evidence_ids = value.get("evidence_ids", ())
+        try:
+            return ClarificationCandidate(label, confidence, tuple(evidence_ids))
+        except (TypeError, ValueError):
+            return None
+    if isinstance(value, tuple) and len(value) == 2:
+        try:
+            return ClarificationCandidate(value[0], value[1])
+        except (TypeError, ValueError):
+            return None
+    if isinstance(value, str) and value.strip():
+        return ClarificationCandidate(value, 1.0)
+    return None
+
+
+def _question_text(value: object) -> str:
+    if isinstance(value, AgentQuestion):
+        return value.question
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return "Which interpretation do you mean?"

@@ -8,6 +8,7 @@ from typing import TypedDict
 from .contracts import (
     AgentOutcome,
     AgentQuestion,
+    ClarificationCandidate,
     ClarificationRequest,
     EvidenceLedger,
     RunBudget,
@@ -68,6 +69,7 @@ class AgentGraphState(TypedDict, total=False):
     synthesis_result: SynthesisResult
     answer: str
     clarification: ClarificationRequest
+    clarification_candidates: tuple[ClarificationCandidate, ...]
     error: str
     reason_code: str
 
