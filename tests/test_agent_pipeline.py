@@ -164,6 +164,15 @@ class _ConfigAwareSynthesizer:
         )
 
 
+@dataclass
+class _CountingSynthesizer:
+    calls: int = 0
+
+    async def synthesize(self, ledger: object) -> object:
+        self.calls += 1
+        raise AssertionError("ambiguous evidence must stop before synthesis")
+
+
 @pytest.mark.anyio
 async def test_pipeline_uses_local_evidence_without_web_fallback() -> None:
     paragraph = _paragraph()
@@ -229,6 +238,37 @@ async def test_pipeline_routes_relation_rich_results_to_concept_role_strategy() 
     assert result.ledger is not None
     assert result.ledger.selected_strategy.value == "concept_role"
     assert len(selector.calls) == 1
+
+
+@pytest.mark.anyio
+async def test_pipeline_returns_clarification_without_synthesis_for_ambiguous_evidence() -> None:
+    paragraph = _paragraph()
+    document = _DocumentSearch(
+        DocumentSearchResult(
+            "Which triad?",
+            (_hit(),),
+            (paragraph,),
+            status=DocumentSearchStatus.READY,
+        )
+    )
+    synthesizer = _CountingSynthesizer()
+    agent = MainAgent(
+        document_search=document,
+        paragraph_selector=_Selector(),
+        synthesizer=synthesizer,
+        clarification_policy=lambda _state: (
+            "Which triad do you mean?",
+            ("major", "minor"),
+        ),
+    )
+
+    result = await agent.run("Which triad?", run_id="pipeline-clarification")
+
+    assert result.outcome is AgentOutcome.NEEDS_CLARIFICATION
+    assert result.clarification is not None
+    assert result.clarification.options == ("major", "minor")
+    assert result.answer is None
+    assert synthesizer.calls == 0
 
 
 @pytest.mark.anyio
