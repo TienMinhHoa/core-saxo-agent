@@ -19,6 +19,8 @@ from .contracts import (
 )
 from .document_search import DocumentSearchResult
 from .evidence_selection import SelectionRequest, SelectionResult
+from .events import AgentEvent, AgentEventSink
+
 
 @runtime_checkable
 class AgentTool(Protocol):
@@ -85,3 +87,15 @@ def require_agent_tool(tool: object) -> AgentTool:
     if not inspect.iscoroutinefunction(run):
         raise TypeError("tool.run must be async")
     return cast(AgentTool, tool)
+
+
+__all__ = [
+    "AgentEvent",
+    "AgentEventSink",
+    "AgentTool",
+    "AnswerSynthesizer",
+    "DocumentSearchTool",
+    "EvidenceSelector",
+    "WebSearchTool",
+    "require_agent_tool",
+]
