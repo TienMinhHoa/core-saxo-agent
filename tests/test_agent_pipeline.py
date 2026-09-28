@@ -447,6 +447,33 @@ async def test_pipeline_returns_images_only_for_cited_evidence() -> None:
 
 
 @pytest.mark.anyio
+async def test_pipeline_does_not_project_images_for_cited_evidence_without_images() -> None:
+    paragraph = _paragraph()
+    document = _DocumentSearch(
+        DocumentSearchResult(
+            "What is a major triad?",
+            (_hit(),),
+            (paragraph,),
+            status=DocumentSearchStatus.READY,
+        )
+    )
+    agent = MainAgent(
+        document_search=document,
+        paragraph_selector=_Selector(),
+        synthesizer=EvidenceSynthesisService(_StructuredModel()),
+    )
+
+    result = await agent.run("What is a major triad?", run_id="pipeline-no-image")
+
+    assert result.outcome is AgentOutcome.ANSWERED
+    assert result.synthesis is not None
+    assert result.synthesis.image_evidence_ids == ()
+    sources = _agent_run_sources(result)
+    assert len(sources) == 1
+    assert sources[0].image_refs == ()
+
+
+@pytest.mark.anyio
 async def test_pipeline_forwards_runnable_config_to_synthesis() -> None:
     paragraph = _paragraph()
     document = _DocumentSearch(
