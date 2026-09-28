@@ -55,6 +55,12 @@ from .policies import (
     run_with_budget,
 )
 from .synthesis import EvidenceSynthesisService, SynthesisCitation, SynthesisOutput
+from .web_search import (
+    WebSearchAdapter,
+    WebSearchProvider,
+    WebSearchService,
+    WebSearchToolAdapter,
+)
 
 __all__ = [
     "AgentOutcome",
@@ -112,4 +118,8 @@ __all__ = [
     "EvidenceSynthesisService",
     "SynthesisCitation",
     "SynthesisOutput",
+    "WebSearchAdapter",
+    "WebSearchProvider",
+    "WebSearchService",
+    "WebSearchToolAdapter",
 ]

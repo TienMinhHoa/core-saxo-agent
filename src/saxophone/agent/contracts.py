@@ -617,7 +617,13 @@ class WebSearchItem:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "title", _normalize_text("title", self.title))
-        object.__setattr__(self, "url", _optional_url("url", self.url) or "")
+        try:
+            url = _optional_url("url", self.url)
+        except ValueError as error:
+            raise ValueError("url must be an absolute HTTP(S) URL") from error
+        if url is None:
+            raise ValueError("url must be an absolute HTTP(S) URL")
+        object.__setattr__(self, "url", url)
         object.__setattr__(self, "snippet", _normalize_text("snippet", self.snippet))
         object.__setattr__(
             self,
