@@ -16,6 +16,9 @@ from fastapi import FastAPI
 from fastapi import Request
 from fastapi.responses import Response
 
+from saxophone.agent.graph import AgentGraphDependencies
+from saxophone.agent.orchestrator import MainAgent
+from saxophone.agent.streaming import AgentRunManager
 from saxophone.app.settings import AppSettings
 from saxophone.chat import (
     AnswerGenerator,
@@ -223,6 +226,8 @@ class AppContainer:
     question_retrieval: QuestionRetrievalService | None = None
     grounded_answer: GroundedAnswerService | None = None
     agent_chat: GroundedAnswerService | None = None
+    agent_runner: MainAgent | None = None
+    agent_run_manager: AgentRunManager | None = None
     extract_topic: ExtractTopicService | None = None
 
 
@@ -260,6 +265,10 @@ class AppOverrides:
     chunk_tagger: ChunkTagger | None = None
     document_ingestion: DocumentIngestionService | None = None
     agent_chat: GroundedAnswerService | None = None
+    agent_runner: MainAgent | None = None
+    agent_run_manager: AgentRunManager | None = None
+    agent_graph_dependencies: AgentGraphDependencies | None = None
+    agent_checkpointer: object | None = None
 
 
 def create_layout_app() -> FastAPI:
@@ -528,6 +537,15 @@ def create_app(
     question_retrieval: QuestionRetrievalService | None = None
     grounded_answer: GroundedAnswerService | None = None
     agent_chat = resolved_overrides.agent_chat
+    agent_runner = resolved_overrides.agent_runner
+    agent_run_manager = resolved_overrides.agent_run_manager
+    if agent_runner is None and resolved_overrides.agent_graph_dependencies is not None:
+        agent_runner = MainAgent(
+            dependencies=resolved_overrides.agent_graph_dependencies,
+            checkpointer=resolved_overrides.agent_checkpointer,
+        )
+    if agent_runner is not None and agent_run_manager is None:
+        agent_run_manager = AgentRunManager()
     extract_topic: ExtractTopicService | None = None
     if (
         chunk_tagging is not None
@@ -596,6 +614,8 @@ def create_app(
         question_retrieval=question_retrieval,
         grounded_answer=grounded_answer,
         agent_chat=agent_chat,
+        agent_runner=agent_runner,
+        agent_run_manager=agent_run_manager,
         extract_topic=extract_topic,
     )
 
@@ -646,6 +666,8 @@ def create_app(
     app.include_router(
         build_agent_chat_router(
             agent_chat=container.agent_chat,
+            agent_runner=container.agent_runner,
+            agent_run_manager=container.agent_run_manager,
             image_artifact_resolver=container.image_artifact_resolver,
             image_artifact_gate=container.image_artifact_gate,
         )
