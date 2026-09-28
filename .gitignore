@@ -38,6 +38,8 @@ dist/
 # Local documentation and agent traces
 /docs/
 /.gnhf/
+/.codex/
+.codex/
 
 # Logs and temporary files
 *.log
