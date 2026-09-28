@@ -19,6 +19,7 @@ htmlcov/
 venv/
 env/
 .uv-cache/
+.codex/
 
 # Packaging artifacts
 build/

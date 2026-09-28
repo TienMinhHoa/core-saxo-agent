@@ -37,7 +37,9 @@ class AnswerQuestion:
         filters: Mapping[str, object] | None = None,
         limit: int = 10,
     ) -> ChatResult:
-        normalized_question = question.strip() if isinstance(question, str) else question
+        normalized_question = (
+            question.strip() if isinstance(question, str) else question
+        )
         evidence = await self._retrieve_evidence.execute(
             normalized_question, filters=filters, limit=limit
         )
@@ -58,8 +60,12 @@ class AnswerQuestion:
                 raise ValueError("image artifact gate is required for image evidence")
             gated_images = await self._image_artifact_gate.validate(evidence.image_refs)
             evidence = EvidenceBundle(
-                evidence.query, evidence.retrieval_version, evidence.hits,
-                evidence.selected_refs, evidence.source_texts, gated_images,
+                evidence.query,
+                evidence.retrieval_version,
+                evidence.hits,
+                evidence.selected_refs,
+                evidence.source_texts,
+                gated_images,
             )
 
         generated = await self._answer_generator.generate(normalized_question, evidence)
@@ -121,7 +127,7 @@ class _StructuredAnswer:
         }
 
     @classmethod
-    def model_validate(cls, value: object) -> "_StructuredAnswer":
+    def model_validate(cls, value: object) -> _StructuredAnswer:
         if not isinstance(value, Mapping):
             raise ValueError("answer output must be a mapping")
         if set(value) != {"answer", "used_paragraph_refs"}:
@@ -130,9 +136,7 @@ class _StructuredAnswer:
         raw_refs = value.get("used_paragraph_refs")
         if not isinstance(raw_refs, list):
             raise ValueError("used_paragraph_refs must be a list")
-        refs = tuple(
-            _non_blank_text(item, "used_paragraph_refs") for item in raw_refs
-        )
+        refs = tuple(_non_blank_text(item, "used_paragraph_refs") for item in raw_refs)
         if len(refs) != len(set(refs)):
             raise ValueError("used_paragraph_refs must be unique")
         return cls(answer, refs)
@@ -150,9 +154,13 @@ class GroundedAnswerService:
         model_version: str | None = None,
     ) -> None:
         legacy = answer_question is not None
-        structured = retrieval is not None or provider is not None or model_version is not None
+        structured = (
+            retrieval is not None or provider is not None or model_version is not None
+        )
         if legacy and structured:
-            raise ValueError("legacy and structured answer collaborators are mutually exclusive")
+            raise ValueError(
+                "legacy and structured answer collaborators are mutually exclusive"
+            )
         if legacy:
             if not callable(getattr(answer_question, "execute", None)):
                 raise ValueError("answer_question must provide execute")
@@ -172,7 +180,9 @@ class GroundedAnswerService:
         self._provider = provider
         self._model_version = model_version.strip()
 
-    async def answer(self, request: QuestionRequest) -> ChatResult | GroundedAnswerResponse:
+    async def answer(
+        self, request: QuestionRequest
+    ) -> ChatResult | GroundedAnswerResponse:
         if not isinstance(request, QuestionRequest):
             raise ValueError("request must be a QuestionRequest")
         if self._answer_question is not None:
@@ -216,8 +226,7 @@ class GroundedAnswerService:
         }
         citation_refs = _ordered_context_refs(bundle.answer_context, paragraphs)
         key_to_ref = {
-            str(index): ref
-            for index, ref in enumerate(citation_refs, start=1)
+            str(index): ref for index, ref in enumerate(citation_refs, start=1)
         }
         refs = tuple(
             value if value in paragraphs else key_to_ref.get(value, value)
@@ -226,11 +235,11 @@ class GroundedAnswerService:
         if len(refs) != len(set(refs)):
             raise ValueError("used paragraph refs must be unique")
         if any(ref not in paragraphs for ref in refs):
-            raise ValueError("used paragraph refs must belong to retrieved paragraph context")
+            raise ValueError(
+                "used paragraph refs must belong to retrieved paragraph context"
+            )
         sources = tuple(
-            _answer_source(paragraphs[ref])
-            for ref in citation_refs
-            if ref in refs
+            _answer_source(paragraphs[ref]) for ref in citation_refs if ref in refs
         )
         return GroundedAnswerResponse(
             GroundedAnswerStatus.ANSWERED,
@@ -244,9 +253,9 @@ def _answer_source(paragraph: object) -> AnswerSource:
     pages = tuple(getattr(paragraph, "pages", ()))
     numeric_pages = tuple(int(page) for page in pages if str(page).isdigit())
     return AnswerSource(
-        paragraph_ref=getattr(paragraph, "paragraph_ref"),
-        chunk_id=getattr(paragraph, "chunk_id"),
-        source=getattr(paragraph, "source"),
+        paragraph_ref=paragraph.paragraph_ref,
+        chunk_id=paragraph.chunk_id,
+        source=paragraph.source,
         page_start=numeric_pages[0] if numeric_pages else None,
         page_end=numeric_pages[-1] if numeric_pages else None,
         image_refs=tuple(getattr(paragraph, "image_refs", ())),
@@ -259,10 +268,7 @@ def _normalize_answer_citations(
 ) -> str:
     """Replace leaked internal refs with the short labels shown to the model."""
 
-    labels = {
-        ref: f"[{index}]"
-        for index, ref in enumerate(citation_refs, start=1)
-    }
+    labels = {ref: f"[{index}]" for index, ref in enumerate(citation_refs, start=1)}
     normalized = answer
     for ref in sorted(labels, key=len, reverse=True):
         normalized = normalized.replace(ref, labels[ref])
