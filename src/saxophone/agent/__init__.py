@@ -54,6 +54,7 @@ from .policies import (
     execute_with_budget,
     run_with_budget,
 )
+from .synthesis import EvidenceSynthesisService, SynthesisCitation, SynthesisOutput
 
 __all__ = [
     "AgentOutcome",
@@ -108,4 +109,7 @@ __all__ = [
     "GraphState",
     "MainAgent",
     "build_agent_graph",
+    "EvidenceSynthesisService",
+    "SynthesisCitation",
+    "SynthesisOutput",
 ]
