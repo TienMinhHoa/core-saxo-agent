@@ -14,6 +14,9 @@ from .contracts import (
     RunBudget,
     SearchTrace,
     SelectionStrategy,
+    SynthesisResult,
+    WebSearchItem,
+    WebSearchResult,
 )
 from .document_search import (
     DocumentSearchResult,
@@ -37,6 +40,9 @@ from .ports import (
     WebSearchTool,
     require_agent_tool,
 )
+from .graph import AgentGraphDependencies, GraphDependencyError, build_agent_graph
+from .orchestrator import AgentRunResult, MainAgent
+from .state import AgentDecision, AgentGraphState, AgentStage, GraphStage, GraphState
 from .policies import (
     BudgetDecision,
     BudgetPolicy,
@@ -62,6 +68,9 @@ __all__ = [
     "RunBudget",
     "SearchTrace",
     "SelectionStrategy",
+    "SynthesisResult",
+    "WebSearchItem",
+    "WebSearchResult",
     "DocumentSearchResult",
     "DocumentSearchService",
     "DocumentSearchStatus",
@@ -86,4 +95,14 @@ __all__ = [
     "enforce_budget",
     "execute_with_budget",
     "run_with_budget",
+    "AgentDecision",
+    "AgentGraphDependencies",
+    "AgentGraphState",
+    "AgentRunResult",
+    "AgentStage",
+    "GraphStage",
+    "GraphDependencyError",
+    "GraphState",
+    "MainAgent",
+    "build_agent_graph",
 ]

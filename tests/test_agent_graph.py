@@ -1,0 +1,203 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import pytest
+
+from saxophone.agent.contracts import (
+    AgentOutcome,
+    AgentQuestion,
+    Citation,
+    EvidenceLedger,
+    RunBudget,
+    SelectionStrategy,
+    SynthesisResult,
+)
+from saxophone.agent.document_search import DocumentSearchResult, DocumentSearchStatus
+from saxophone.agent.evidence_selection import SelectionRequest, SelectionResult
+from saxophone.agent.graph import AgentGraphDependencies, build_agent_graph
+from saxophone.agent.orchestrator import MainAgent
+from saxophone.agent.state import AgentStage
+from saxophone.retrieval.models import ChunkHit
+from saxophone.retrieval.renderers import AnswerContextModel, SourceParagraph
+
+
+def _hit(chunk_ref: str = "chunk-1") -> ChunkHit:
+    return ChunkHit(
+        "music.md",
+        chunk_ref,
+        1,
+        "retrieval-v1",
+        {"document_ref": "music-book", "source_version": "source-v1"},
+        semantic_score=0.9,
+    )
+
+
+def _paragraph(ref: str = "paragraph-1", chunk: str = "chunk-1") -> SourceParagraph:
+    return SourceParagraph(
+        ref,
+        "music.md",
+        "Major triads",
+        (),
+        "A major triad has a root, third, and fifth.",
+        ("Major triad -> Definition",),
+        ("121",),
+        (),
+        chunk,
+    )
+
+
+class _DocumentSearch:
+    name = "document_search"
+
+    def __init__(self, result: DocumentSearchResult) -> None:
+        self.result = result
+        self.calls: list[tuple[AgentQuestion, RunBudget]] = []
+
+    async def search(self, question: AgentQuestion, budget: RunBudget) -> DocumentSearchResult:
+        self.calls.append((question, budget))
+        return self.result
+
+
+class _Selector:
+    def __init__(self, strategy: SelectionStrategy, paragraph: SourceParagraph) -> None:
+        self.strategy = strategy
+        self.paragraph = paragraph
+        self.calls: list[SelectionRequest] = []
+
+    async def select(self, request: SelectionRequest) -> SelectionResult:
+        self.calls.append(request)
+        return SelectionResult(
+            self.strategy,
+            AnswerContextModel((), (self.paragraph,), (self.paragraph.paragraph_ref,)),
+        )
+
+
+class _Synthesizer:
+    def __init__(self) -> None:
+        self.ledgers: list[EvidenceLedger] = []
+
+    async def synthesize(self, ledger: EvidenceLedger) -> SynthesisResult:
+        self.ledgers.append(ledger)
+        evidence_id = ledger.evidence[0].evidence_id
+        return SynthesisResult(
+            answer="A major triad uses a root, third, and fifth.",
+            used_evidence_ids=(evidence_id,),
+            citations=(Citation(evidence_id, "[1]"),),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class _WebResult:
+    query: str
+    items: tuple[object, ...]
+
+
+class _WebSearch:
+    name = "web_search"
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[AgentQuestion, RunBudget]] = []
+
+    async def search(self, question: AgentQuestion, budget: RunBudget) -> _WebResult:
+        self.calls.append((question, budget))
+        return _WebResult(question.question, (object(),))
+
+
+@pytest.mark.anyio
+async def test_main_agent_runs_compiled_langgraph_for_local_evidence() -> None:
+    paragraph = _paragraph()
+    search = _DocumentSearch(
+        DocumentSearchResult(
+            "What is a major triad?",
+            (_hit(),),
+            (paragraph,),
+            status=DocumentSearchStatus.READY,
+        )
+    )
+    selector = _Selector(SelectionStrategy.PARAGRAPH_DIRECT, paragraph)
+    synthesizer = _Synthesizer()
+    agent = MainAgent(
+        document_search=search,
+        paragraph_selector=selector,
+        synthesizer=synthesizer,
+    )
+
+    result = await agent.run(AgentQuestion("What is a major triad?"), run_id="run-local")
+
+    assert result.outcome is AgentOutcome.ANSWERED
+    assert result.stage is AgentStage.COMPLETED
+    assert result.answer == "A major triad uses a root, third, and fifth."
+    assert len(search.calls) == 1
+    assert search.calls[0][1] is result.budget
+    assert len(selector.calls) == 1
+    assert len(synthesizer.ledgers) == 1
+    assert result.run_id == "run-local"
+
+
+@pytest.mark.anyio
+async def test_graph_uses_web_fallback_when_local_search_is_empty() -> None:
+    search = _DocumentSearch(
+        DocumentSearchResult("What is a major triad?", status=DocumentSearchStatus.NO_HITS)
+    )
+    web = _WebSearch()
+    dependencies = AgentGraphDependencies(document_search=search, web_search=web)
+    graph = build_agent_graph(dependencies)
+
+    state = await graph.ainvoke(
+        {"question": AgentQuestion("What is a major triad?"), "run_id": "run-web"},
+        config={"configurable": {"thread_id": "run-web"}},
+    )
+
+    assert state["stage"] is AgentStage.COMPLETED
+    assert state["outcome"] is AgentOutcome.INSUFFICIENT_EVIDENCE
+    assert len(web.calls) == 1
+
+
+@pytest.mark.anyio
+async def test_graph_can_stop_for_clarification_before_synthesis() -> None:
+    paragraph = _paragraph()
+    search = _DocumentSearch(
+        DocumentSearchResult(
+            "Which triad?",
+            (_hit(),),
+            (paragraph,),
+            status=DocumentSearchStatus.READY,
+        )
+    )
+    synthesizer = _Synthesizer()
+    agent = MainAgent(
+        document_search=search,
+        paragraph_selector=_Selector(SelectionStrategy.PARAGRAPH_DIRECT, paragraph),
+        synthesizer=synthesizer,
+        clarification_policy=lambda _state: ("Which triad do you mean?", ("major", "minor")),
+    )
+
+    result = await agent.run(AgentQuestion("Which triad?"), run_id="run-clarify")
+
+    assert result.outcome is AgentOutcome.NEEDS_CLARIFICATION
+    assert result.stage is AgentStage.WAITING_FOR_CLARIFICATION
+    assert result.clarification is not None
+    assert result.clarification.options == ("major", "minor")
+    assert synthesizer.ledgers == []
+
+
+def test_compiled_graph_exposes_required_nodes_and_edges() -> None:
+    graph = build_agent_graph(
+        AgentGraphDependencies(document_search=_DocumentSearch(DocumentSearchResult("q")))
+    )
+
+    node_names = set(graph.get_graph().nodes)
+    assert {
+        "receive_question",
+        "document_search_tool",
+        "evaluate_local_evidence",
+        "choose_selection_strategy",
+        "select_evidence",
+        "web_search_tool",
+        "needs_clarification",
+        "synthesize",
+        "validate_answer",
+        "completed",
+        "failed",
+    } <= node_names

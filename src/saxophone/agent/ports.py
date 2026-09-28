@@ -8,15 +8,17 @@ does not import a concrete SDK or storage client.
 from __future__ import annotations
 
 import inspect
-from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
+from typing import Protocol, cast, runtime_checkable
 
-from .contracts import AgentQuestion, EvidenceLedger
+from .contracts import (
+    AgentQuestion,
+    EvidenceLedger,
+    RunBudget,
+    SynthesisResult,
+    WebSearchResult,
+)
 from .document_search import DocumentSearchResult
 from .evidence_selection import SelectionRequest, SelectionResult
-
-if TYPE_CHECKING:
-    from .contracts import RunBudget
-
 
 @runtime_checkable
 class AgentTool(Protocol):

@@ -606,6 +606,55 @@ class SearchTrace:
 
 
 @dataclass(frozen=True, slots=True)
+class WebSearchItem:
+    """One normalized external search result."""
+
+    title: str
+    url: str
+    snippet: str
+    retrieved_at: str
+    content: str = ""
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "title", _normalize_text("title", self.title))
+        object.__setattr__(self, "url", _optional_url("url", self.url) or "")
+        object.__setattr__(self, "snippet", _normalize_text("snippet", self.snippet))
+        object.__setattr__(
+            self,
+            "retrieved_at",
+            _normalize_text("retrieved_at", self.retrieved_at),
+        )
+        if not isinstance(self.content, str):
+            raise ValueError("content must be a string")
+        object.__setattr__(self, "content", self.content.strip())
+
+
+@dataclass(frozen=True, slots=True)
+class WebSearchResult:
+    """Normalized result returned by the web-search port."""
+
+    query: str
+    items: tuple[WebSearchItem, ...] = ()
+    status: str = "no_results"
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "query", _normalize_text("query", self.query))
+        items = _require_tuple_of("items", self.items, WebSearchItem)
+        urls = tuple(item.url for item in items)
+        if len(set(urls)) != len(urls):
+            raise ValueError("items must contain unique URLs")
+        status = _normalize_identifier("status", self.status)
+        object.__setattr__(self, "items", items)
+        object.__setattr__(self, "status", status)
+
+    @property
+    def results(self) -> tuple[WebSearchItem, ...]:
+        """Compatibility alias used by web-provider adapters."""
+
+        return self.items
+
+
+@dataclass(frozen=True, slots=True)
 class EvidenceLedger:
     """Immutable evidence selected for one agent run."""
 
@@ -667,6 +716,49 @@ class EvidenceLedger:
         object.__setattr__(self, "used_evidence_ids", used_evidence_ids)
         object.__setattr__(self, "citations", citations)
         object.__setattr__(self, "image_evidence_ids", image_evidence_ids)
+
+
+@dataclass(frozen=True, slots=True)
+class SynthesisResult:
+    """Validated structured output returned by an answer synthesizer."""
+
+    answer: str
+    used_evidence_ids: tuple[str, ...] = ()
+    citations: tuple[Citation, ...] = ()
+    image_evidence_ids: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        answer = _normalize_text("answer", self.answer)
+        used_evidence_ids = _require_unique_identifier_tuple(
+            "used_evidence_ids", self.used_evidence_ids
+        )
+        citations = _require_tuple_of("citations", self.citations, Citation)
+        image_evidence_ids = _require_unique_identifier_tuple(
+            "image_evidence_ids", self.image_evidence_ids
+        )
+        object.__setattr__(self, "answer", answer)
+        object.__setattr__(self, "used_evidence_ids", used_evidence_ids)
+        object.__setattr__(self, "citations", citations)
+        object.__setattr__(self, "image_evidence_ids", image_evidence_ids)
+
+    def validate_against(self, ledger: EvidenceLedger) -> None:
+        """Reject output that cites evidence outside the immutable ledger."""
+
+        if not isinstance(ledger, EvidenceLedger):
+            raise ValueError("ledger must be an EvidenceLedger")
+        evidence_by_id = {item.evidence_id: item for item in ledger.evidence}
+        for evidence_id in self.used_evidence_ids:
+            if evidence_id not in evidence_by_id:
+                raise ValueError("used evidence must reference existing evidence")
+        for citation in self.citations:
+            if citation.evidence_id not in evidence_by_id:
+                raise ValueError("citation must reference existing evidence")
+        for evidence_id in self.image_evidence_ids:
+            item = evidence_by_id.get(evidence_id)
+            if item is None:
+                raise ValueError("image evidence must reference existing evidence")
+            if not item.image_refs:
+                raise ValueError("image evidence must reference evidence with images")
 
 
 @dataclass(frozen=True, slots=True)
