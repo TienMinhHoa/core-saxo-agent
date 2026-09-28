@@ -17,6 +17,7 @@ from saxophone.agent.document_search import DocumentSearchResult, DocumentSearch
 from saxophone.agent.langchain_callbacks import AgentTracingCallbackHandler
 from saxophone.agent.orchestrator import MainAgent
 from saxophone.agent.synthesis import EvidenceSynthesisService
+from saxophone.interfaces.api import _agent_run_sources
 from saxophone.retrieval.models import ChunkHit
 from saxophone.retrieval.renderers import (
     AnswerContextModel,
@@ -61,6 +62,22 @@ class _StructuredModel:
                 "answer": "Grounded answer",
                 "used_evidence_ids": [evidence_id.group(1)],
                 "citations": [{"evidence_id": evidence_id.group(1), "label": "[1]"}],
+            }
+
+        return RunnableLambda(respond)
+
+
+class _ImageStructuredModel(_StructuredModel):
+    def with_structured_output(self, _schema: object) -> RunnableLambda:
+        async def respond(payload: object) -> dict[str, object]:
+            rendered = payload.to_string() if hasattr(payload, "to_string") else str(payload)
+            evidence_id = re.search(r"evidence_id: (\S+)", rendered)
+            assert evidence_id is not None
+            return {
+                "answer": "Grounded answer with an illustration",
+                "used_evidence_ids": [evidence_id.group(1)],
+                "citations": [{"evidence_id": evidence_id.group(1), "label": "[1]"}],
+                "image_evidence_ids": [evidence_id.group(1)],
             }
 
         return RunnableLambda(respond)
@@ -248,6 +265,45 @@ async def test_pipeline_uses_web_once_when_local_evidence_has_no_hits() -> None:
     assert len(web.calls) == 1
     assert result.ledger is not None
     assert result.ledger.evidence[0].url == "https://example.test/rhythm"
+
+
+@pytest.mark.anyio
+async def test_pipeline_returns_images_only_for_cited_evidence() -> None:
+    paragraph = SourceParagraph(
+        "paragraph-1",
+        "music.md",
+        "Major triads",
+        (),
+        "A major triad has a root, third, and fifth.",
+        ("Major triad -> Definition",),
+        ("121",),
+        ("images/major-triad.png",),
+        "chunk-1",
+    )
+    document = _DocumentSearch(
+        DocumentSearchResult(
+            "What is a major triad?",
+            (_hit(),),
+            (paragraph,),
+            status=DocumentSearchStatus.READY,
+        )
+    )
+    agent = MainAgent(
+        document_search=document,
+        paragraph_selector=_Selector(),
+        synthesizer=EvidenceSynthesisService(_ImageStructuredModel()),
+    )
+
+    result = await agent.run("What is a major triad?", run_id="pipeline-image")
+
+    assert result.outcome is AgentOutcome.ANSWERED
+    assert result.ledger is not None
+    assert result.synthesis is not None
+    evidence_id = result.ledger.evidence[0].evidence_id
+    assert result.synthesis.image_evidence_ids == (evidence_id,)
+    sources = _agent_run_sources(result)
+    assert len(sources) == 1
+    assert sources[0].image_refs == paragraph.image_refs
 
 
 @pytest.mark.anyio
