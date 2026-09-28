@@ -47,6 +47,10 @@ class AppSettings:
     agent_max_hits_per_tool: int = 20
     agent_tool_timeout_seconds: float = 20.0
     agent_max_context_tokens: int = 12_000
+    langfuse_enabled: bool = False
+    langfuse_secret_key: str | None = field(default=None, repr=False)
+    langfuse_public_key: str | None = field(default=None, repr=False)
+    langfuse_base_url: str | None = None
     deepseek_reasoning_effort: str = "max"
     deepseek_max_tokens: int = 65536
     openai_api_base_url: str = "https://api.openai.com/v1"
@@ -79,6 +83,17 @@ class AppSettings:
         )
         _parse_structured_output_mode(self.litellm_structured_output_mode)
         _validate_runtime_boolean(self.chunk_tagging_enabled, "chunk_tagging_enabled")
+        _validate_runtime_boolean(self.langfuse_enabled, "langfuse_enabled")
+        _validate_optional_runtime_text(self.langfuse_secret_key, "LANGFUSE_SECRET_KEY")
+        _validate_optional_runtime_text(self.langfuse_public_key, "LANGFUSE_PUBLIC_KEY")
+        _validate_optional_runtime_text(self.langfuse_base_url, "LANGFUSE_BASE_URL")
+        _parse_optional_langfuse_url(self.langfuse_base_url)
+        if self.langfuse_enabled:
+            _require_configured_langfuse(
+                self.langfuse_secret_key,
+                self.langfuse_public_key,
+                self.langfuse_base_url,
+            )
         _parse_model_provider(self.model_provider)
         _parse_optional_https_url(
             self.deepseek_api_base_url,
@@ -373,6 +388,21 @@ class AppSettings:
                 environment.get("SAXO_AGENT_MAX_CONTEXT_TOKENS", "12000"),
                 "SAXO_AGENT_MAX_CONTEXT_TOKENS",
             ),
+            langfuse_enabled=_parse_boolean(
+                environment.get("SAXO_LANGFUSE_ENABLED", "false"),
+                "SAXO_LANGFUSE_ENABLED",
+            ),
+            langfuse_secret_key=_parse_optional_token(
+                environment.get("LANGFUSE_SECRET_KEY"),
+                "LANGFUSE_SECRET_KEY",
+            ),
+            langfuse_public_key=_parse_optional_token(
+                environment.get("LANGFUSE_PUBLIC_KEY"),
+                "LANGFUSE_PUBLIC_KEY",
+            ),
+            langfuse_base_url=_parse_optional_langfuse_url(
+                environment.get("LANGFUSE_BASE_URL"),
+            ),
             deepseek_reasoning_effort=_parse_reasoning_effort(
                 environment.get("SAXO_DEEPSEEK_REASONING_EFFORT", "max")
             ),
@@ -491,6 +521,49 @@ def _parse_optional_https_url(value: str | None, *, default: str, variable: str)
     except ValueError as error:
         raise SettingsValidationError(f"{variable} contains an invalid port") from error
     return url
+
+
+def _parse_optional_langfuse_url(value: str | None) -> str | None:
+    """Validate the optional Langfuse host without exposing credentials."""
+
+    variable = "LANGFUSE_BASE_URL"
+    _validate_optional_runtime_text(value, variable)
+    if value is None or not value.strip():
+        return None
+    url = value.strip()
+    parsed = urlsplit(url)
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise SettingsValidationError(
+            f"{variable} must be an HTTPS URL without credentials, query, or fragment",
+        )
+    try:
+        parsed.port
+    except ValueError as error:
+        raise SettingsValidationError(f"{variable} contains an invalid port") from error
+    return url
+
+
+def _require_configured_langfuse(
+    secret_key: str | None,
+    public_key: str | None,
+    base_url: str | None,
+) -> None:
+    for value, variable in (
+        (secret_key, "LANGFUSE_SECRET_KEY"),
+        (public_key, "LANGFUSE_PUBLIC_KEY"),
+        (base_url, "LANGFUSE_BASE_URL"),
+    ):
+        if value is None or not value.strip():
+            raise SettingsValidationError(
+                f"{variable} is required when SAXO_LANGFUSE_ENABLED is true",
+            )
 
 
 def _parse_required_token(

@@ -67,6 +67,17 @@ from .web_search import (
 from .events import AgentEvent, AgentEventSink, AgentEventType
 from .langchain_callbacks import AgentEventCallbackHandler
 from .streaming import AgentRunManager
+from .tracing import (
+    AgentTracer,
+    InMemoryTracer,
+    NoopTracer,
+    ObservationKind,
+    TraceContext,
+    TraceObservation,
+    TraceRecord,
+    TraceStatus,
+    redact_payload,
+)
 
 __all__ = [
     "AgentOutcome",
@@ -136,4 +147,13 @@ __all__ = [
     "AgentEventType",
     "AgentEventCallbackHandler",
     "AgentRunManager",
+    "AgentTracer",
+    "InMemoryTracer",
+    "NoopTracer",
+    "ObservationKind",
+    "TraceContext",
+    "TraceObservation",
+    "TraceRecord",
+    "TraceStatus",
+    "redact_payload",
 ]

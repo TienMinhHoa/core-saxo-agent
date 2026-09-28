@@ -19,6 +19,7 @@ from fastapi.responses import Response
 from saxophone.agent.graph import AgentGraphDependencies
 from saxophone.agent.orchestrator import MainAgent
 from saxophone.agent.streaming import AgentRunManager
+from saxophone.agent.tracing import AgentTracer
 from saxophone.app.settings import AppSettings
 from saxophone.chat import (
     AnswerGenerator,
@@ -56,6 +57,7 @@ from saxophone.platform.artifacts import (
 from saxophone.platform.chroma import create_chroma_vector_index
 from saxophone.platform.concurrency import create_blocking_io_limiter
 from saxophone.platform.knowledge import JsonKnowledgeRepository
+from saxophone.platform.langfuse_tracing import create_langfuse_tracer
 from saxophone.platform.direct_model_client import DirectApiModelClient
 from saxophone.platform.model_client import LiteLLMModelClient, ModelClient
 from saxophone.platform.observability import (
@@ -198,6 +200,7 @@ class AppContainer:
     agent_structured_llm_provider: StructuredLlmProvider
     event_sink: EventSink
     metrics: EventMetrics | None = None
+    tracer: AgentTracer | None = None
     http_client: httpx.AsyncClient | None = None
     retrieve_evidence: RetrieveEvidence | None = None
     answer_question: AnswerQuestion | None = None
@@ -240,6 +243,7 @@ class AppOverrides:
     structured_llm_provider: StructuredLlmProvider | None = None
     agent_structured_llm_provider: StructuredLlmProvider | None = None
     event_sink: EventSink | None = None
+    tracer: AgentTracer | None = None
     retrieve_evidence: RetrieveEvidence | None = None
     answer_question: AnswerQuestion | None = None
     retriever: ChunkRetriever | None = None
@@ -539,6 +543,7 @@ def create_app(
     agent_chat = resolved_overrides.agent_chat
     agent_runner = resolved_overrides.agent_runner
     agent_run_manager = resolved_overrides.agent_run_manager
+    tracer = resolved_overrides.tracer or create_langfuse_tracer(settings)
     if agent_runner is None and resolved_overrides.agent_graph_dependencies is not None:
         agent_runner = MainAgent(
             dependencies=resolved_overrides.agent_graph_dependencies,
@@ -586,6 +591,7 @@ def create_app(
         agent_structured_llm_provider=agent_structured_llm_provider,
         event_sink=event_sink,
         metrics=metrics,
+        tracer=tracer,
         http_client=http_client,
         retrieve_evidence=retrieve_evidence,
         answer_question=answer_question,
@@ -636,6 +642,8 @@ def create_app(
             finally:
                 if http_client is not None:
                     await http_client.aclose()
+                if tracer is not None:
+                    tracer.flush()
 
     app = FastAPI(title="Saxophone RAG backend", lifespan=lifespan)
 
