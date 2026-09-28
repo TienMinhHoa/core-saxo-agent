@@ -11,6 +11,14 @@ from .contracts import (
     SearchTrace,
     SelectionStrategy,
 )
+from .ports import (
+    AgentTool,
+    AnswerSynthesizer,
+    DocumentSearchTool,
+    EvidenceSelector,
+    WebSearchTool,
+    require_agent_tool,
+)
 
 __all__ = [
     "AgentOutcome",
@@ -22,4 +30,10 @@ __all__ = [
     "EvidenceSourceType",
     "SearchTrace",
     "SelectionStrategy",
+    "AgentTool",
+    "AnswerSynthesizer",
+    "DocumentSearchTool",
+    "EvidenceSelector",
+    "WebSearchTool",
+    "require_agent_tool",
 ]
