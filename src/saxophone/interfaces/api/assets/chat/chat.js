@@ -57,12 +57,36 @@
       bubble.appendChild(model);
     }
 
+    if (
+      payload &&
+      payload.clarification &&
+      Array.isArray(payload.clarification.options)
+    ) {
+      const options = document.createElement("div");
+      options.className = "clarification-options";
+      payload.clarification.options.forEach((option) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "clarification-option";
+        button.textContent = option;
+        button.addEventListener("click", () => {
+          questionInput.value = option;
+          questionInput.focus();
+        });
+        options.appendChild(button);
+      });
+      bubble.appendChild(options);
+    }
+
     article.append(speaker, bubble);
     messages.appendChild(article);
     scrollToLatest();
   };
 
   const statusMessage = (payload) => {
+    if (payload.status === "needs_clarification") {
+      return payload.clarification?.question || "Bạn muốn nói đến ý nào?";
+    }
     if (payload.status === "no_retrieval_context") {
       return "Tôi chưa tìm thấy chunk phù hợp trong phạm vi đã chọn.";
     }

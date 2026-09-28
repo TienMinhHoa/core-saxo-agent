@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -384,8 +385,8 @@ def _chat_response(result: ChatResult) -> dict[str, object]:
 
 def _agent_chat_response(result: object) -> dict[str, object]:
     sources = tuple(getattr(result, "sources", ()))
-    return {
-        "status": str(getattr(result, "status")),
+    response: dict[str, object] = {
+        "status": _enum_value(getattr(result, "status", getattr(result, "outcome", None))),
         "answer": getattr(result, "answer", None),
         "sources": [
             {
@@ -401,6 +402,48 @@ def _agent_chat_response(result: object) -> dict[str, object]:
         ],
         "model_version": getattr(result, "model_version", None),
     }
+    clarification = _clarification_response(getattr(result, "clarification", None))
+    if clarification is not None:
+        response["clarification"] = clarification
+    return response
+
+
+def _clarification_response(value: object) -> dict[str, object] | None:
+    """Expose only the bounded clarification choices at the API boundary."""
+
+    if value is None:
+        return None
+    if isinstance(value, Mapping):
+        question = value.get("question")
+        options = value.get("options")
+        reason_code = value.get("reason_code")
+    else:
+        question = getattr(value, "question", None)
+        options = getattr(value, "options", None)
+        reason_code = getattr(value, "reason_code", None)
+    if not isinstance(question, str) or not question.strip():
+        return None
+    if isinstance(options, (str, bytes)) or not isinstance(options, (tuple, list)):
+        return None
+    normalized_options = tuple(
+        option.strip()
+        for option in options
+        if isinstance(option, str) and option.strip()
+    )
+    if not normalized_options:
+        return None
+    if not isinstance(reason_code, str) or not reason_code.strip():
+        return None
+    return {
+        "question": question.strip(),
+        "options": list(dict.fromkeys(normalized_options)),
+        "reason_code": reason_code.strip(),
+    }
+
+
+def _enum_value(value: object) -> str:
+    candidate = getattr(value, "value", value)
+    return candidate if isinstance(candidate, str) else str(candidate)
 
 
 def _extraction_response(result: PdfExtractionResult) -> dict[str, object]:
