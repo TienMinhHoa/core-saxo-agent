@@ -717,6 +717,23 @@ class EvidenceLedger:
         object.__setattr__(self, "citations", citations)
         object.__setattr__(self, "image_evidence_ids", image_evidence_ids)
 
+    @property
+    def evidence_by_id(self) -> Mapping[str, EvidenceItem]:
+        """Return a read-only index for citation and image validation."""
+
+        return MappingProxyType({item.evidence_id: item for item in self.evidence})
+
+    def contains(self, evidence_id: str) -> bool:
+        """Return whether the immutable ledger contains an evidence id."""
+
+        return evidence_id in self.evidence_by_id
+
+    def image_refs_for(self, evidence_id: str) -> tuple[str, ...]:
+        """Return image refs for an evidence item, or an empty tuple."""
+
+        item = self.evidence_by_id.get(evidence_id)
+        return item.image_refs if item is not None else ()
+
 
 @dataclass(frozen=True, slots=True)
 class SynthesisResult:

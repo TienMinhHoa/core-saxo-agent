@@ -17,14 +17,14 @@ from .contracts import (
     AgentQuestion,
     BudgetExhaustedError,
     ClarificationRequest,
-    EvidenceItem,
     EvidenceLedger,
-    EvidenceSourceType,
     RunBudget,
     SelectionStrategy,
     SynthesisResult,
+    WebSearchResult,
 )
 from .document_search import DocumentSearchResult, DocumentSearchStatus
+from .evidence import EvidenceLedgerBuilder
 from .evidence_selection import SelectionRequest, SelectionResult
 from .ports import AnswerSynthesizer, DocumentSearchTool, EvidenceSelector, WebSearchTool
 from .state import AgentDecision, AgentGraphState, AgentStage
@@ -636,30 +636,48 @@ def _default_ledger(state: AgentGraphState) -> EvidenceLedger:
     if not isinstance(strategy, SelectionStrategy):
         strategy = SelectionStrategy(strategy)
     paragraphs = selection.paragraphs if isinstance(selection, SelectionResult) else ()
-    evidence: list[EvidenceItem] = []
+    builder = EvidenceLedgerBuilder(
+        run_id=state.get("run_id", "agent-run"),
+        question=question,
+        selected_strategy=strategy,
+    )
+    document_result = state.get("document_result")
+    if isinstance(document_result, DocumentSearchResult):
+        builder.add_query(document_result.query)
+        builder.add_search_trace(
+            "document_search",
+            hit_count=len(document_result.hits),
+            status=document_result.status.value,
+        )
     for paragraph in paragraphs:
         page = _first_page_number(paragraph.pages)
         if page is None:
             continue
-        evidence.append(
-            EvidenceItem(
-                evidence_id=f"document:{paragraph.paragraph_ref}",
-                source_type=EvidenceSourceType.DOCUMENT,
-                chunk=paragraph.chunk_id or paragraph.parent_header,
-                paragraph=paragraph.paragraph_ref,
-                text=paragraph.text,
-                page=page,
-                image_refs=tuple(paragraph.image_refs),
-                source_ref=paragraph.source,
-            )
+        builder.add_document(
+            source_ref=paragraph.source,
+            chunk_id=paragraph.chunk_id or paragraph.parent_header,
+            paragraph_ref=paragraph.paragraph_ref,
+            text=paragraph.text,
+            page=page,
+            image_refs=paragraph.image_refs,
         )
-    return EvidenceLedger(
-        run_id=state.get("run_id", "agent-run"),
-        question=question,
-        selected_strategy=strategy,
-        evidence=tuple(evidence),
-        used_evidence_ids=tuple(item.evidence_id for item in evidence),
-    )
+    web_result = state.get("web_result")
+    if isinstance(web_result, WebSearchResult):
+        builder.add_query(web_result.query)
+        builder.add_search_trace(
+            "web_search",
+            hit_count=len(web_result.items),
+            status=web_result.status,
+        )
+        for item in web_result.items:
+            builder.add_web(
+                title=item.title,
+                url=item.url,
+                snippet=item.snippet,
+                content=item.content,
+                retrieved_at=item.retrieved_at,
+            )
+    return builder.build()
 
 
 def _first_page_number(pages: Sequence[str]) -> int | None:

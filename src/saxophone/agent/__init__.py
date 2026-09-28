@@ -32,6 +32,7 @@ from .evidence_selection import (
     SelectionResult,
     adapt_legacy_selector,
 )
+from .evidence import EvidenceLedgerBuilder, stable_evidence_id
 from .ports import (
     AgentTool,
     AnswerSynthesizer,
@@ -81,6 +82,8 @@ __all__ = [
     "ParagraphDirectSelector",
     "ConceptRoleSelector",
     "adapt_legacy_selector",
+    "EvidenceLedgerBuilder",
+    "stable_evidence_id",
     "AgentTool",
     "AnswerSynthesizer",
     "DocumentSearchTool",
