@@ -16,6 +16,7 @@ from saxophone.agent.contracts import (
 from saxophone.agent.document_search import DocumentSearchResult, DocumentSearchStatus
 from saxophone.agent.langchain_callbacks import AgentTracingCallbackHandler
 from saxophone.agent.orchestrator import MainAgent
+from saxophone.agent.policies import run_with_budget
 from saxophone.agent.synthesis import EvidenceSynthesisService
 from saxophone.interfaces.api import _agent_run_sources
 from saxophone.retrieval.models import ChunkHit
@@ -105,6 +106,48 @@ class _FailingDocumentSearch:
     ) -> DocumentSearchResult:
         self.calls.append((question, budget))
         raise self.error
+
+
+@dataclass
+class _BudgetedNoHitDocumentSearch:
+    calls: int = 0
+
+    async def search(
+        self, question: AgentQuestion, budget: RunBudget
+    ) -> DocumentSearchResult:
+        async def operation() -> DocumentSearchResult:
+            self.calls += 1
+            return DocumentSearchResult(
+                question.question,
+                status=DocumentSearchStatus.NO_HITS,
+            )
+
+        return await run_with_budget(budget, "document_search", operation)
+
+
+@dataclass
+class _BudgetedWebSearch:
+    calls: int = 0
+
+    async def search(
+        self, question: AgentQuestion, budget: RunBudget
+    ) -> WebSearchResult:
+        async def operation() -> WebSearchResult:
+            self.calls += 1
+            return WebSearchResult(
+                question.question,
+                (
+                    WebSearchItem(
+                        "Rhythm",
+                        "https://example.test/rhythm",
+                        "Rhythm is organized movement in time.",
+                        "2026-09-29",
+                    ),
+                ),
+                status="ready",
+            )
+
+        return await run_with_budget(budget, "web_search", operation)
 
 
 @dataclass
@@ -338,6 +381,30 @@ async def test_pipeline_returns_structured_failure_when_document_search_errors()
     assert result.error == "document backend unavailable"
     assert len(document.calls) == 1
     assert web.calls == []
+
+
+@pytest.mark.anyio
+async def test_pipeline_stops_before_web_when_shared_budget_is_exhausted() -> None:
+    document = _BudgetedNoHitDocumentSearch()
+    web = _BudgetedWebSearch()
+    budget = RunBudget(max_tool_calls=1)
+    agent = MainAgent(document_search=document, web_search=web)
+
+    result = await agent.run(
+        "What is rhythm?",
+        run_id="pipeline-budget-exhausted",
+        budget=budget,
+    )
+
+    assert result.outcome is AgentOutcome.BUDGET_EXHAUSTED
+    assert result.answer is None
+    assert result.error == "budget exhausted for web_search: max_tool_calls"
+    assert document.calls == 1
+    assert web.calls == 0
+    assert budget.snapshot().tool_calls == 1
+    assert budget.snapshot().web_search_calls == 0
+    assert result.state is not None
+    assert result.state["reason_code"] == "max_tool_calls"
 
 
 @pytest.mark.anyio
