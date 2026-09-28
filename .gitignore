@@ -14,6 +14,9 @@ __pycache__/
 .coverage.*
 htmlcov/
 
+# Test reports, logs, cache and temporary files
+/test-artifacts/
+
 # Virtual environments and uv cache
 .venv/
 venv/

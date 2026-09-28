@@ -11,8 +11,8 @@ approvals_reviewer = "user"
 model_provider = "proxy"
 personality = "pragmatic"
 # model_context_window = 272000
-model = "gpt-5.6-sol"
-model_reasoning_effort = "high"
+model = "gpt-5.6-luna"
+model_reasoning_effort = "max"
 service_tier = "default"
 plan_mode_reasoning_effort = "xhigh"
 

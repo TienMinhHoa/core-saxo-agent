@@ -38,3 +38,20 @@ Before ending the conversation or switching tasks, generate a "State of the Unio
 - **Codebase State:** The current status of the source code.
 - **Next Steps:** Precise, actionable items to do next.
 - **Known Issues:** Any remaining bugs or edge cases.
+
+## 6. TEST ARTIFACTS
+
+- Store every generated pytest report, log, cache and temporary test file under `test-artifacts/`.
+- Do not write test output into the repository root, `src/`, or `tests/`.
+- `pyproject.toml` routes the pytest cache to `test-artifacts/pytest_cache`.
+- The `test-artifacts/` directory is ignored by Git and must not be committed.
+- Run the standard test command with a visible console stream and saved artifacts:
+
+```bash
+set -o pipefail
+mkdir -p test-artifacts
+uv run pytest -q --junitxml=test-artifacts/pytest.xml 2>&1 | tee test-artifacts/pytest.log
+```
+
+- Save other verification output beside the pytest files, for example `compileall.log` or `diff-check.log`.
+- Do not delete or reset existing user changes while cleaning generated test artifacts.
