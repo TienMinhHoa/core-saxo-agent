@@ -18,7 +18,12 @@ from saxophone.agent.langchain_callbacks import AgentTracingCallbackHandler
 from saxophone.agent.orchestrator import MainAgent
 from saxophone.agent.synthesis import EvidenceSynthesisService
 from saxophone.retrieval.models import ChunkHit
-from saxophone.retrieval.renderers import SourceParagraph
+from saxophone.retrieval.renderers import (
+    AnswerContextModel,
+    SelectedConceptRole,
+    SourceParagraph,
+)
+from saxophone.tagging.models import ContentRole, ParagraphConceptRole
 
 
 def _paragraph() -> SourceParagraph:
@@ -100,6 +105,33 @@ class _Selector:
 
 
 @dataclass
+class _ConceptSelector:
+    calls: list[object] = field(default_factory=list)
+
+    async def select(self, request: object) -> object:
+        from saxophone.agent.contracts import SelectionStrategy
+        from saxophone.agent.evidence_selection import SelectionResult
+
+        self.calls.append(request)
+        paragraph = request.search_result.paragraph_candidates[0]
+        return SelectionResult(
+            SelectionStrategy.CONCEPT_ROLE,
+            AnswerContextModel(
+                (
+                    SelectedConceptRole(
+                        "Major triad",
+                        ContentRole.DEFINITION.value,
+                        (paragraph.paragraph_ref,),
+                        (),
+                    ),
+                ),
+                (paragraph,),
+                (paragraph.paragraph_ref,),
+            ),
+        )
+
+
+@dataclass
 class _ConfigAwareSynthesizer:
     config: object | None = None
 
@@ -146,6 +178,40 @@ async def test_pipeline_uses_local_evidence_without_web_fallback() -> None:
     assert result.answer == "Grounded answer"
     assert len(document.calls) == 1
     assert web.calls == []
+
+
+@pytest.mark.anyio
+async def test_pipeline_routes_relation_rich_results_to_concept_role_strategy() -> None:
+    paragraph = _paragraph()
+    document = _DocumentSearch(
+        DocumentSearchResult(
+            "What is a major triad?",
+            (_hit(),),
+            (paragraph,),
+            relations=(
+                ParagraphConceptRole(
+                    paragraph.paragraph_ref,
+                    "Major triad",
+                    ContentRole.DEFINITION,
+                ),
+            ),
+            status=DocumentSearchStatus.READY,
+        )
+    )
+    selector = _ConceptSelector()
+    synthesizer = _ConfigAwareSynthesizer()
+    agent = MainAgent(
+        document_search=document,
+        concept_selector=selector,
+        synthesizer=synthesizer,
+    )
+
+    result = await agent.run("What is a major triad?", run_id="pipeline-concept-role")
+
+    assert result.outcome is AgentOutcome.ANSWERED
+    assert result.ledger is not None
+    assert result.ledger.selected_strategy.value == "concept_role"
+    assert len(selector.calls) == 1
 
 
 @pytest.mark.anyio
