@@ -21,7 +21,8 @@ from saxophone.retrieval.renderers import SourceParagraph
 from saxophone.retrieval.sqlite_context import RetrievalContext
 from saxophone.tagging.models import ParagraphConceptRole
 
-from .contracts import AgentQuestion
+from .contracts import AgentQuestion, RunBudget
+from .policies import run_with_budget
 
 
 class DocumentSearchStatus(StrEnum):
@@ -190,21 +191,36 @@ class SemanticDocumentSearchTool:
     ) -> DocumentSearchResult:
         """Search chunks and hydrate their paragraph candidates.
 
-        ``budget`` is accepted at this boundary so the tool can be injected
-        into the shared agent port now; budget accounting is introduced by the
-        dedicated RunBudget task without changing this contract.
+        A ``RunBudget`` is enforced at this boundary; legacy callers that pass
+        no budget retain the compatibility behavior used by the retrieval API.
         """
 
-        del budget
         if not isinstance(question, AgentQuestion):
             raise ValueError("question must be an AgentQuestion")
+
+        if isinstance(budget, RunBudget):
+            return await run_with_budget(
+                budget,
+                self.name,
+                lambda: self._search(question, budget),
+            )
+        return await self._search(question, budget)
+
+    async def _search(
+        self,
+        question: AgentQuestion,
+        budget: Any = None,
+    ) -> DocumentSearchResult:
+        limit = self._max_hits
+        if isinstance(budget, RunBudget):
+            limit = min(limit, budget.max_hits_per_tool)
 
         raw_hits = await self._retriever.search(
             question.question,
             filters=dict(question.filters),
-            limit=self._max_hits,
+            limit=limit,
         )
-        hits = _normalize_hits(raw_hits)
+        hits = _normalize_hits(raw_hits)[:limit]
         if not hits:
             return DocumentSearchResult(
                 query=question.question,

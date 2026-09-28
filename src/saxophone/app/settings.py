@@ -41,6 +41,12 @@ class AppSettings:
     deepseek_api_key: str | None = field(default=None, repr=False)
     deepseek_model: str = "deepseek-flash"
     agent_chat_model: str = "deepseek-pro"
+    agent_max_tool_calls: int = 8
+    agent_max_document_search_calls: int = 3
+    agent_max_web_search_calls: int = 2
+    agent_max_hits_per_tool: int = 20
+    agent_tool_timeout_seconds: float = 20.0
+    agent_max_context_tokens: int = 12_000
     deepseek_reasoning_effort: str = "max"
     deepseek_max_tokens: int = 65536
     openai_api_base_url: str = "https://api.openai.com/v1"
@@ -86,6 +92,23 @@ class AppSettings:
         )
         _parse_required_text(self.deepseek_model, "SAXO_DEEPSEEK_MODEL")
         _parse_agent_chat_model(self.agent_chat_model)
+        for field_name in (
+            "agent_max_tool_calls",
+            "agent_max_document_search_calls",
+            "agent_max_web_search_calls",
+            "agent_max_hits_per_tool",
+            "agent_max_context_tokens",
+        ):
+            _validate_runtime_integer(
+                getattr(self, field_name),
+                field_name,
+                strictly_positive=True,
+            )
+        _validate_runtime_float(
+            self.agent_tool_timeout_seconds,
+            "agent_tool_timeout_seconds",
+            strictly_positive=True,
+        )
         _parse_reasoning_effort(self.deepseek_reasoning_effort)
         _parse_required_text(
             self.openai_embedding_model,
@@ -324,6 +347,31 @@ class AppSettings:
             ),
             agent_chat_model=_parse_agent_chat_model(
                 environment.get("SAXO_AGENT_CHAT_MODEL", "deepseek-pro")
+            ),
+            agent_max_tool_calls=_parse_positive_integer(
+                environment.get("SAXO_AGENT_MAX_TOOL_CALLS", "8"),
+                "SAXO_AGENT_MAX_TOOL_CALLS",
+            ),
+            agent_max_document_search_calls=_parse_positive_integer(
+                environment.get("SAXO_AGENT_MAX_DOCUMENT_SEARCH_CALLS", "3"),
+                "SAXO_AGENT_MAX_DOCUMENT_SEARCH_CALLS",
+            ),
+            agent_max_web_search_calls=_parse_positive_integer(
+                environment.get("SAXO_AGENT_MAX_WEB_SEARCH_CALLS", "2"),
+                "SAXO_AGENT_MAX_WEB_SEARCH_CALLS",
+            ),
+            agent_max_hits_per_tool=_parse_positive_integer(
+                environment.get("SAXO_AGENT_MAX_HITS_PER_TOOL", "20"),
+                "SAXO_AGENT_MAX_HITS_PER_TOOL",
+            ),
+            agent_tool_timeout_seconds=_parse_non_negative_float(
+                environment.get("SAXO_AGENT_TOOL_TIMEOUT_SECONDS", "20"),
+                "SAXO_AGENT_TOOL_TIMEOUT_SECONDS",
+                strictly_positive=True,
+            ),
+            agent_max_context_tokens=_parse_positive_integer(
+                environment.get("SAXO_AGENT_MAX_CONTEXT_TOKENS", "12000"),
+                "SAXO_AGENT_MAX_CONTEXT_TOKENS",
             ),
             deepseek_reasoning_effort=_parse_reasoning_effort(
                 environment.get("SAXO_DEEPSEEK_REASONING_EFFORT", "max")

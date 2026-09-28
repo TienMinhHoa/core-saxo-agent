@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from saxophone.agent.contracts import AgentQuestion
+from saxophone.agent.contracts import AgentQuestion, BudgetExhaustedError, RunBudget
 from saxophone.agent.document_search import (
     DocumentSearchResult,
     DocumentSearchStatus,
@@ -161,6 +161,25 @@ async def test_document_search_tool_run_delegates_to_search() -> None:
     result = await tool.run(AgentQuestion("What is a major triad?"), object())
 
     assert result.hits == (hit,)
+
+
+@pytest.mark.anyio
+async def test_document_search_consumes_shared_budget_and_applies_hit_limit() -> None:
+    hit = _hit()
+    retriever = _FakeRetriever((hit,))
+    repository = _FakeContextRepository(
+        RetrievalContext((), {_paragraph().paragraph_ref: _paragraph()})
+    )
+    tool = SemanticDocumentSearchTool(retriever, repository, max_hits=20)
+    budget = RunBudget(max_tool_calls=1, max_document_search_calls=1, max_hits_per_tool=1)
+
+    await tool.search(AgentQuestion("What is a major triad?"), budget)
+
+    assert retriever.calls[0][2] == 1
+    assert budget.snapshot().document_search_calls == 1
+    with pytest.raises(BudgetExhaustedError):
+        await tool.search(AgentQuestion("What is a major triad?"), budget)
+    assert len(retriever.calls) == 1
 
 
 def test_document_search_result_derives_status_for_direct_dto_construction() -> None:

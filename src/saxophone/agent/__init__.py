@@ -3,11 +3,15 @@
 from .contracts import (
     AgentOutcome,
     AgentQuestion,
+    BudgetCall,
+    BudgetExhaustedError,
+    BudgetSnapshot,
     Citation,
     ClarificationRequest,
     EvidenceItem,
     EvidenceLedger,
     EvidenceSourceType,
+    RunBudget,
     SearchTrace,
     SelectionStrategy,
 )
@@ -33,15 +37,29 @@ from .ports import (
     WebSearchTool,
     require_agent_tool,
 )
+from .policies import (
+    BudgetDecision,
+    BudgetPolicy,
+    BudgetTimeoutError,
+    call_with_budget,
+    check_budget,
+    enforce_budget,
+    execute_with_budget,
+    run_with_budget,
+)
 
 __all__ = [
     "AgentOutcome",
     "AgentQuestion",
+    "BudgetCall",
+    "BudgetExhaustedError",
+    "BudgetSnapshot",
     "Citation",
     "ClarificationRequest",
     "EvidenceItem",
     "EvidenceLedger",
     "EvidenceSourceType",
+    "RunBudget",
     "SearchTrace",
     "SelectionStrategy",
     "DocumentSearchResult",
@@ -60,4 +78,12 @@ __all__ = [
     "EvidenceSelector",
     "WebSearchTool",
     "require_agent_tool",
+    "BudgetDecision",
+    "BudgetPolicy",
+    "BudgetTimeoutError",
+    "call_with_budget",
+    "check_budget",
+    "enforce_budget",
+    "execute_with_budget",
+    "run_with_budget",
 ]
