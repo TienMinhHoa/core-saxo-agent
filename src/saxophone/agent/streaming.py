@@ -103,15 +103,15 @@ class AgentRunManager:
             if state is None:
                 raise KeyError(f"unknown run: {normalized}")
             replay = tuple(event for event in state.history if event.sequence > after_sequence)
-            terminal_in_replay = state.terminal and any(event.terminal for event in replay)
-            if not terminal_in_replay:
+            terminal_run = state.terminal
+            if not terminal_run:
                 queue = asyncio.Queue(maxsize=self._queue_size)
                 state.subscribers.add(queue)
 
         try:
             for event in replay:
                 yield event
-            if terminal_in_replay:
+            if terminal_run:
                 return
             if queue is None:  # pragma: no cover - defensive invariant
                 return

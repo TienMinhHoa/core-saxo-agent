@@ -147,3 +147,23 @@ async def test_run_manager_rejects_unknown_or_terminal_publish() -> None:
                 stage="synthesis",
             )
         )
+
+
+@pytest.mark.anyio
+async def test_run_manager_finishes_replay_after_terminal_sequence() -> None:
+    manager = AgentRunManager()
+    await manager.start("run-replay-complete")
+    await manager.publish(
+        AgentEvent(
+            AgentEventType.RUN_COMPLETED,
+            run_id="run-replay-complete",
+            status="answered",
+        )
+    )
+
+    events = [
+        event
+        async for event in manager.events("run-replay-complete", after_sequence=2)
+    ]
+
+    assert events == []

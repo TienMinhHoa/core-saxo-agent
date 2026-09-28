@@ -2,16 +2,24 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import inspect
+import re
+from contextlib import suppress
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi import APIRouter, File, Header, HTTPException, UploadFile
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
+from saxophone.agent.contracts import AgentQuestion
+from saxophone.agent.events import AgentEvent, AgentEventType
+from saxophone.agent.langchain_callbacks import AgentEventCallbackHandler
+from saxophone.agent.streaming import AgentRunManager
 from saxophone.chat import ChatResult, ImageArtifactGate
 from saxophone.documents import (
     ArtifactKind,
@@ -26,6 +34,10 @@ from saxophone.extraction import PdfExtractionRequest, PdfExtractionResult
 from saxophone.ingestion import IndexDocument, IndexInputRecord, IngestionCommand, IngestionReport
 from saxophone.retrieval import EvidenceBundle, QuestionRequest
 from saxophone.workflows import IngestExtractedDocument, ProcessAndPersistDocument, ProcessDocument
+from saxophone.interfaces.agent_stream import iter_agent_events
+
+
+_AGENT_RUN_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 
 
 class QueryRequest(BaseModel):
@@ -308,9 +320,97 @@ def build_capability_router(
     return router
 
 
+async def _finish_agent_stream_run(
+    runner: object,
+    manager: AgentRunManager,
+    request: AgentChatMessageRequest,
+    run_id: str,
+    callback: AgentEventCallbackHandler,
+) -> None:
+    """Run the injected agent and close its public event stream safely."""
+
+    try:
+        question = _agent_question(request)
+        run_method = getattr(runner, "run", None) or getattr(runner, "execute", None)
+        if not callable(run_method):
+            raise TypeError("agent runner must provide async run")
+        result = run_method(
+            question,
+            run_id=run_id,
+            callbacks=[callback],
+        )
+        if inspect.isawaitable(result):
+            result = await result
+        outcome_value = getattr(result, "outcome", None)
+        outcome = getattr(outcome_value, "value", outcome_value)
+        outcome = outcome.strip() if isinstance(outcome, str) and outcome.strip() else None
+        if outcome == "failed":
+            await manager.publish(
+                AgentEvent(
+                    AgentEventType.RUN_FAILED,
+                    run_id=run_id,
+                    error_code="agent_failed",
+                )
+            )
+        else:
+            await manager.publish(
+                AgentEvent(
+                    AgentEventType.RUN_COMPLETED,
+                    run_id=run_id,
+                    status=outcome or "completed",
+                )
+            )
+    except asyncio.CancelledError:
+        raise
+    except Exception as error:
+        with suppress(KeyError, ValueError):
+            if await manager.is_active(run_id):
+                await manager.publish(
+                    AgentEvent(
+                        AgentEventType.RUN_FAILED,
+                        run_id=run_id,
+                        error_code=error.__class__.__name__,
+                    )
+                )
+
+
+def _agent_question(request: AgentChatMessageRequest) -> AgentQuestion:
+    filters = request.filters or {}
+    if any(not isinstance(value, str) for value in filters.values()):
+        raise ValueError("agent stream filters must contain string values")
+    return AgentQuestion(
+        request.question,
+        filters=filters,
+        context_limit=request.max_tokens,
+    )
+
+
+def _optional_run_id(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    if not _AGENT_RUN_ID_PATTERN.fullmatch(normalized):
+        raise HTTPException(status_code=400, detail="X-Agent-Run-ID is invalid")
+    return normalized
+
+
+def _parse_last_event_id(value: str | None) -> int:
+    if value is None or not value.strip():
+        return 0
+    try:
+        parsed = int(value)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail="Last-Event-ID is invalid") from error
+    if parsed < 0:
+        raise HTTPException(status_code=400, detail="Last-Event-ID is invalid")
+    return parsed
+
+
 def build_agent_chat_router(
     *,
     agent_chat: Any = None,
+    agent_runner: Any = None,
+    agent_run_manager: AgentRunManager | None = None,
     assets_root: Path | None = None,
     image_artifact_resolver: ImageArtifactResolver | None = None,
     image_artifact_gate: ImageArtifactGate | None = None,
@@ -325,6 +425,7 @@ def build_agent_chat_router(
         "chat.css": (root / "chat.css", "text/css"),
         "chat.js": (root / "chat.js", "application/javascript"),
     }
+    active_runs: dict[str, asyncio.Task[None]] = {}
 
     @router.get("/agent/chat", include_in_schema=False)
     async def agent_chat_page() -> FileResponse:
@@ -361,6 +462,84 @@ def build_agent_chat_router(
             result,
             image_artifact_resolver=image_artifact_resolver,
             image_artifact_gate=image_artifact_gate,
+        )
+
+    @router.post("/agent/chat/stream")
+    async def agent_chat_stream(
+        request: AgentChatMessageRequest,
+        run_id_header: str | None = Header(default=None, alias="X-Agent-Run-ID"),
+        last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
+    ) -> StreamingResponse:
+        """Stream safe progress events for a new or replayed agent run."""
+
+        if agent_run_manager is None:
+            raise HTTPException(
+                status_code=503,
+                detail="agent streaming capability is not configured",
+            )
+        after_sequence = _parse_last_event_id(last_event_id)
+        requested_run_id = _optional_run_id(run_id_header)
+        run_task: asyncio.Task[None] | None = None
+
+        if requested_run_id is not None:
+            try:
+                await agent_run_manager.history(requested_run_id)
+            except KeyError as error:
+                raise HTTPException(status_code=404, detail="agent run not found") from error
+            run_id = requested_run_id
+        else:
+            if agent_runner is None:
+                raise HTTPException(
+                    status_code=503,
+                    detail="agent streaming capability is not configured",
+                )
+            try:
+                _agent_question(request)
+            except ValueError as error:
+                raise HTTPException(status_code=422, detail=str(error)) from error
+            run_id = await agent_run_manager.start()
+            callback = AgentEventCallbackHandler(run_id=run_id, sink=agent_run_manager)
+            run_task = asyncio.create_task(
+                _finish_agent_stream_run(
+                    agent_runner,
+                    agent_run_manager,
+                    request,
+                    run_id,
+                    callback,
+                )
+            )
+            active_runs[run_id] = run_task
+
+        async def event_body():
+            try:
+                async for frame in iter_agent_events(
+                    agent_run_manager,
+                    run_id,
+                    after_sequence=after_sequence,
+                ):
+                    yield frame
+            except asyncio.CancelledError:
+                if await agent_run_manager.is_active(run_id):
+                    await agent_run_manager.cancel(run_id)
+                if run_task is not None and not run_task.done():
+                    run_task.cancel()
+                raise
+            finally:
+                if run_task is not None:
+                    active_runs.pop(run_id, None)
+                    if not run_task.done():
+                        run_task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await run_task
+
+        return StreamingResponse(
+            event_body(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Agent-Run-ID": run_id,
+            },
         )
 
     return router
