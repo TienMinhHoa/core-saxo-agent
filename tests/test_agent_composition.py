@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
+import pytest
 from fastapi.testclient import TestClient
 
 from saxophone.agent.contracts import AgentOutcome, AgentQuestion, RunBudget
@@ -104,9 +105,21 @@ def test_composition_accepts_a_prebuilt_run_manager_without_replacing_it(tmp_pat
     assert app.state.container.agent_run_manager is manager
 
 
-def test_composition_compiles_injected_graph_dependencies_once(tmp_path) -> None:
-    app = create_app(
+@pytest.mark.anyio
+async def test_composition_compiles_injected_graph_and_uses_configured_run_budgets(
+    tmp_path,
+) -> None:
+    settings = replace(
         _settings(tmp_path),
+        agent_max_tool_calls=2,
+        agent_max_document_search_calls=1,
+        agent_max_web_search_calls=1,
+        agent_max_hits_per_tool=3,
+        agent_tool_timeout_seconds=4,
+        agent_max_context_tokens=140,
+    )
+    app = create_app(
+        settings,
         overrides=AppOverrides(
             remote_gpu_gateway=_RemoteGpu(),
             model_client=_ModelClient(),
@@ -121,3 +134,14 @@ def test_composition_compiles_injected_graph_dependencies_once(tmp_path) -> None
     assert container.agent_runner is not None
     assert container.agent_runner.graph is not None
     assert isinstance(container.agent_run_manager, AgentRunManager)
+
+    first = await container.agent_runner.run("question", run_id="configured-budget-1")
+    second = await container.agent_runner.run("question", run_id="configured-budget-2")
+
+    assert first.budget.snapshot().max_tool_calls == 2
+    assert first.budget.snapshot().max_document_search_calls == 1
+    assert first.budget.snapshot().max_web_search_calls == 1
+    assert first.budget.snapshot().max_hits_per_tool == 3
+    assert first.budget.snapshot().tool_timeout_seconds == 4
+    assert first.budget.snapshot().max_context_tokens == 140
+    assert first.budget is not second.budget

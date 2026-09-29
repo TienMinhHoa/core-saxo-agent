@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from fastapi import Request
 from fastapi.responses import Response
 
+from saxophone.agent.contracts import RunBudget
 from saxophone.agent.graph import AgentGraphDependencies
 from saxophone.agent.orchestrator import MainAgent
 from saxophone.agent.streaming import AgentRunManager
@@ -611,6 +612,7 @@ def create_app(
             dependencies=resolved_overrides.agent_graph_dependencies,
             checkpointer=resolved_overrides.agent_checkpointer,
             tracer=tracer,
+            budget_factory=lambda: RunBudget.from_settings(settings),
         )
     if agent_runner is not None and agent_run_manager is None:
         agent_run_manager = AgentRunManager()

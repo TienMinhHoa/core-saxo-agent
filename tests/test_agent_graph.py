@@ -159,6 +159,60 @@ async def test_main_agent_runs_compiled_langgraph_for_local_evidence() -> None:
 
 
 @pytest.mark.anyio
+async def test_main_agent_builds_a_fresh_budget_from_the_configured_factory() -> None:
+    budgets: list[RunBudget] = []
+
+    def budget_factory() -> RunBudget:
+        budget = RunBudget(
+            max_tool_calls=1,
+            max_document_search_calls=1,
+            max_web_search_calls=1,
+            max_hits_per_tool=2,
+            tool_timeout_seconds=3,
+            max_context_tokens=120,
+        )
+        budgets.append(budget)
+        return budget
+
+    search = _DocumentSearch(
+        DocumentSearchResult("question", status=DocumentSearchStatus.NO_HITS)
+    )
+    agent = MainAgent(document_search=search, budget_factory=budget_factory)
+
+    first = await agent.run(AgentQuestion("question"), run_id="run-budget-1")
+    second = await agent.run(AgentQuestion("question"), run_id="run-budget-2")
+
+    assert first.budget is budgets[0]
+    assert second.budget is budgets[1]
+    assert first.budget is not second.budget
+    assert first.budget.snapshot().max_tool_calls == 1
+    assert first.budget.snapshot().max_context_tokens == 120
+
+
+@pytest.mark.anyio
+async def test_main_agent_explicit_budget_overrides_the_factory() -> None:
+    factory_calls = 0
+
+    def budget_factory() -> RunBudget:
+        nonlocal factory_calls
+        factory_calls += 1
+        return RunBudget(max_tool_calls=1)
+
+    search = _DocumentSearch(
+        DocumentSearchResult("question", status=DocumentSearchStatus.NO_HITS)
+    )
+    agent = MainAgent(document_search=search, budget_factory=budget_factory)
+    explicit = RunBudget(max_tool_calls=4)
+
+    result = await agent.run(
+        AgentQuestion("question"), run_id="run-budget-explicit", budget=explicit
+    )
+
+    assert result.budget is explicit
+    assert factory_calls == 0
+
+
+@pytest.mark.anyio
 async def test_main_agent_forwards_runtime_callbacks_to_langchain_document_tool() -> None:
     paragraph = _paragraph()
     adapter = _DocumentSearch(

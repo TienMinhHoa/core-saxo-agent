@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from uuid import uuid4
 
@@ -19,6 +20,8 @@ from .graph import AgentGraphDependencies, build_agent_graph
 from .langchain_callbacks import AgentTracingCallbackHandler
 from .state import AgentGraphState, AgentStage
 from .tracing import AgentTracer, NoopTracer, TraceStatus
+
+BudgetFactory = Callable[[], RunBudget]
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +63,7 @@ class MainAgent:
         graph: object | None = None,
         checkpointer: object | None = None,
         tracer: AgentTracer | None = None,
+        budget_factory: BudgetFactory | None = None,
     ) -> None:
         document_search = _resolve_alias(
             document_search,
@@ -117,6 +121,9 @@ class MainAgent:
                 )
             self._graph = build_agent_graph(dependencies, checkpointer=checkpointer)
         self._tracer = tracer or NoopTracer()
+        if budget_factory is not None and not callable(budget_factory):
+            raise TypeError("budget_factory must be callable")
+        self._budget_factory = budget_factory if budget_factory is not None else RunBudget
 
     @property
     def graph(self) -> object:
@@ -140,7 +147,7 @@ class MainAgent:
         normalized_run_id = (run_id or uuid4().hex).strip()
         if not normalized_run_id:
             raise ValueError("run_id must not be blank")
-        run_budget = budget if budget is not None else RunBudget()
+        run_budget = budget if budget is not None else self._budget_factory()
         if not isinstance(run_budget, RunBudget):
             raise TypeError("budget must be a RunBudget")
 
