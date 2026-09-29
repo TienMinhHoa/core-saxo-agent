@@ -638,7 +638,7 @@ def create_app(
             answer_question = AnswerQuestion(
                 retrieve_evidence,
                 resolved_overrides.answer_generator,
-                resolved_overrides.image_artifact_gate,
+                image_artifact_gate,
             )
 
     agent_chat = resolved_overrides.agent_chat

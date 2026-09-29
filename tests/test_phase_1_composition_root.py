@@ -236,6 +236,31 @@ def test_composition_builds_retrieval_and_chat_from_application_ports() -> None:
     assert TestClient(app).get("/api/v1/health").json()["chat"] == "ready"
 
 
+def test_composition_passes_the_resolved_image_gate_to_answer_question(tmp_path) -> None:
+    """Legacy chat must use the repository-backed gate built by the factory."""
+
+    app = create_app(
+        AppSettings.from_environment(
+            {
+                **VALID_ENVIRONMENT,
+                "SAXO_DATA_ROOT": str(tmp_path),
+            }
+        ),
+        overrides=AppOverrides(
+            remote_gpu_gateway=FakeRemoteGpuGateway(status="ready"),
+            model_client=FakeModelClient(),
+            retriever=FakeRetriever(),
+            answer_generator=FakeAnswerGenerator(),
+            image_artifact_resolver=object(),
+        ),
+    )
+
+    container = app.state.container
+    assert container.answer_question is not None
+    assert container.image_artifact_gate is not None
+    assert container.answer_question._image_artifact_gate is container.image_artifact_gate
+
+
 def test_default_composition_wires_extraction_persistence_workflow() -> None:
     app = create_app(build_settings())
 
