@@ -164,6 +164,36 @@ class _TopicComposition:
     extract_topic: ExtractTopicService | None
 
 
+@dataclass(frozen=True, slots=True)
+class _AgentComposition:
+    """Agent runtime collaborators assembled from overrides and settings."""
+
+    runner: MainAgent | None
+    run_manager: AgentRunManager | None
+    tracer: AgentTracer | None
+
+
+def _compose_agent_services(
+    settings: AppSettings,
+    overrides: AppOverrides,
+) -> _AgentComposition:
+    """Build the optional agent graph runtime and its streaming/tracing helpers."""
+
+    tracer = overrides.tracer or create_langfuse_tracer(settings)
+    runner = overrides.agent_runner
+    if runner is None and overrides.agent_graph_dependencies is not None:
+        runner = MainAgent(
+            dependencies=overrides.agent_graph_dependencies,
+            checkpointer=overrides.agent_checkpointer,
+            tracer=tracer,
+            budget_factory=lambda: RunBudget.from_settings(settings),
+        )
+    run_manager = overrides.agent_run_manager
+    if runner is not None and run_manager is None:
+        run_manager = AgentRunManager()
+    return _AgentComposition(runner, run_manager, tracer)
+
+
 def _compose_topic_services(
     *,
     document_ingestion: DocumentIngestionService | None,
@@ -604,18 +634,10 @@ def create_app(
             )
 
     agent_chat = resolved_overrides.agent_chat
-    agent_runner = resolved_overrides.agent_runner
-    agent_run_manager = resolved_overrides.agent_run_manager
-    tracer = resolved_overrides.tracer or create_langfuse_tracer(settings)
-    if agent_runner is None and resolved_overrides.agent_graph_dependencies is not None:
-        agent_runner = MainAgent(
-            dependencies=resolved_overrides.agent_graph_dependencies,
-            checkpointer=resolved_overrides.agent_checkpointer,
-            tracer=tracer,
-            budget_factory=lambda: RunBudget.from_settings(settings),
-        )
-    if agent_runner is not None and agent_run_manager is None:
-        agent_run_manager = AgentRunManager()
+    agent_services = _compose_agent_services(settings, resolved_overrides)
+    agent_runner = agent_services.runner
+    agent_run_manager = agent_services.run_manager
+    tracer = agent_services.tracer
     topic_services = _compose_topic_services(
         document_ingestion=document_ingestion,
         chunk_tagging=chunk_tagging,

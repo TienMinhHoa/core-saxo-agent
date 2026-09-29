@@ -11,7 +11,12 @@ from saxophone.agent.graph import AgentGraphDependencies
 from saxophone.agent.orchestrator import AgentRunResult
 from saxophone.agent.streaming import AgentRunManager
 from saxophone.agent.state import AgentStage
-from saxophone.app.factory import AppOverrides, create_app
+from saxophone.agent.tracing import InMemoryTracer
+from saxophone.app.factory import (
+    AppOverrides,
+    _compose_agent_services,
+    create_app,
+)
 from saxophone.app.settings import AppSettings
 
 
@@ -85,6 +90,25 @@ def test_composition_injects_agent_runner_and_owns_stream_manager(tmp_path) -> N
         "event: run_completed",
     ]
     assert runner.calls[0][0] == AgentQuestion("What is rhythm?", context_limit=4000)
+
+
+def test_agent_composition_helper_preserves_explicit_runtime_overrides(tmp_path) -> None:
+    runner = _Runner()
+    manager = AgentRunManager()
+    tracer = InMemoryTracer()
+
+    composition = _compose_agent_services(
+        _settings(tmp_path),
+        AppOverrides(
+            agent_runner=runner,
+            agent_run_manager=manager,
+            tracer=tracer,
+        ),
+    )
+
+    assert composition.runner is runner
+    assert composition.run_manager is manager
+    assert composition.tracer is tracer
 
 
 def test_composition_accepts_a_prebuilt_run_manager_without_replacing_it(tmp_path) -> None:
