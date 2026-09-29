@@ -79,11 +79,7 @@ from saxophone.services.extract_topic import (
 )
 from saxophone.interfaces.api import build_agent_chat_router, build_capability_router
 from saxophone.interfaces.db_browser import build_database_browser_router
-from saxophone.workflows import (
-    IngestExtractedDocument,
-    ProcessAndPersistDocument,
-    ProcessDocument,
-)
+import saxophone.workflows as workflows_facade
 
 if TYPE_CHECKING:
     from saxophone.chat.compatibility import GroundedAnswerService
@@ -298,10 +294,10 @@ class AppContainer:
     artifact_repository: ArtifactRepository | None = None
     image_artifact_resolver: ImageArtifactResolver | None = None
     image_artifact_gate: ImageArtifactGate | None = None
-    process_document: ProcessDocument | None = None
-    process_and_persist_document: ProcessAndPersistDocument | None = None
+    process_document: workflows_facade.ProcessDocument | None = None
+    process_and_persist_document: workflows_facade.ProcessAndPersistDocument | None = None
     index_document: IndexDocument | None = None
-    ingest_extracted_document: IngestExtractedDocument | None = None
+    ingest_extracted_document: workflows_facade.IngestExtractedDocument | None = None
     tagged_paragraph_repository: TaggedParagraphRepository | None = None
     tag_catalog_repository: TagCatalogRepository | None = None
     tag_generator: TagGenerator | None = None
@@ -341,12 +337,12 @@ class AppOverrides:
     content_ledger: SqliteContentLedger | None = None
     artifact_repository: ArtifactRepository | None = None
     image_artifact_resolver: ImageArtifactResolver | None = None
-    process_document: ProcessDocument | None = None
-    process_and_persist_document: ProcessAndPersistDocument | None = None
+    process_document: workflows_facade.ProcessDocument | None = None
+    process_and_persist_document: workflows_facade.ProcessAndPersistDocument | None = None
     vector_index: VectorIndex | None = None
     disable_vector_index: bool = False
     index_document: IndexDocument | None = None
-    ingest_extracted_document: IngestExtractedDocument | None = None
+    ingest_extracted_document: workflows_facade.IngestExtractedDocument | None = None
     tagged_paragraph_repository: TaggedParagraphRepository | None = None
     tag_catalog_repository: TagCatalogRepository | None = None
     tag_generator: TagGenerator | None = None
@@ -530,12 +526,12 @@ def create_app(
     )
     process_document = resolved_overrides.process_document
     if process_document is None:
-        process_document = ProcessDocument(artifact_repository, pdf_extractor)
+        process_document = workflows_facade.ProcessDocument(artifact_repository, pdf_extractor)
     process_and_persist_document = resolved_overrides.process_and_persist_document
     if process_and_persist_document is None and resolved_overrides.process_document is None:
         from saxophone.extraction import RepositoryExtractionArtifactPayloadProvider
 
-        process_and_persist_document = ProcessAndPersistDocument(
+        process_and_persist_document = workflows_facade.ProcessAndPersistDocument(
             process_document,
             RepositoryExtractionArtifactPayloadProvider(artifact_repository),
             artifact_repository,
@@ -630,7 +626,7 @@ def create_app(
                 lifecycle=lifecycle,
                 event_sink=event_sink,
             )
-        ingest_extracted_document = IngestExtractedDocument(
+        ingest_extracted_document = workflows_facade.IngestExtractedDocument(
             artifact_repository,
             index_document,
             ingest_document=ingest_workflow,

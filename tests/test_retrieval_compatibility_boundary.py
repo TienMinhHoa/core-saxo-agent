@@ -170,6 +170,24 @@ assert "saxophone.extraction.persistence" not in sys.modules
     subprocess.run([sys.executable, "-c", script], check=True)
 
 
+def test_factory_import_does_not_load_core_workflow_implementations() -> None:
+    """Keep document workflow modules behind the application composition boundary."""
+
+    script = """
+import importlib
+import sys
+
+importlib.import_module("saxophone.app.factory")
+optional_modules = (
+    "saxophone.workflows.ingest_extracted_document",
+    "saxophone.workflows.process_document",
+    "saxophone.tagging.parser",
+)
+assert all(name not in sys.modules for name in optional_modules)
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
 def test_extraction_facade_keeps_optional_adapters_lazy() -> None:
     """Load remote and persistence adapters only when their symbols are requested."""
 

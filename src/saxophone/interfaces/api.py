@@ -9,7 +9,7 @@ import re
 from contextlib import suppress
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, File, Header, HTTPException, UploadFile
@@ -33,8 +33,10 @@ from saxophone.documents import (
 from saxophone.extraction import PdfExtractionRequest, PdfExtractionResult
 from saxophone.ingestion import IndexDocument, IndexInputRecord, IngestionCommand, IngestionReport
 from saxophone.retrieval import EvidenceBundle
-from saxophone.workflows import IngestExtractedDocument, ProcessAndPersistDocument, ProcessDocument
 from saxophone.interfaces.agent_stream import iter_agent_events
+
+if TYPE_CHECKING:
+    from saxophone.workflows import IngestExtractedDocument, ProcessAndPersistDocument, ProcessDocument
 
 
 _AGENT_RUN_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
