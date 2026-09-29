@@ -11,17 +11,19 @@ import re
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Mapping, Protocol, Sequence
+from typing import TYPE_CHECKING, Any, Mapping, Protocol, Sequence
 
 import tiktoken
 
 from saxophone.ingestion import IngestionCommand, IngestionSourceChunk
 from saxophone.ingestion.use_cases import build_chunk_tagging_requests
 from saxophone.main import create_application
-from saxophone.retrieval.question_retrieval import QuestionRequest
 from saxophone.services.extract_topic import TopicIngestionRequest
 from saxophone.tagging import ParagraphBlock, parse_chunk_paragraphs
 from saxophone.tagging.structured_chunk import _chunk_prompt
+
+if TYPE_CHECKING:
+    from saxophone.retrieval.question_retrieval import QuestionRequest
 
 _EMBEDDING_TOKEN_LIMIT = 8000
 _EMBEDDING_SPLIT_TARGET = 7600
@@ -185,6 +187,9 @@ async def _execute_ingestion(
             )
         )
         return
+    # Keep the legacy request DTO out of the CLI import path until answering is used.
+    from saxophone.retrieval.question_retrieval import QuestionRequest
+
     answer = await facade.answer_question(QuestionRequest(question))
     print(json.dumps({"answer": asdict(answer)}, ensure_ascii=False, indent=2))
 

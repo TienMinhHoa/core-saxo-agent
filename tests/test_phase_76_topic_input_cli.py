@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -13,6 +15,19 @@ from saxophone.cli.topic_input_vl import (
     embedding_token_count,
 )
 from saxophone.ingestion import IngestionReport
+
+
+def test_topic_input_cli_import_does_not_load_legacy_question_retrieval() -> None:
+    """Keep the compatibility retrieval graph behind the CLI answer path."""
+
+    script = """
+import importlib
+import sys
+
+importlib.import_module("saxophone.cli.topic_input_vl")
+assert "saxophone.retrieval.question_retrieval" not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
 
 
 def test_build_input_vl_source_preserves_headers_pages_and_captions(tmp_path) -> None:
