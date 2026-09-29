@@ -32,7 +32,7 @@ from saxophone.documents import (
 )
 from saxophone.extraction import PdfExtractionRequest, PdfExtractionResult
 from saxophone.ingestion import IndexDocument, IndexInputRecord, IngestionCommand, IngestionReport
-from saxophone.retrieval import EvidenceBundle, QuestionRequest
+from saxophone.retrieval import EvidenceBundle
 from saxophone.workflows import IngestExtractedDocument, ProcessAndPersistDocument, ProcessDocument
 from saxophone.interfaces.agent_stream import iter_agent_events
 
@@ -449,6 +449,9 @@ def build_agent_chat_router(
                 status_code=503,
                 detail="agent chat capability is not configured",
             )
+        # Keep the legacy request DTO behind this compatibility route.
+        from saxophone.retrieval.question_retrieval import QuestionRequest
+
         result = await agent_chat.answer(
             QuestionRequest(
                 question,

@@ -57,3 +57,9 @@ def test_api_source_projection_bypasses_active_chat_service(monkeypatch) -> None
 
     assert isinstance(source, AnswerSource)
     assert source.paragraph_ref == "p-1"
+
+
+def test_api_module_keeps_legacy_question_request_out_of_active_namespace() -> None:
+    """Load the compatibility request DTO only when its route is invoked."""
+
+    assert "QuestionRequest" not in api.__dict__
