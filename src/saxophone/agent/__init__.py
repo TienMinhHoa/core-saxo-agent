@@ -58,6 +58,13 @@ from .policies import (
     run_with_budget,
 )
 from .synthesis import EvidenceSynthesisService, SynthesisCitation, SynthesisOutput
+from .langchain_tools import (
+    AgentToolInput,
+    DocumentSearchLangChainTool,
+    WebSearchLangChainTool,
+    create_document_search_tool,
+    create_web_search_tool,
+)
 from .web_search import (
     WebSearchAdapter,
     WebSearchProvider,
@@ -138,6 +145,11 @@ __all__ = [
     "EvidenceSynthesisService",
     "SynthesisCitation",
     "SynthesisOutput",
+    "AgentToolInput",
+    "DocumentSearchLangChainTool",
+    "WebSearchLangChainTool",
+    "create_document_search_tool",
+    "create_web_search_tool",
     "WebSearchAdapter",
     "WebSearchProvider",
     "WebSearchService",
