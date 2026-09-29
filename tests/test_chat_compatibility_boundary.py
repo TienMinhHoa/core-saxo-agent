@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib
+import subprocess
+import sys
 from types import SimpleNamespace
 
 import saxophone.chat as chat_package
@@ -40,6 +42,23 @@ def test_chat_package_resolves_legacy_service_lazily() -> None:
 
     assert "GroundedAnswerService" not in chat_package.__dict__
     assert chat_package.GroundedAnswerService is GroundedAnswerService
+
+
+def test_chat_package_wildcard_exports_keep_legacy_service_lazy() -> None:
+    """Wildcard imports must not pull the compatibility adapter into memory."""
+
+    script = """
+import importlib
+import sys
+
+package = importlib.import_module("saxophone.chat")
+assert "saxophone.chat.compatibility" not in sys.modules
+namespace = {}
+exec("from saxophone.chat import *", namespace)
+assert "GroundedAnswerService" not in namespace
+assert "saxophone.chat.compatibility" not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
 
 
 def test_api_source_projection_bypasses_active_chat_service(monkeypatch) -> None:

@@ -19,7 +19,6 @@ def __getattr__(name: str) -> object:
 __all__ = [
     "AnswerGenerator",
     "AnswerQuestion",
-    "GroundedAnswerService",
     "ChatResult",
     "ChatStatus",
     "GeneratedAnswer",
