@@ -6,8 +6,7 @@ import sys
 
 import saxophone.agent as agent_package
 import saxophone.agent.evidence_selection as active_selection
-import saxophone.retrieval.selector_compatibility as selector_compatibility
-
+from saxophone.retrieval import selector_compatibility
 
 _COMPATIBILITY_EXPORTS = (
     "QuestionRequest",
@@ -232,6 +231,47 @@ assert package.PersistExtractionArtifacts.__module__ == "saxophone.extraction.pe
     subprocess.run([sys.executable, "-c", script], check=True)
 
 
+def test_extraction_wildcard_import_keeps_optional_adapters_lazy() -> None:
+    """Wildcard extraction imports should expose contracts without loading adapters."""
+
+    script = """
+import importlib
+import sys
+
+package = importlib.import_module("saxophone.extraction")
+optional_modules = (
+    "saxophone.extraction.persistence",
+    "saxophone.extraction.remote",
+    "saxophone.extraction.layout",
+    "saxophone.extraction.layout_view",
+    "saxophone.extraction.pdf_pages",
+)
+assert all(name not in sys.modules for name in optional_modules)
+
+namespace = {}
+exec("from saxophone.extraction import *", namespace)
+
+assert {
+    "CoordinateSpace",
+    "ExtractionArtifactPayloadProvider",
+    "ExtractionCoordinate",
+    "PdfExtractionRequest",
+    "PdfExtractionResult",
+    "PdfExtractor",
+} <= namespace.keys()
+assert all(name not in namespace for name in (
+    "PersistExtractionArtifacts",
+    "RemotePdfExtractor",
+    "RepositoryExtractionArtifactPayloadProvider",
+    "normalize_blocks",
+    "read_layout_pages",
+    "render_pdf_pages",
+))
+assert all(name not in sys.modules for name in optional_modules)
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
 def test_agent_import_does_not_load_legacy_selector_implementations() -> None:
     """Keep provider-specific selector modules behind the selection boundary."""
 
@@ -302,7 +342,9 @@ def test_legacy_selector_adapter_imports_remain_compatible() -> None:
     """Preserve explicit imports while resolving the adapter lazily."""
 
     from saxophone.agent import adapt_legacy_selector as package_adapter
-    from saxophone.agent.evidence_selection import adapt_legacy_selector as module_adapter
+    from saxophone.agent.evidence_selection import (
+        adapt_legacy_selector as module_adapter,
+    )
 
     assert package_adapter is selector_compatibility.adapt_legacy_selector
     assert module_adapter is selector_compatibility.adapt_legacy_selector

@@ -3,7 +3,6 @@
 from importlib import import_module
 from typing import Any
 
-
 _EXPORTS = {
     "CoordinateSpace": (".models", "CoordinateSpace"),
     "ExtractionCoordinate": (".models", "ExtractionCoordinate"),
@@ -25,7 +24,17 @@ _EXPORTS = {
     "render_pdf_pages": (".pdf_pages", "render_pdf_pages"),
 }
 
-__all__ = list(_EXPORTS)
+# Keep wildcard imports limited to provider-independent extraction contracts.
+_ACTIVE_EXPORTS = (
+    "CoordinateSpace",
+    "ExtractionCoordinate",
+    "PdfExtractionRequest",
+    "PdfExtractionResult",
+    "ExtractionArtifactPayloadProvider",
+    "PdfExtractor",
+)
+
+__all__ = list(_ACTIVE_EXPORTS)
 
 
 def __getattr__(name: str) -> Any:
