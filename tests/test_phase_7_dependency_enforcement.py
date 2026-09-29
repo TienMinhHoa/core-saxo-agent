@@ -663,7 +663,11 @@ def test_workflows_exposes_a_public_application_facade() -> None:
             "start_extraction",
         }
 
-    assert set(workflows.__all__) == expected
+    assert set(workflows.__all__) == {
+        "IngestExtractedDocument",
+        "ProcessAndPersistDocument",
+        "ProcessDocument",
+    }
     assert all(hasattr(workflows, name) for name in expected)
 
 

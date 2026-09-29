@@ -188,6 +188,31 @@ assert all(name not in sys.modules for name in optional_modules)
     subprocess.run([sys.executable, "-c", script], check=True)
 
 
+def test_workflows_wildcard_import_keeps_pdf_layout_lazy() -> None:
+    """Wildcard workflow imports should not pull the optional layout runtime in."""
+
+    script = """
+import importlib
+import sys
+
+package = importlib.import_module("saxophone.workflows")
+layout_modules = (
+    "saxophone.interfaces.pdf_layout_web",
+    "saxophone.workflows.pdf_layout_extraction",
+    "saxophone.workflows.pdf_layout_jobs",
+    "saxophone.extraction.paddle_vllm",
+)
+assert all(name not in sys.modules for name in layout_modules)
+
+namespace = {}
+exec("from saxophone.workflows import *", namespace)
+
+assert {"ProcessDocument", "ProcessAndPersistDocument", "IngestExtractedDocument"} <= namespace.keys()
+assert all(name not in sys.modules for name in layout_modules)
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
 def test_extraction_facade_keeps_optional_adapters_lazy() -> None:
     """Load remote and persistence adapters only when their symbols are requested."""
 

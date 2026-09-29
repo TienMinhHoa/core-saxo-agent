@@ -69,10 +69,9 @@ def test_pdf_layout_interface_uses_the_workflows_public_job_store_facade() -> No
 
 
 def test_pdf_layout_artifact_paths_are_exported_by_the_workflows_facade() -> None:
-    from saxophone import workflows
+    from saxophone.workflows import PdfLayoutArtifactPaths
 
-    assert "PdfLayoutArtifactPaths" in workflows.__all__
-    assert workflows.__all__.count("PdfLayoutArtifactPaths") == 1
+    assert PdfLayoutArtifactPaths.__module__ == "saxophone.workflows.pdf_layout_jobs"
 
 
 def test_pdf_extraction_workflow_uses_public_artifact_paths_facade() -> None:
@@ -85,10 +84,9 @@ def test_pdf_extraction_workflow_uses_public_artifact_paths_facade() -> None:
 
 
 def test_pdf_extraction_workflow_is_declared_in_public_workflows_exports() -> None:
-    from saxophone import workflows
+    from saxophone.workflows import run_extraction
 
-    assert "run_extraction" in workflows.__all__
-    assert workflows.__all__.count("run_extraction") == 1
+    assert run_extraction.__module__ == "saxophone.workflows.pdf_layout_extraction"
 
 
 def test_pdf_layout_interface_delegates_layout_reading_to_extraction_policy() -> None:
@@ -170,10 +168,9 @@ def test_pdf_layout_interface_delegates_extraction_launch_to_workflow() -> None:
 
 
 def test_extraction_workflow_exposes_thread_launch_policy() -> None:
-    from saxophone import workflows
+    from saxophone.workflows import start_extraction
 
-    assert "start_extraction" in workflows.__all__
-    assert workflows.__all__.count("start_extraction") == 1
+    assert start_extraction.__module__ == "saxophone.workflows.pdf_layout_extraction"
 
 
 def test_start_extraction_configures_and_starts_daemon_worker() -> None:
