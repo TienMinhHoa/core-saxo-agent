@@ -25,6 +25,7 @@ def test_active_chat_module_resolves_legacy_service_lazily() -> None:
     service_module = importlib.import_module("saxophone.chat.service")
 
     assert "GroundedAnswerService" not in service_module.__dict__
+    assert "QuestionRequest" not in service_module.__dict__
     assert service_module.GroundedAnswerService is GroundedAnswerService
 
 

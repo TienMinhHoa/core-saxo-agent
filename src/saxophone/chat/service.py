@@ -6,7 +6,6 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 from saxophone.retrieval import EvidenceBundle, RetrieveEvidence
-from saxophone.retrieval.question_retrieval import QuestionRequest
 
 from .models import ChatResult, ChatStatus, evidence_reference
 from .ports import AnswerGenerator, ImageArtifactGate
