@@ -162,6 +162,36 @@ assert "saxophone.retrieval.selector_compatibility" not in sys.modules
     subprocess.run([sys.executable, "-c", script], check=True)
 
 
+def test_retrieval_package_wildcard_exports_keep_legacy_modules_lazy() -> None:
+    """Wildcard retrieval imports must expose only the active lightweight facade."""
+
+    script = """
+import importlib
+import sys
+
+package = importlib.import_module("saxophone.retrieval")
+lazy_modules = (
+    "saxophone.retrieval.question_retrieval",
+    "saxophone.retrieval.selector_compatibility",
+    "saxophone.retrieval.role_selection",
+    "saxophone.retrieval.renderers",
+    "saxophone.retrieval.paragraph_traversal",
+    "saxophone.retrieval.paragraph_selection",
+    "saxophone.retrieval.context_limiter",
+)
+assert all(name not in sys.modules for name in lazy_modules)
+
+namespace = {}
+exec("from saxophone.retrieval import *", namespace)
+
+assert {"ChunkHit", "ChunkRetriever", "EvidenceBundle", "RetrieveEvidence"} <= namespace.keys()
+assert "QuestionRequest" not in namespace
+assert "StructuredParagraphSelector" not in namespace
+assert all(name not in sys.modules for name in lazy_modules)
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
 def test_question_retrieval_uses_the_compatibility_selector_boundary(monkeypatch) -> None:
     """Do not make the legacy retrieval service reach into active selection internals."""
 
