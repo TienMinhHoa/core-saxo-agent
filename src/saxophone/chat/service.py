@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
 from saxophone.retrieval import EvidenceBundle, RetrieveEvidence
 from saxophone.retrieval.question_retrieval import QuestionRequest
 
 from .models import ChatResult, ChatStatus, evidence_reference
 from .ports import AnswerGenerator, ImageArtifactGate
-from .compatibility import (
-    AnswerSource,
-    GroundedAnswerResponse,
-    GroundedAnswerService,
-    GroundedAnswerStatus,
-)
+
+if TYPE_CHECKING:
+    from .compatibility import (
+        AnswerSource,
+        GroundedAnswerResponse,
+        GroundedAnswerService,
+        GroundedAnswerStatus,
+    )
 
 
 class AnswerQuestion:
@@ -79,6 +82,26 @@ class AnswerQuestion:
             generated.token_usage,
             generated.cost,
         )
+
+
+_COMPATIBILITY_EXPORTS = frozenset(
+    {
+        "AnswerSource",
+        "GroundedAnswerResponse",
+        "GroundedAnswerService",
+        "GroundedAnswerStatus",
+    }
+)
+
+
+def __getattr__(name: str) -> object:
+    """Resolve legacy chat exports without coupling the active use case to them."""
+
+    if name not in _COMPATIBILITY_EXPORTS:
+        raise AttributeError(name)
+    from . import compatibility
+
+    return getattr(compatibility, name)
 
 
 __all__ = [

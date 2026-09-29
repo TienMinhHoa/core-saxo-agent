@@ -2,7 +2,8 @@
 
 from .models import ChatResult, ChatStatus, GeneratedAnswer
 from .ports import AnswerGenerator, ImageArtifactGate
-from .service import AnswerQuestion, GroundedAnswerService
+from .compatibility import GroundedAnswerService
+from .service import AnswerQuestion
 
 __all__ = [
     "AnswerGenerator",
