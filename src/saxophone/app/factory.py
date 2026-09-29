@@ -81,11 +81,6 @@ from saxophone.services.extract_topic import (
     DocumentTaggingFacadeAdapter,
     ExtractTopicService,
 )
-from saxophone.tagging.structured_provider import (
-    RemoteStructuredLlmProvider,
-    StructuredLlmProvider,
-    StructuredOutputMode,
-)
 from saxophone.interfaces.api import build_agent_chat_router, build_capability_router
 from saxophone.interfaces.db_browser import build_database_browser_router
 from saxophone.interfaces.pdf_layout_web import app as pdf_layout_app
@@ -105,6 +100,7 @@ if TYPE_CHECKING:
         TagGenerator,
         TaggedParagraphRepository,
     )
+    from saxophone.tagging.structured_provider import StructuredLlmProvider
 
 
 def _capability_status(*, configured: bool, model_service_status: str) -> str:
@@ -449,6 +445,11 @@ def create_app(
             )
     structured_llm_provider = resolved_overrides.structured_llm_provider
     if structured_llm_provider is None:
+        from saxophone.tagging.structured_provider import (
+            RemoteStructuredLlmProvider,
+            StructuredOutputMode,
+        )
+
         structured_llm_provider = RemoteStructuredLlmProvider(
             model_client,
             model=settings.litellm_model_profile,
@@ -456,6 +457,11 @@ def create_app(
         )
     agent_structured_llm_provider = resolved_overrides.agent_structured_llm_provider
     if agent_structured_llm_provider is None:
+        from saxophone.tagging.structured_provider import (
+            RemoteStructuredLlmProvider,
+            StructuredOutputMode,
+        )
+
         agent_model_client = model_client
         if direct_provider and resolved_overrides.model_client is None:
             agent_model_client = _create_direct_model_client(
