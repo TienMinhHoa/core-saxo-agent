@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib
+import subprocess
+import sys
 
 import saxophone.agent as agent_package
 import saxophone.agent.evidence_selection as active_selection
@@ -45,6 +47,36 @@ def test_retrieval_package_preserves_explicit_compatibility_imports() -> None:
     assert QuestionRetrievalService.__name__ == "QuestionRetrievalService"
     assert RetrievalBundle.__name__ == "RetrievalBundle"
     assert RetrievalBundleStatus.__name__ == "RetrievalBundleStatus"
+
+
+def test_retrieval_selector_exports_load_only_when_requested() -> None:
+    """Keep optional selector modules out of basic retrieval imports."""
+
+    script = """
+import importlib
+import sys
+
+package = importlib.import_module("saxophone.retrieval")
+optional_modules = (
+    "saxophone.retrieval.role_selection",
+    "saxophone.retrieval.renderers",
+    "saxophone.retrieval.paragraph_traversal",
+    "saxophone.retrieval.paragraph_selection",
+    "saxophone.retrieval.context_limiter",
+)
+assert all(name not in sys.modules for name in optional_modules)
+
+assert package.StructuredParagraphSelector.__module__ == "saxophone.retrieval.paragraph_selection"
+assert package.ConceptRoleSelector.__module__ == "saxophone.retrieval.role_selection"
+assert "saxophone.retrieval.paragraph_selection" in sys.modules
+assert "saxophone.retrieval.role_selection" in sys.modules
+assert "saxophone.retrieval.paragraph_traversal" not in sys.modules
+assert "saxophone.retrieval.context_limiter" not in sys.modules
+
+assert package.ContextLimiter.__module__ == "saxophone.retrieval.context_limiter"
+assert "saxophone.retrieval.context_limiter" in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
 
 
 def test_legacy_selector_adapter_is_lazy_outside_the_active_selection_module() -> None:
