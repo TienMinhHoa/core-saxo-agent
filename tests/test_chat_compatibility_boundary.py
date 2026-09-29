@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import importlib
+from types import SimpleNamespace
 
 import saxophone.chat as chat_package
+import saxophone.chat.service as service_module
+import saxophone.interfaces.api as api
 from saxophone.chat import GroundedAnswerService as exported_service
-from saxophone.chat.compatibility import GroundedAnswerService
+from saxophone.chat.compatibility import AnswerSource, GroundedAnswerService
 from saxophone.chat.service import GroundedAnswerService as service_module_service
 
 
@@ -30,3 +33,20 @@ def test_chat_package_resolves_legacy_service_lazily() -> None:
 
     assert "GroundedAnswerService" not in chat_package.__dict__
     assert chat_package.GroundedAnswerService is GroundedAnswerService
+
+
+def test_api_source_projection_bypasses_active_chat_service(monkeypatch) -> None:
+    """Keep API source projection on the explicit compatibility boundary."""
+
+    def fail_legacy_resolution(name: str) -> object:
+        raise AssertionError(f"legacy export resolved through active service: {name}")
+
+    monkeypatch.setattr(service_module, "__getattr__", fail_legacy_resolution)
+    source = api._source_from_evidence(
+        SimpleNamespace(paragraph="p-1", chunk="c-1", page=3),
+        source_ref="document.pdf",
+        image_refs=(),
+    )
+
+    assert isinstance(source, AnswerSource)
+    assert source.paragraph_ref == "p-1"

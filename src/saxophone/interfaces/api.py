@@ -709,7 +709,7 @@ def _source_from_evidence(
     source_ref: str,
     image_refs: tuple[str, ...],
 ) -> object:
-    from saxophone.chat.service import AnswerSource
+    from saxophone.chat.compatibility import AnswerSource
 
     return AnswerSource(
         paragraph_ref=getattr(item, "paragraph", ""),
