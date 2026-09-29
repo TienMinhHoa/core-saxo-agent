@@ -108,6 +108,10 @@ optional_modules = (
     "saxophone.retrieval.paragraph_traversal",
     "saxophone.retrieval.role_selection",
     "saxophone.retrieval.renderers",
+    "saxophone.tagging",
+    "saxophone.tagging.adapters",
+    "saxophone.tagging.persistence",
+    "saxophone.tagging.parser",
 )
 assert all(name not in sys.modules for name in optional_modules)
 """

@@ -17,7 +17,6 @@ from typing import TYPE_CHECKING, Any, Protocol
 from saxophone.documents.policies import is_safe_relative_image_reference
 from saxophone.retrieval.models import ChunkHit
 from saxophone.retrieval.ports import ChunkRetriever
-from saxophone.tagging.models import ParagraphConceptRole
 
 from .contracts import AgentQuestion, RunBudget
 from .policies import run_with_budget
@@ -25,6 +24,7 @@ from .policies import run_with_budget
 if TYPE_CHECKING:
     from saxophone.retrieval.renderers import SourceParagraph
     from saxophone.retrieval.sqlite_context import RetrievalContext
+    from saxophone.tagging.models import ParagraphConceptRole
 
 
 class DocumentSearchStatus(StrEnum):
@@ -56,7 +56,7 @@ class DocumentSearchResult:
             "paragraph_candidates", self.paragraph_candidates, source_paragraph_type
         )
         relations = _require_tuple_of(
-            "relations", self.relations, ParagraphConceptRole
+            "relations", self.relations, _paragraph_concept_role_type()
         )
         pages = _require_unique_text_tuple("pages", self.pages)
         image_refs = _require_unique_text_tuple("image_refs", self.image_refs)
@@ -374,6 +374,14 @@ def _source_paragraph_type() -> type[SourceParagraph]:
     from saxophone.retrieval.renderers import SourceParagraph
 
     return SourceParagraph
+
+
+def _paragraph_concept_role_type() -> type[ParagraphConceptRole]:
+    """Load tagging DTOs only when a hydrated result is validated."""
+
+    from saxophone.tagging.models import ParagraphConceptRole
+
+    return ParagraphConceptRole
 
 
 def _require_tuple_of(name: str, value: object, item_type: type) -> tuple:

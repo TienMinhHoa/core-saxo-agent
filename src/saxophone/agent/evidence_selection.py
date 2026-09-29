@@ -13,12 +13,11 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
-from saxophone.tagging.models import ParagraphConceptRole
-
 from .contracts import AgentQuestion, SelectionStrategy
 from .document_search import DocumentSearchResult
 
 if TYPE_CHECKING:
+    from saxophone.tagging.models import ParagraphConceptRole
     from saxophone.retrieval.renderers import (
         AnswerContextModel,
         ConceptInventoryBuilder,
