@@ -441,8 +441,6 @@ def test_ingestion_exposes_a_public_application_facade() -> None:
         "ChunkIndexRecord",
         "EmbeddingProvider",
         "EmbeddingReuseStore",
-        "IngestDocument",
-        "IndexDocument",
         "IndexInputRecord",
         "IngestionCommand",
         "IngestionReport",
@@ -453,6 +451,15 @@ def test_ingestion_exposes_a_public_application_facade() -> None:
 
     assert set(ingestion.__all__) == expected
     assert all(hasattr(ingestion, name) for name in expected)
+
+
+def test_ingestion_use_cases_remain_available_as_explicit_compatibility_imports() -> None:
+    """Keep migration callers working without exposing heavy use cases to wildcard imports."""
+
+    from saxophone.ingestion import IndexDocument, IngestDocument
+
+    assert IngestDocument.__module__ == "saxophone.ingestion.use_cases"
+    assert IndexDocument.__module__ == "saxophone.ingestion.use_cases"
 
 
 def test_extraction_consumers_use_the_public_facade() -> None:
