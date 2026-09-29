@@ -157,6 +157,19 @@ assert "saxophone.extraction.remote" not in sys.modules
     subprocess.run([sys.executable, "-c", script], check=True)
 
 
+def test_factory_import_does_not_load_extraction_persistence_implementation() -> None:
+    """Keep extraction persistence behind the process-and-persist workflow boundary."""
+
+    script = """
+import importlib
+import sys
+
+importlib.import_module("saxophone.app.factory")
+assert "saxophone.extraction.persistence" not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
 def test_extraction_facade_keeps_optional_adapters_lazy() -> None:
     """Load remote and persistence adapters only when their symbols are requested."""
 
