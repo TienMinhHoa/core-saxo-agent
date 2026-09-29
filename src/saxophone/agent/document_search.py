@@ -12,17 +12,19 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from saxophone.documents.policies import is_safe_relative_image_reference
 from saxophone.retrieval.models import ChunkHit
 from saxophone.retrieval.ports import ChunkRetriever
 from saxophone.retrieval.renderers import SourceParagraph
-from saxophone.retrieval.sqlite_context import RetrievalContext
 from saxophone.tagging.models import ParagraphConceptRole
 
 from .contracts import AgentQuestion, RunBudget
 from .policies import run_with_budget
+
+if TYPE_CHECKING:
+    from saxophone.retrieval.sqlite_context import RetrievalContext
 
 
 class DocumentSearchStatus(StrEnum):
@@ -228,6 +230,9 @@ class SemanticDocumentSearchTool:
             )
 
         context = await self._context_repository.load_for_hits(hits)
+        # Hydration storage is an operation dependency, not an agent import dependency.
+        from saxophone.retrieval.sqlite_context import RetrievalContext
+
         if not isinstance(context, RetrievalContext):
             raise TypeError("context_repository must return RetrievalContext")
         paragraphs = tuple(context.paragraphs.values())

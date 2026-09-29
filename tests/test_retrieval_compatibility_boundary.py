@@ -111,6 +111,19 @@ assert all(name not in sys.modules for name in optional_modules)
     subprocess.run([sys.executable, "-c", script], check=True)
 
 
+def test_agent_import_does_not_load_sqlite_hydration_implementation() -> None:
+    """Keep storage hydration behind the document-search operation boundary."""
+
+    script = """
+import importlib
+import sys
+
+importlib.import_module("saxophone.agent")
+assert "saxophone.retrieval.sqlite_context" not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
 def test_legacy_selector_adapter_is_lazy_outside_the_active_selection_module() -> None:
     """Keep the migration-only selector branch behind a compatibility module."""
 
