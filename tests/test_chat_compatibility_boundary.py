@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 
+import saxophone.chat as chat_package
 from saxophone.chat import GroundedAnswerService as exported_service
 from saxophone.chat.compatibility import GroundedAnswerService
 from saxophone.chat.service import GroundedAnswerService as service_module_service
@@ -22,3 +23,10 @@ def test_active_chat_module_resolves_legacy_service_lazily() -> None:
 
     assert "GroundedAnswerService" not in service_module.__dict__
     assert service_module.GroundedAnswerService is GroundedAnswerService
+
+
+def test_chat_package_resolves_legacy_service_lazily() -> None:
+    """Keep the compatibility implementation out of the package namespace."""
+
+    assert "GroundedAnswerService" not in chat_package.__dict__
+    assert chat_package.GroundedAnswerService is GroundedAnswerService
