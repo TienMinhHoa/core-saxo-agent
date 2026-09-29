@@ -99,3 +99,9 @@ def test_topic_composition_does_not_instantiate_legacy_selector(
         app.state.container.question_retrieval._selector,
         ParagraphDirectSelector,
     )
+
+
+def test_factory_keeps_legacy_chat_service_out_of_module_namespace() -> None:
+    """Keep the compatibility service loaded only at its composition boundary."""
+
+    assert "GroundedAnswerService" not in factory.__dict__

@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 import re
 import sys
-from typing import AsyncIterator
+from typing import TYPE_CHECKING, AsyncIterator
 from uuid import uuid4
 
 import httpx
@@ -26,7 +26,6 @@ from saxophone.app.settings import AppSettings
 from saxophone.chat import (
     AnswerGenerator,
     AnswerQuestion,
-    GroundedAnswerService,
     ImageArtifactGate,
 )
 from saxophone.documents import ArtifactRepository, ImageArtifactResolver, KnowledgeRepository
@@ -111,6 +110,9 @@ from saxophone.workflows import (
     ProcessAndPersistDocument,
     ProcessDocument,
 )
+
+if TYPE_CHECKING:
+    from saxophone.chat.compatibility import GroundedAnswerService
 
 
 def _capability_status(*, configured: bool, model_service_status: str) -> str:
@@ -221,6 +223,9 @@ def _compose_topic_services(
 
     assert vector_index is not None
     assert embedding_provider is not None
+    # Load the legacy adapter only when compatibility topic services are composed.
+    from saxophone.chat.compatibility import GroundedAnswerService
+
     question_retrieval = QuestionRetrievalService(
         retriever=VectorIndexChunkRetriever(embedding_provider, vector_index),
         selector=ParagraphDirectSelector(provider=structured_llm_provider),
