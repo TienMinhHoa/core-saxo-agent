@@ -11,7 +11,6 @@ from pathlib import Path
 from saxophone.documents.policies import is_safe_document_reference
 from saxophone.tagging.models import ParagraphConceptRole
 from saxophone.tagging.models import ParagraphBlock
-from saxophone.retrieval.sqlite_context import SqliteRetrievalContextRepository
 from saxophone.tagging.sqlite_repository import SqliteTaggingRepository
 from saxophone.tagging.vector_outbox import SqliteVectorOutboxRepository, VectorOutboxEvent
 
@@ -192,6 +191,8 @@ class SqliteIngestionTransactionRepository:
         with sqlite3.connect(self._path) as connection:
             SqliteTaggingRepository._create_schema(connection)
             SqliteVectorOutboxRepository._create_schema(connection)
+            from saxophone.retrieval.sqlite_context import SqliteRetrievalContextRepository
+
             SqliteRetrievalContextRepository._create_schema(connection)
 
             existing_ids = tuple(
@@ -302,6 +303,8 @@ class SqliteIngestionTransactionRepository:
         with sqlite3.connect(self._path) as connection:
             SqliteTaggingRepository._create_schema(connection)
             SqliteVectorOutboxRepository._create_schema(connection)
+            from saxophone.retrieval.sqlite_context import SqliteRetrievalContextRepository
+
             SqliteRetrievalContextRepository._create_schema(connection)
 
             connection.execute(

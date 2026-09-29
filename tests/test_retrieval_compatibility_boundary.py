@@ -89,6 +89,8 @@ import sys
 importlib.import_module("saxophone.app.factory")
 assert "saxophone.retrieval.question_retrieval" not in sys.modules
 assert "saxophone.chat.compatibility" not in sys.modules
+assert "saxophone.retrieval.sqlite_context" not in sys.modules
+assert "saxophone.retrieval.renderers" not in sys.modules
 """
     subprocess.run([sys.executable, "-c", script], check=True)
 
