@@ -53,7 +53,13 @@ class _BudgetAwareLangChainTool(BaseTool):
         merged_config = _with_budget(config, budget)
         return await super().ainvoke(payload, config=merged_config, **kwargs)
 
-    async def search(self, question: AgentQuestion, budget: RunBudget) -> object:
+    async def search(
+        self,
+        question: AgentQuestion,
+        budget: RunBudget,
+        *,
+        config: RunnableConfig | None = None,
+    ) -> object:
         """Expose the domain port shape without bypassing LangChain callbacks."""
 
         if not isinstance(question, AgentQuestion):
@@ -66,7 +72,8 @@ class _BudgetAwareLangChainTool(BaseTool):
                 "filters": dict(question.filters),
                 "context_limit": question.context_limit,
                 _BUDGET_INPUT_KEY: budget,
-            }
+            },
+            config=config,
         )
 
     def _run(self, *_args: object, **_kwargs: object) -> object:

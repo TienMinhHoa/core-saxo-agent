@@ -250,13 +250,21 @@ async def _receive_question(state: AgentGraphState) -> AgentGraphState:
 
 
 def _document_search_tool(dependencies: AgentGraphDependencies):
-    async def node(state: AgentGraphState) -> AgentGraphState:
+    async def node(
+        state: AgentGraphState,
+        config: RunnableConfig,
+    ) -> AgentGraphState:
         question = state.get("question")
         budget = state.get("budget")
         if not isinstance(question, AgentQuestion) or not isinstance(budget, RunBudget):
             return _failure("graph received invalid question or budget")
         try:
-            result = await _invoke_search(dependencies.document_search, question, budget)
+            result = await _invoke_search(
+                dependencies.document_search,
+                question,
+                budget,
+                config=config,
+            )
             if not isinstance(result, DocumentSearchResult):
                 raise TypeError("document search must return DocumentSearchResult")
         except BudgetExhaustedError as error:
@@ -397,7 +405,10 @@ def _select_evidence(dependencies: AgentGraphDependencies):
 
 
 def _web_search_tool(dependencies: AgentGraphDependencies):
-    async def node(state: AgentGraphState) -> AgentGraphState:
+    async def node(
+        state: AgentGraphState,
+        config: RunnableConfig,
+    ) -> AgentGraphState:
         question = state.get("question")
         budget = state.get("budget")
         if dependencies.web_search is None:
@@ -405,7 +416,12 @@ def _web_search_tool(dependencies: AgentGraphDependencies):
         if not isinstance(question, AgentQuestion) or not isinstance(budget, RunBudget):
             return _failure("web search received invalid question or budget")
         try:
-            result = await _invoke_search(dependencies.web_search, question, budget)
+            result = await _invoke_search(
+                dependencies.web_search,
+                question,
+                budget,
+                config=config,
+            )
         except BudgetExhaustedError as error:
             return _budget_failure(error)
         except BaseException as error:
@@ -557,14 +573,27 @@ def _has_search_entrypoint(tool: object) -> bool:
     )
 
 
-async def _invoke_search(tool: object, question: AgentQuestion, budget: RunBudget) -> object:
+async def _invoke_search(
+    tool: object,
+    question: AgentQuestion,
+    budget: RunBudget,
+    *,
+    config: RunnableConfig | None = None,
+) -> object:
     search = getattr(tool, "search", None)
     if callable(search):
+        if config is not None and _accepts_keyword(search, "config"):
+            return await _await_result(search(question, budget, config=config))
         return await _await_result(search(question, budget))
     invoke = getattr(tool, "ainvoke", None)
     if not callable(invoke):
         raise TypeError("search tool must provide search or ainvoke")
     payload = {"question": question.question, "budget": budget}
+    if config is not None and _accepts_keyword(invoke, "config"):
+        try:
+            return await _await_result(invoke(payload, config=config))
+        except TypeError:
+            return await _await_result(invoke(question.question, config=config))
     try:
         return await _await_result(invoke(payload))
     except TypeError:

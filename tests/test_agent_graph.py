@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import pytest
+from langchain_core.callbacks import BaseCallbackHandler
 
 from saxophone.agent.contracts import (
     AgentOutcome,
@@ -16,6 +17,7 @@ from saxophone.agent.contracts import (
 from saxophone.agent.document_search import DocumentSearchResult, DocumentSearchStatus
 from saxophone.agent.evidence_selection import SelectionRequest, SelectionResult
 from saxophone.agent.graph import AgentGraphDependencies, build_agent_graph
+from saxophone.agent.langchain_tools import create_document_search_tool
 from saxophone.agent.orchestrator import MainAgent
 from saxophone.agent.state import AgentStage
 from saxophone.retrieval.models import ChunkHit
@@ -87,6 +89,27 @@ class _Synthesizer:
         )
 
 
+class _ToolCallbackRecorder(BaseCallbackHandler):
+    def __init__(self) -> None:
+        self.started: list[dict[str, object]] = []
+
+    def on_tool_start(self, serialized, input_str, **kwargs):  # type: ignore[no-untyped-def]
+        self.started.append(dict(kwargs.get("inputs") or {}))
+
+
+class _ConfigAwareSearch:
+    name = "document_search"
+
+    def __init__(self, result: DocumentSearchResult) -> None:
+        self.result = result
+        self.configs: list[object] = []
+
+    async def ainvoke(self, payload: object, *, config: object) -> DocumentSearchResult:
+        del payload
+        self.configs.append(config)
+        return self.result
+
+
 @dataclass(frozen=True, slots=True)
 class _WebResult:
     query: str
@@ -133,6 +156,57 @@ async def test_main_agent_runs_compiled_langgraph_for_local_evidence() -> None:
     assert len(selector.calls) == 1
     assert len(synthesizer.ledgers) == 1
     assert result.run_id == "run-local"
+
+
+@pytest.mark.anyio
+async def test_main_agent_forwards_runtime_callbacks_to_langchain_document_tool() -> None:
+    paragraph = _paragraph()
+    adapter = _DocumentSearch(
+        DocumentSearchResult(
+            "What is a major triad?",
+            (_hit(),),
+            (paragraph,),
+            status=DocumentSearchStatus.READY,
+        )
+    )
+    tool = create_document_search_tool(adapter)
+    recorder = _ToolCallbackRecorder()
+
+    agent = MainAgent(
+        document_search=tool,
+        paragraph_selector=_Selector(SelectionStrategy.PARAGRAPH_DIRECT, paragraph),
+        synthesizer=_Synthesizer(),
+    )
+
+    result = await agent.run(
+        AgentQuestion("What is a major triad?"),
+        run_id="run-langchain-tool",
+        callbacks=recorder,
+    )
+
+    assert result.outcome is AgentOutcome.ANSWERED
+    assert recorder.started == [
+        {"question": "What is a major triad?", "filters": {}, "context_limit": 12_000}
+    ]
+
+
+@pytest.mark.anyio
+async def test_graph_passes_runnable_config_to_ainvoke_only_search_tools() -> None:
+    search = _ConfigAwareSearch(
+        DocumentSearchResult("question", status=DocumentSearchStatus.NO_HITS)
+    )
+    graph = build_agent_graph(AgentGraphDependencies(document_search=search))
+    callback = _ToolCallbackRecorder()
+
+    state = await graph.ainvoke(
+        {"question": AgentQuestion("question"), "run_id": "run-config"},
+        config={"callbacks": [callback], "configurable": {"thread_id": "run-config"}},
+    )
+
+    assert state["outcome"] is AgentOutcome.INSUFFICIENT_EVIDENCE
+    assert len(search.configs) == 1
+    assert isinstance(search.configs[0], dict)
+    assert search.configs[0]["callbacks"]
 
 
 @pytest.mark.anyio
