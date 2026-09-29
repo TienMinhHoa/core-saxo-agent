@@ -144,6 +144,38 @@ assert all(name not in sys.modules for name in optional_modules)
     subprocess.run([sys.executable, "-c", script], check=True)
 
 
+def test_factory_import_does_not_load_remote_extraction_compatibility() -> None:
+    """Keep the remote extraction adapter behind application composition."""
+
+    script = """
+import importlib
+import sys
+
+importlib.import_module("saxophone.app.factory")
+assert "saxophone.extraction.remote" not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
+def test_extraction_facade_keeps_optional_adapters_lazy() -> None:
+    """Load remote and persistence adapters only when their symbols are requested."""
+
+    script = """
+import importlib
+import sys
+
+package = importlib.import_module("saxophone.extraction")
+assert "saxophone.extraction.remote" not in sys.modules
+assert "saxophone.extraction.persistence" not in sys.modules
+assert package.PdfExtractionRequest.__module__ == "saxophone.extraction.models"
+assert "saxophone.extraction.remote" not in sys.modules
+assert package.RemotePdfExtractor.__module__ == "saxophone.extraction.remote"
+assert "saxophone.extraction.persistence" not in sys.modules
+assert package.PersistExtractionArtifacts.__module__ == "saxophone.extraction.persistence"
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
 def test_agent_import_does_not_load_legacy_selector_implementations() -> None:
     """Keep provider-specific selector modules behind the selection boundary."""
 

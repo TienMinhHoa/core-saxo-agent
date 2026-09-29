@@ -29,11 +29,7 @@ from saxophone.chat import (
     ImageArtifactGate,
 )
 from saxophone.documents import ArtifactRepository, ImageArtifactResolver, KnowledgeRepository
-from saxophone.extraction import (
-    PdfExtractor,
-    RemotePdfExtractor,
-    RepositoryExtractionArtifactPayloadProvider,
-)
+from saxophone.extraction import PdfExtractor
 from saxophone.ingestion.adapters import FileEmbeddingReuseStore, RemoteEmbeddingProvider
 from saxophone.ingestion.concept_embedding import ConceptCatalogVectorPreparationService
 from saxophone.ingestion.concept_repository import SqliteConceptCatalogRepository
@@ -480,6 +476,8 @@ def create_app(
 
     pdf_extractor = resolved_overrides.pdf_extractor
     if pdf_extractor is None and not direct_provider:
+        from saxophone.extraction import RemotePdfExtractor
+
         pdf_extractor = RemotePdfExtractor(
             model_client,
             model=settings.litellm_model_profile,
@@ -535,6 +533,8 @@ def create_app(
         process_document = ProcessDocument(artifact_repository, pdf_extractor)
     process_and_persist_document = resolved_overrides.process_and_persist_document
     if process_and_persist_document is None and resolved_overrides.process_document is None:
+        from saxophone.extraction import RepositoryExtractionArtifactPayloadProvider
+
         process_and_persist_document = ProcessAndPersistDocument(
             process_document,
             RepositoryExtractionArtifactPayloadProvider(artifact_repository),
