@@ -17,6 +17,7 @@ from fastapi import Request
 from fastapi.responses import Response
 
 from saxophone.agent.contracts import RunBudget
+from saxophone.agent.evidence_selection import ParagraphDirectSelector
 from saxophone.agent.graph import AgentGraphDependencies
 from saxophone.agent.orchestrator import MainAgent
 from saxophone.agent.streaming import AgentRunManager
@@ -75,7 +76,6 @@ from saxophone.platform.remote_gpu import (
 )
 from saxophone.retrieval import ChunkRetriever, QuestionRetrievalService, RetrieveEvidence
 from saxophone.retrieval.adapters import VectorIndexChunkRetriever
-from saxophone.retrieval.paragraph_selection import StructuredParagraphSelector
 from saxophone.retrieval.sqlite_context import SqliteRetrievalContextRepository
 from saxophone.services.extract_topic import (
     DocumentIngestionFacadeAdapter,
@@ -223,7 +223,7 @@ def _compose_topic_services(
     assert embedding_provider is not None
     question_retrieval = QuestionRetrievalService(
         retriever=VectorIndexChunkRetriever(embedding_provider, vector_index),
-        selector=StructuredParagraphSelector(structured_llm_provider),
+        selector=ParagraphDirectSelector(provider=structured_llm_provider),
         context_repository=SqliteRetrievalContextRepository(ingestion_database),
     )
     grounded_answer = GroundedAnswerService(

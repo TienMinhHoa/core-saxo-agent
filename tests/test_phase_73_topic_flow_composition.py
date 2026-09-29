@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import saxophone.app.factory as factory
+from saxophone.agent.evidence_selection import ParagraphDirectSelector
 from saxophone.app.factory import AppOverrides, create_app
 from saxophone.app.settings import AppSettings
 from saxophone.chat.service import GroundedAnswerService
@@ -62,9 +64,38 @@ def test_topic_services_are_composed_without_adding_an_http_endpoint(tmp_path: P
     container = app.state.container
 
     assert isinstance(container.question_retrieval, QuestionRetrievalService)
+    assert isinstance(container.question_retrieval._selector, ParagraphDirectSelector)
     assert isinstance(container.grounded_answer, GroundedAnswerService)
     assert isinstance(container.extract_topic, ExtractTopicService)
     assert not any(
         getattr(route, "path", "").startswith("/api/v1/topic")
         for route in app.routes
+    )
+
+
+def test_topic_composition_does_not_instantiate_legacy_selector(
+    monkeypatch, tmp_path: Path
+) -> None:
+    def fail_if_called(*args: object, **kwargs: object) -> None:
+        raise AssertionError("legacy selector must not be composed")
+
+    monkeypatch.setattr(
+        factory,
+        "StructuredParagraphSelector",
+        fail_if_called,
+        raising=False,
+    )
+
+    app = create_app(
+        _settings(tmp_path),
+        overrides=AppOverrides(
+            remote_gpu_gateway=_RemoteGpu(),
+            model_client=_ModelClient(),
+            vector_index=_SearchableVectorIndex(),
+        ),
+    )
+
+    assert isinstance(
+        app.state.container.question_retrieval._selector,
+        ParagraphDirectSelector,
     )
