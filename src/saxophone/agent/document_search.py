@@ -17,13 +17,13 @@ from typing import TYPE_CHECKING, Any, Protocol
 from saxophone.documents.policies import is_safe_relative_image_reference
 from saxophone.retrieval.models import ChunkHit
 from saxophone.retrieval.ports import ChunkRetriever
-from saxophone.retrieval.renderers import SourceParagraph
 from saxophone.tagging.models import ParagraphConceptRole
 
 from .contracts import AgentQuestion, RunBudget
 from .policies import run_with_budget
 
 if TYPE_CHECKING:
+    from saxophone.retrieval.renderers import SourceParagraph
     from saxophone.retrieval.sqlite_context import RetrievalContext
 
 
@@ -51,8 +51,9 @@ class DocumentSearchResult:
     def __post_init__(self) -> None:
         query = _normalize_text("query", self.query)
         hits = _require_tuple_of("hits", self.hits, ChunkHit)
+        source_paragraph_type = _source_paragraph_type()
         paragraphs = _require_tuple_of(
-            "paragraph_candidates", self.paragraph_candidates, SourceParagraph
+            "paragraph_candidates", self.paragraph_candidates, source_paragraph_type
         )
         relations = _require_tuple_of(
             "relations", self.relations, ParagraphConceptRole
@@ -365,6 +366,14 @@ def _normalize_text(name: str, value: object) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{name} must not be blank")
     return value.strip()
+
+
+def _source_paragraph_type() -> type[SourceParagraph]:
+    """Load the presentation DTO only when a search result is validated."""
+
+    from saxophone.retrieval.renderers import SourceParagraph
+
+    return SourceParagraph
 
 
 def _require_tuple_of(name: str, value: object, item_type: type) -> tuple:

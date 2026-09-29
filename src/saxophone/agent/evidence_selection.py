@@ -13,18 +13,18 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
-from saxophone.retrieval.renderers import (
-    AnswerContextModel,
-    ConceptInventoryBuilder,
-    SelectedConceptRole,
-    SourceParagraph,
-)
 from saxophone.tagging.models import ParagraphConceptRole
 
 from .contracts import AgentQuestion, SelectionStrategy
 from .document_search import DocumentSearchResult
 
 if TYPE_CHECKING:
+    from saxophone.retrieval.renderers import (
+        AnswerContextModel,
+        ConceptInventoryBuilder,
+        SelectedConceptRole,
+        SourceParagraph,
+    )
     from saxophone.retrieval.paragraph_selection import (
         ParagraphSelectionRequest,
         StructuredParagraphSelector,
@@ -107,6 +107,8 @@ class SelectionResult:
     reasons: tuple[tuple[str, str], ...] = ()
 
     def __post_init__(self) -> None:
+        from saxophone.retrieval.renderers import AnswerContextModel
+
         strategy = _coerce_strategy(self.strategy)
         if not isinstance(self.answer_context, AnswerContextModel):
             raise ValueError("answer_context must be an AnswerContextModel")
@@ -268,7 +270,7 @@ class ParagraphDirectSelector:
 
         result = SelectionResult(
             self.strategy,
-            AnswerContextModel((), tuple(selected_paragraphs), tuple(selected_refs)),
+            _answer_context((), tuple(selected_paragraphs), tuple(selected_refs)),
             tuple(reasons),
         )
         result.validate_against(request)
@@ -301,6 +303,8 @@ class ConceptRoleSelector:
             raise TypeError("role selector must provide select")
         self._selector = dependency
         if inventory_builder is None:
+            from saxophone.retrieval.renderers import ConceptInventoryBuilder
+
             inventory_builder = ConceptInventoryBuilder()
         if traversal is None:
             from saxophone.retrieval.paragraph_traversal import ParagraphTraversal
@@ -367,6 +371,8 @@ class ConceptRoleSelector:
         if not selected.selections:
             return _empty_result(self.strategy)
 
+        from saxophone.retrieval.renderers import SelectedConceptRole
+
         inventory_by_concept = {item.concept: item for item in inventory.concepts}
         selected_roles = tuple(
             SelectedConceptRole(
@@ -399,7 +405,19 @@ def __getattr__(name: str) -> object:
 
 
 def _empty_result(strategy: SelectionStrategy) -> SelectionResult:
-    return SelectionResult(strategy, AnswerContextModel((), (), ()))
+    return SelectionResult(strategy, _answer_context((), (), ()))
+
+
+def _answer_context(
+    selected_roles: tuple[SelectedConceptRole, ...],
+    paragraphs: tuple[SourceParagraph, ...],
+    selected_paragraph_refs: tuple[str, ...] = (),
+) -> AnswerContextModel:
+    """Construct the renderer DTO only when a selector returns a result."""
+
+    from saxophone.retrieval.renderers import AnswerContextModel
+
+    return AnswerContextModel(selected_roles, paragraphs, selected_paragraph_refs)
 
 
 def _require_request(request: object) -> None:
