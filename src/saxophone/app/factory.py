@@ -73,7 +73,7 @@ from saxophone.platform.remote_gpu import (
     HttpRemoteGpuGateway,
     RemoteGpuGateway,
 )
-from saxophone.retrieval import ChunkRetriever, QuestionRetrievalService, RetrieveEvidence
+from saxophone.retrieval import ChunkRetriever, RetrieveEvidence
 from saxophone.retrieval.adapters import VectorIndexChunkRetriever
 from saxophone.retrieval.sqlite_context import SqliteRetrievalContextRepository
 from saxophone.services.extract_topic import (
@@ -113,6 +113,7 @@ from saxophone.workflows import (
 
 if TYPE_CHECKING:
     from saxophone.chat.compatibility import GroundedAnswerService
+    from saxophone.retrieval.question_retrieval import QuestionRetrievalService
 
 
 def _capability_status(*, configured: bool, model_service_status: str) -> str:
@@ -223,6 +224,8 @@ def _compose_topic_services(
 
     assert vector_index is not None
     assert embedding_provider is not None
+    from saxophone.retrieval.question_retrieval import QuestionRetrievalService
+
     # Load the legacy adapter only when compatibility topic services are composed.
     from saxophone.chat.compatibility import GroundedAnswerService
 

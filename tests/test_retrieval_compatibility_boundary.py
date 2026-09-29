@@ -79,6 +79,20 @@ assert "saxophone.retrieval.context_limiter" in sys.modules
     subprocess.run([sys.executable, "-c", script], check=True)
 
 
+def test_factory_import_does_not_load_legacy_question_retrieval() -> None:
+    """Keep composition-root imports free of the compatibility retrieval graph."""
+
+    script = """
+import importlib
+import sys
+
+importlib.import_module("saxophone.app.factory")
+assert "saxophone.retrieval.question_retrieval" not in sys.modules
+assert "saxophone.chat.compatibility" not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
 def test_legacy_selector_adapter_is_lazy_outside_the_active_selection_module() -> None:
     """Keep the migration-only selector branch behind a compatibility module."""
 

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from saxophone.ingestion.models import IngestionCommand, IngestionSourceChunk
-from saxophone.retrieval.question_retrieval import QuestionRequest
 from saxophone.tagging.models import ParagraphBlock
+
+if TYPE_CHECKING:
+    from saxophone.retrieval.question_retrieval import QuestionRequest
 
 
 class _IngestionService(Protocol):
@@ -130,6 +132,8 @@ class ExtractTopicService:
 
     @staticmethod
     def _validate_request(request: QuestionRequest) -> None:
+        from saxophone.retrieval.question_retrieval import QuestionRequest
+
         if not isinstance(request, QuestionRequest):
             raise ValueError("request must be a QuestionRequest")
 
