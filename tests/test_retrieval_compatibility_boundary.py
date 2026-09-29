@@ -131,6 +131,28 @@ assert "saxophone.retrieval.sqlite_context" not in sys.modules
     subprocess.run([sys.executable, "-c", script], check=True)
 
 
+def test_tagging_facade_import_does_not_load_implementation_modules() -> None:
+    """Keep tagging adapters and persistence behind explicit facade access."""
+
+    script = """
+import importlib
+import sys
+
+importlib.import_module("saxophone.tagging")
+optional_modules = (
+    "saxophone.tagging.adapters",
+    "saxophone.tagging.concepts",
+    "saxophone.tagging.models",
+    "saxophone.tagging.persistence",
+    "saxophone.tagging.ports",
+    "saxophone.tagging.parser",
+    "saxophone.tagging.use_cases",
+)
+assert all(name not in sys.modules for name in optional_modules)
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
 def test_legacy_selector_adapter_is_lazy_outside_the_active_selection_module() -> None:
     """Keep the migration-only selector branch behind a compatibility module."""
 
