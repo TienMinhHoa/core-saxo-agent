@@ -125,7 +125,6 @@ __all__ = [
     "SelectionResult",
     "ParagraphDirectSelector",
     "ConceptRoleSelector",
-    "adapt_legacy_selector",
     "EvidenceLedgerBuilder",
     "stable_evidence_id",
     "AgentTool",

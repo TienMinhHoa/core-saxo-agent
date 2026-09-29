@@ -145,6 +145,23 @@ def test_legacy_selector_adapter_imports_remain_compatible() -> None:
     assert module_adapter is selector_compatibility.adapt_legacy_selector
 
 
+def test_agent_package_wildcard_exports_keep_legacy_selector_lazy() -> None:
+    """Wildcard imports must not pull the migration-only selector adapter in."""
+
+    script = """
+import importlib
+import sys
+
+package = importlib.import_module("saxophone.agent")
+assert "saxophone.retrieval.selector_compatibility" not in sys.modules
+namespace = {}
+exec("from saxophone.agent import *", namespace)
+assert "adapt_legacy_selector" not in namespace
+assert "saxophone.retrieval.selector_compatibility" not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
 def test_question_retrieval_uses_the_compatibility_selector_boundary(monkeypatch) -> None:
     """Do not make the legacy retrieval service reach into active selection internals."""
 
