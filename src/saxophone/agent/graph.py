@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import re
 from collections.abc import Awaitable, Callable, Sequence
@@ -267,6 +268,8 @@ def _document_search_tool(dependencies: AgentGraphDependencies):
             )
             if not isinstance(result, DocumentSearchResult):
                 raise TypeError("document search must return DocumentSearchResult")
+        except asyncio.CancelledError:
+            raise
         except BudgetExhaustedError as error:
             return _budget_failure(error)
         except BaseException as error:
@@ -378,6 +381,8 @@ def _select_evidence(dependencies: AgentGraphDependencies):
             if not isinstance(selected, SelectionResult):
                 raise TypeError("evidence selector must return SelectionResult")
             selected.validate_against(request)
+        except asyncio.CancelledError:
+            raise
         except BaseException as error:
             return _failure(_safe_error(error))
         if not selected.selected_paragraph_refs:
@@ -422,6 +427,8 @@ def _web_search_tool(dependencies: AgentGraphDependencies):
                 budget,
                 config=config,
             )
+        except asyncio.CancelledError:
+            raise
         except BudgetExhaustedError as error:
             return _budget_failure(error)
         except BaseException as error:
@@ -470,6 +477,8 @@ def _synthesize(dependencies: AgentGraphDependencies):
                 config=config,
             )
             synthesis = _coerce_synthesis(result)
+        except asyncio.CancelledError:
+            raise
         except BudgetExhaustedError as error:
             return _budget_failure(error)
         except BaseException as error:
@@ -492,6 +501,8 @@ async def _validate_answer(state: AgentGraphState) -> AgentGraphState:
         return _failure("synthesis output is incomplete")
     try:
         synthesis.validate_against(ledger)
+    except asyncio.CancelledError:
+        raise
     except BaseException as error:
         return _failure(_safe_error(error))
     return {

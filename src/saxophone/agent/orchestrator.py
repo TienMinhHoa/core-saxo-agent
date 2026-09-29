@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 from uuid import uuid4
@@ -182,6 +183,10 @@ class MainAgent:
                 },
                 config=run_config,
             )
+        except asyncio.CancelledError as error:
+            tracing_callback.finish(error=error)
+            trace.end(error=error)
+            raise
         except BaseException as error:
             tracing_callback.finish(error=error)
             trace.end(error=error)

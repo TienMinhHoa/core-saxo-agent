@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 
 import pytest
@@ -20,6 +21,7 @@ from saxophone.agent.graph import AgentGraphDependencies, build_agent_graph
 from saxophone.agent.langchain_tools import create_document_search_tool
 from saxophone.agent.orchestrator import MainAgent
 from saxophone.agent.state import AgentStage
+from saxophone.agent.tracing import InMemoryTracer, TraceStatus
 from saxophone.retrieval.models import ChunkHit
 from saxophone.retrieval.renderers import AnswerContextModel, SourceParagraph
 
@@ -156,6 +158,36 @@ async def test_main_agent_runs_compiled_langgraph_for_local_evidence() -> None:
     assert len(selector.calls) == 1
     assert len(synthesizer.ledgers) == 1
     assert result.run_id == "run-local"
+
+
+@pytest.mark.anyio
+async def test_main_agent_propagates_document_search_cancellation_and_closes_trace() -> None:
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    class BlockingSearch:
+        async def search(self, question: AgentQuestion, budget: RunBudget) -> DocumentSearchResult:
+            del question, budget
+            started.set()
+            try:
+                await asyncio.Future()
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+            raise AssertionError("blocking search should not return")
+
+    tracer = InMemoryTracer()
+    agent = MainAgent(document_search=BlockingSearch(), tracer=tracer)
+    task = asyncio.create_task(agent.run("question", run_id="run-cancelled"))
+
+    await asyncio.wait_for(started.wait(), timeout=1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert cancelled.is_set()
+    assert tracer.records[0].status is TraceStatus.ERROR
+    assert tracer.records[0].ended_at is not None
 
 
 @pytest.mark.anyio
