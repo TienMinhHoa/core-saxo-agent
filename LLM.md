@@ -29,6 +29,9 @@ Trong topic pipeline:
 | Embedding | `ingestion/adapters.py` | Text chunk/concept/câu hỏi -> vector qua OpenAI (direct) hoặc gateway. |
 | Retrieval selection | `retrieval/paragraph_selection.py` | Câu hỏi + paragraph choices -> các paragraph được chọn. |
 | Grounded answer | `chat/service.py` | Context Markdown đã giới hạn -> JSON answer + used refs; ref phải thuộc context. |
+| Agent document search | `agent/document_search.py` | `AgentQuestion` -> semantic chunk hits, hydrated paragraph/concept-role candidates, pages, images và confidence. |
+| Agent web fallback | `agent/web_search.py` | `AgentQuestion` -> bounded, normalized web results trong shared `RunBudget`. |
+| Agent synthesis | `agent/synthesis.py` | Immutable `EvidenceLedger` -> LangChain structured answer, citations và cited image evidence. |
 
 `RemoteStructuredLlmProvider` trong `tagging/structured_provider.py` tạo `ModelRequest` với schema và task type, gọi `ModelClient.invoke`, kiểm tra task/response schema rồi validate output typed.
 
@@ -45,6 +48,26 @@ Trong topic pipeline:
 2. Kiểm tra offline bằng `uv run pytest -q`. Các fake provider và HTTP mock kiểm tra contract mà không gọi model thật.
 3. Chạy `uv run saxophone-api --host 127.0.0.1 --port 8000`, sau đó gọi `GET /api/v1/health`. Endpoint này kiểm tra trạng thái model service nhưng không tự gửi prompt.
 4. Kiểm tra topic ingest an toàn bằng `uv run python -m saxophone.cli.topic_input_vl --source <đường-dẫn-json> --limit 5`. Lệnh mặc định chỉ ước lượng. Thêm `--ingest-only --execute` để gọi provider, tag/embed/index 5 chunk; kiểm tra `indexed=true`, `errors=[]`, `vector_sync_failed=0` trong report và log.
-5. Sau khi có dữ liệu, gọi `POST /agent/chat/messages` với `{"question":"What is a major triad?"}` để kiểm tra retrieval -> selection -> answer và `sources`.
+5. Sau khi có dữ liệu, gọi `POST /agent/chat/messages` với `{"question":"What is a major triad?"}` để kiểm tra compatibility retrieval -> selection -> answer và `sources`.
+6. Nếu composition root được inject `AgentGraphDependencies`, gọi `POST /agent/chat/stream` để kiểm tra Main Agent LangGraph, event stage/tool/completion và replay bằng `X-Agent-Run-ID`/`Last-Event-ID`.
 
-Nếu không có hit hoặc paragraph phù hợp, service trả status tương ứng và không sinh answer. `/api/v1/health` và `/api/v1/chat` không dùng chung wiring với `/agent/chat/messages`; route chat cũ có thể trả 503 dù topic chat đã sẵn sàng. Trong `direct` mode, PDF `process` không được wire mặc định; dùng `/pdf-layout/` cho pipeline Paddle riêng.
+Nếu không có hit hoặc paragraph phù hợp, compatibility service trả status tương ứng và không sinh answer. Main Agent trả outcome typed như `answered`, `needs_clarification`, `insufficient_evidence`, `budget_exhausted` hoặc `failed`; synthesis chỉ được nhận evidence đã validate trong ledger. `/api/v1/health` và `/api/v1/chat` không dùng chung wiring với `/agent/chat/messages`; route chat cũ có thể trả 503 dù topic chat đã sẵn sàng. Trong `direct` mode, PDF `process` không được wire mặc định; dùng `/pdf-layout/` cho pipeline Paddle riêng.
+
+## Main Agent, streaming và tracing
+
+`MainAgent` trong `agent/orchestrator.py` chạy graph đã compile từ
+`langgraph.graph.StateGraph`. Các node search, selection, web fallback,
+clarification, synthesis và validation chỉ trao đổi DTO typed qua
+`AgentGraphState`; graph không để state raw đi thẳng ra API.
+
+`POST /agent/chat/stream` phát các event allowlist như `run_started`,
+`stage_started`, `tool_started`, `tool_completed`, `decision`,
+`synthesis_started`, `answer_delta`, `run_completed` và `run_failed`. Event
+không chứa prompt đầy đủ, hidden reasoning, raw provider output hoặc secret.
+`AgentRunManager` lưu sequence để client reconnect và replay từ
+`Last-Event-ID`; disconnect sẽ cancel run đang hoạt động.
+
+`AgentTracer` tạo trace và observation parent-child cho graph, tool và model.
+`create_langfuse_tracer` chỉ bật adapter Langfuse khi `LANGFUSE_*` được cấu
+hình; payload được redact ở agent boundary và tracer no-op không thay đổi
+behavior khi tắt.

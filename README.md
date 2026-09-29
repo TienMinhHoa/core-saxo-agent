@@ -32,6 +32,8 @@ khi su dung cac endpoint can LLM.
 - `saxophone.ingestion`: chunk, tagging, embedding và index Chroma.
 - `saxophone.retrieval`: `ChunkRetriever` và `EvidenceBundle` đã validate.
 - `saxophone.chat`: tổng hợp câu trả lời từ evidence đã kiểm chứng.
+- `saxophone.agent`: Main Agent LangGraph, tool contracts, evidence ledger,
+  synthesis có structured output và event streaming theo từng run.
 - `saxophone.interfaces`: FastAPI routes; không gọi provider SDK trực tiếp.
 
 GPU inference cho VLM/embedding/LLM chạy ở service bên ngoài. Riêng PDF
@@ -97,8 +99,18 @@ Sau khi ingest tai lieu, mo giao dien chat tai:
 http://127.0.0.1:8000/agent/chat
 ```
 
-Trang nay dung full topic retrieval flow da cau hinh. Buoc sinh cau tra loi dung
-`SAXO_AGENT_CHAT_MODEL`; tagging va role selection van giu model rieng cua pipeline.
+Trang nay dung topic retrieval flow da cau hinh. Endpoint JSON
+`POST /agent/chat/messages` giu contract compatibility va dung
+`GroundedAnswerService` khi topic retrieval san sang. Endpoint SSE
+`POST /agent/chat/stream` dung Main Agent compiled LangGraph neu
+`agent_graph_dependencies` duoc inject vao composition root; neu chua inject,
+endpoint tra `503` de tranh im lang mat kha nang streaming.
+
+Main Agent dieu phoi document search, selection strategy (`paragraph_direct`
+hoac `concept_role`), web fallback, clarification, immutable evidence ledger
+va LangChain synthesis. Moi run dung chung `RunBudget` voi cac gioi han
+`SAXO_AGENT_MAX_*`; tracing Langfuse la tuy chon va duoc redact truoc khi gui.
+Tagging va role selection van giu model rieng cua pipeline.
 
 Ước lượng `output_v3/input-vl` mà chưa gọi API:
 
@@ -173,6 +185,11 @@ uv run pytest -q
 uv run python -m compileall -q src tests
 git diff --check
 ```
+
+Khi kiem tra luong agent, dung fake tool/model trong test de xac nhan local
+search, web fallback, clarification, citation/image gate, budget va SSE ma
+khong goi provider that. `POST /agent/chat/messages` van la compatibility
+fallback cho client chua migrate sang stream.
 
 Các lệnh này kiểm chứng contract và behavior offline. Chúng không thay thế live
 smoke với endpoint, credential và catalog production đã được phê duyệt.
