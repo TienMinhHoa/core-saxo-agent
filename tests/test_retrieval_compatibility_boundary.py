@@ -126,6 +126,24 @@ assert "saxophone.tagging.structured_provider" not in sys.modules
     subprocess.run([sys.executable, "-c", script], check=True)
 
 
+def test_factory_import_does_not_load_pdf_layout_compatibility() -> None:
+    """Keep the optional PDF layout runtime behind its mount boundary."""
+
+    script = """
+import importlib
+import sys
+
+importlib.import_module("saxophone.app.factory")
+optional_modules = (
+    "saxophone.interfaces.pdf_layout_web",
+    "saxophone.workflows.pdf_layout_extraction",
+    "saxophone.extraction.paddle_vllm",
+)
+assert all(name not in sys.modules for name in optional_modules)
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
 def test_agent_import_does_not_load_legacy_selector_implementations() -> None:
     """Keep provider-specific selector modules behind the selection boundary."""
 

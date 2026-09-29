@@ -83,7 +83,6 @@ from saxophone.services.extract_topic import (
 )
 from saxophone.interfaces.api import build_agent_chat_router, build_capability_router
 from saxophone.interfaces.db_browser import build_database_browser_router
-from saxophone.interfaces.pdf_layout_web import app as pdf_layout_app
 from saxophone.workflows import (
     IngestExtractedDocument,
     ProcessAndPersistDocument,
@@ -368,6 +367,8 @@ class AppOverrides:
 
 def create_layout_app() -> FastAPI:
     """Compose PDF layout mode without general model-service dependencies."""
+    from saxophone.interfaces.pdf_layout_web import app as pdf_layout_app
+
     app = FastAPI(title="Saxophone PDF Layout")
     app.mount("/pdf-layout", pdf_layout_app)
     return app
@@ -781,6 +782,8 @@ def create_app(
     app.include_router(
         build_database_browser_router(browser=database_browser)
     )
+    from saxophone.interfaces.pdf_layout_web import app as pdf_layout_app
+
     app.mount("/pdf-layout", pdf_layout_app)
 
     @app.get("/api/v1/health")
