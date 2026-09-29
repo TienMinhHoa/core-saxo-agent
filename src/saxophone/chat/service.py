@@ -3,20 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING
 
 from saxophone.retrieval import EvidenceBundle, RetrieveEvidence
 
 from .models import ChatResult, ChatStatus, evidence_reference
 from .ports import AnswerGenerator, ImageArtifactGate
-
-if TYPE_CHECKING:
-    from .compatibility import (
-        AnswerSource,
-        GroundedAnswerResponse,
-        GroundedAnswerService,
-        GroundedAnswerStatus,
-    )
 
 
 class AnswerQuestion:
@@ -105,8 +96,4 @@ def __getattr__(name: str) -> object:
 
 __all__ = [
     "AnswerQuestion",
-    "AnswerSource",
-    "GroundedAnswerResponse",
-    "GroundedAnswerService",
-    "GroundedAnswerStatus",
 ]

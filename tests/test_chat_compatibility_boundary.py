@@ -29,6 +29,12 @@ def test_active_chat_module_resolves_legacy_service_lazily() -> None:
     assert service_module.GroundedAnswerService is GroundedAnswerService
 
 
+def test_active_chat_module_wildcard_exports_only_active_use_case() -> None:
+    """Do not make wildcard imports load the legacy compatibility adapter."""
+
+    assert service_module.__all__ == ["AnswerQuestion"]
+
+
 def test_chat_package_resolves_legacy_service_lazily() -> None:
     """Keep the compatibility implementation out of the package namespace."""
 
