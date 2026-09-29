@@ -75,27 +75,12 @@ from saxophone.platform.remote_gpu import (
 )
 from saxophone.retrieval import ChunkRetriever, RetrieveEvidence
 from saxophone.retrieval.adapters import VectorIndexChunkRetriever
+from saxophone import tagging as tagging_facade
 from saxophone.services.extract_topic import (
     DocumentIngestionFacadeAdapter,
     DocumentTaggingFacadeAdapter,
     ExtractTopicService,
 )
-from saxophone.tagging import (
-    JsonTagCatalogRepository,
-    JsonTaggedParagraphRepository,
-    RemoteParagraphTagger,
-    RemoteTagConflictResolver,
-    TagAndPersistParagraph,
-    TagCatalogRepository,
-    TagConflictResolver,
-    TagGenerator,
-    TagParagraph,
-    TaggedParagraphRepository,
-    ChunkTagger,
-)
-from saxophone.tagging.chunk_service import ChunkTaggingService, ChunkTaggingTransactionService
-from saxophone.tagging.structured_chunk import StructuredChunkTagger
-from saxophone.tagging.vector_outbox import SqliteVectorOutboxRepository
 from saxophone.tagging.structured_provider import (
     RemoteStructuredLlmProvider,
     StructuredLlmProvider,
@@ -113,6 +98,13 @@ from saxophone.workflows import (
 if TYPE_CHECKING:
     from saxophone.chat.compatibility import GroundedAnswerService
     from saxophone.retrieval.question_retrieval import QuestionRetrievalService
+    from saxophone.tagging import (
+        ChunkTagger,
+        TagCatalogRepository,
+        TagConflictResolver,
+        TagGenerator,
+        TaggedParagraphRepository,
+    )
 
 
 def _capability_status(*, configured: bool, model_service_status: str) -> str:
@@ -508,13 +500,13 @@ def create_app(
         )
     tagged_paragraph_repository = resolved_overrides.tagged_paragraph_repository
     if tagged_paragraph_repository is None:
-        tagged_paragraph_repository = JsonTaggedParagraphRepository(
+        tagged_paragraph_repository = tagging_facade.JsonTaggedParagraphRepository(
             settings.data_root / "tagged-paragraphs",
             io_limiter=io_limiter,
         )
     tag_catalog_repository = resolved_overrides.tag_catalog_repository
     if tag_catalog_repository is None:
-        tag_catalog_repository = JsonTagCatalogRepository(
+        tag_catalog_repository = tagging_facade.JsonTagCatalogRepository(
             settings.data_root / "tag-catalog.json",
             io_limiter=io_limiter,
         )
@@ -524,11 +516,12 @@ def create_app(
             settings.data_root / "knowledge",
             io_limiter=io_limiter,
         )
-    tag_generator = resolved_overrides.tag_generator or RemoteParagraphTagger(
+    tag_generator = resolved_overrides.tag_generator or tagging_facade.RemoteParagraphTagger(
         model_client, model=settings.litellm_model_profile,
     )
-    tag_conflict_resolver = resolved_overrides.tag_conflict_resolver or RemoteTagConflictResolver(
-        model_client, model=settings.litellm_model_profile,
+    tag_conflict_resolver = resolved_overrides.tag_conflict_resolver or tagging_facade.RemoteTagConflictResolver(
+        model_client,
+        model=settings.litellm_model_profile,
     )
     process_document = resolved_overrides.process_document
     if process_document is None:
@@ -567,6 +560,12 @@ def create_app(
     vector_state: SqliteVectorIndexStateRepository | None = None
     document_ingestion = resolved_overrides.document_ingestion
     if settings.chunk_tagging_enabled:
+        from saxophone.tagging.chunk_service import (
+            ChunkTaggingService,
+            ChunkTaggingTransactionService,
+        )
+        from saxophone.tagging.structured_chunk import StructuredChunkTagger
+
         chunk_tagger = resolved_overrides.chunk_tagger or StructuredChunkTagger(
             structured_llm_provider
         )
@@ -596,8 +595,8 @@ def create_app(
                 ),
             )
         else:
-            tag_and_persist = TagAndPersistParagraph(
-                TagParagraph(tag_generator, tag_conflict_resolver),
+            tag_and_persist = tagging_facade.TagAndPersistParagraph(
+                tagging_facade.TagParagraph(tag_generator, tag_conflict_resolver),
                 tagged_paragraph_repository,
                 tag_catalog_repository,
             )
@@ -607,6 +606,8 @@ def create_app(
             and chunk_tagging is not None
             and _supports_vector_sync(vector_index)
         ):
+            from saxophone.tagging.vector_outbox import SqliteVectorOutboxRepository
+
             assert ingestion_transaction_repository is not None
             outbox = SqliteVectorOutboxRepository(ingestion_database)
             lifecycle = SqliteIngestionStateRepository(ingestion_database)

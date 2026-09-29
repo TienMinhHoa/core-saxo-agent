@@ -95,6 +95,24 @@ assert "saxophone.retrieval.renderers" not in sys.modules
     subprocess.run([sys.executable, "-c", script], check=True)
 
 
+def test_factory_import_does_not_load_tagging_implementations() -> None:
+    """Keep tagging providers and persistence behind application composition."""
+
+    script = """
+import importlib
+import sys
+
+importlib.import_module("saxophone.app.factory")
+optional_modules = (
+    "saxophone.tagging.adapters",
+    "saxophone.tagging.persistence",
+    "saxophone.tagging.structured_chunk",
+)
+assert all(name not in sys.modules for name in optional_modules)
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
 def test_agent_import_does_not_load_legacy_selector_implementations() -> None:
     """Keep provider-specific selector modules behind the selection boundary."""
 
