@@ -228,6 +228,18 @@ class _CountingSynthesizer:
         raise AssertionError("ambiguous evidence must stop before synthesis")
 
 
+@dataclass
+class _ForeignEvidenceSynthesizer:
+    async def synthesize(self, ledger: object) -> object:
+        from saxophone.agent.contracts import Citation, SynthesisResult
+
+        return SynthesisResult(
+            "Untrusted answer",
+            ("document:foreign",),
+            (Citation("document:foreign", "[1]"),),
+        )
+
+
 @pytest.mark.anyio
 async def test_pipeline_uses_local_evidence_without_web_fallback() -> None:
     paragraph = _paragraph()
@@ -501,3 +513,28 @@ async def test_pipeline_forwards_runnable_config_to_synthesis() -> None:
         isinstance(callback, AgentTracingCallbackHandler)
         for callback in handlers
     )
+
+
+@pytest.mark.anyio
+async def test_pipeline_rejects_synthesis_evidence_outside_ledger() -> None:
+    paragraph = _paragraph()
+    document = _DocumentSearch(
+        DocumentSearchResult(
+            "What is a major triad?",
+            (_hit(),),
+            (paragraph,),
+            status=DocumentSearchStatus.READY,
+        )
+    )
+    agent = MainAgent(
+        document_search=document,
+        paragraph_selector=_Selector(),
+        synthesizer=_ForeignEvidenceSynthesizer(),
+    )
+
+    result = await agent.run("What is a major triad?", run_id="pipeline-foreign-evidence")
+
+    assert result.outcome is AgentOutcome.FAILED
+    assert result.answer is None
+    assert result.synthesis is None
+    assert result.error == "used evidence must reference existing evidence"

@@ -519,6 +519,9 @@ def _failure(message: str) -> AgentGraphState:
         "stage": AgentStage.FAILED,
         "outcome": AgentOutcome.FAILED,
         "decision": AgentDecision.FAILED,
+        # Never expose a synthesis that failed ledger validation.
+        "answer": None,
+        "synthesis_result": None,
         "error": message,
     }
 
