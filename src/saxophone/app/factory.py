@@ -153,6 +153,70 @@ def _supports_topic_retrieval(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _TopicComposition:
+    """Compatibility topic services assembled from the shared retrieval ports."""
+
+    question_retrieval: QuestionRetrievalService | None
+    grounded_answer: GroundedAnswerService | None
+    agent_chat: GroundedAnswerService | None
+    extract_topic: ExtractTopicService | None
+
+
+def _compose_topic_services(
+    *,
+    document_ingestion: DocumentIngestionService | None,
+    chunk_tagging: DocumentChunkTaggingService | None,
+    ingestion_transaction_repository: SqliteIngestionTransactionRepository | None,
+    vector_index: VectorIndex | None,
+    embedding_provider: EmbeddingProvider | None,
+    ingestion_database: Path,
+    structured_llm_provider: StructuredLlmProvider,
+    agent_structured_llm_provider: StructuredLlmProvider,
+    image_artifact_gate: ImageArtifactGate | None,
+    agent_chat: GroundedAnswerService | None,
+    model_version: str,
+    agent_model_version: str,
+) -> _TopicComposition:
+    """Assemble compatibility topic services when retrieval is fully available."""
+
+    if not (
+        chunk_tagging is not None
+        and document_ingestion is not None
+        and ingestion_transaction_repository is not None
+        and _supports_topic_retrieval(vector_index, embedding_provider)
+    ):
+        return _TopicComposition(None, None, agent_chat, None)
+
+    assert vector_index is not None
+    assert embedding_provider is not None
+    question_retrieval = QuestionRetrievalService(
+        retriever=VectorIndexChunkRetriever(embedding_provider, vector_index),
+        selector=StructuredParagraphSelector(structured_llm_provider),
+        context_repository=SqliteRetrievalContextRepository(ingestion_database),
+    )
+    grounded_answer = GroundedAnswerService(
+        retrieval=question_retrieval,
+        provider=structured_llm_provider,
+        model_version=model_version,
+        image_artifact_gate=image_artifact_gate,
+    )
+    if agent_chat is None:
+        agent_chat = GroundedAnswerService(
+            retrieval=question_retrieval,
+            provider=agent_structured_llm_provider,
+            model_version=agent_model_version,
+            image_artifact_gate=image_artifact_gate,
+        )
+    extract_topic = ExtractTopicService(
+        ingestion=DocumentIngestionFacadeAdapter(document_ingestion),
+        tagging=DocumentTaggingFacadeAdapter(chunk_tagging),
+        retrieval=question_retrieval,
+        answering=grounded_answer,
+    )
+    return _TopicComposition(question_retrieval, grounded_answer, agent_chat, extract_topic)
+
+
 def _supports_database_browser(vector_index: object | None) -> bool:
     return vector_index is not None and all(
         callable(getattr(vector_index, method, None))
@@ -538,8 +602,6 @@ def create_app(
                 resolved_overrides.image_artifact_gate,
             )
 
-    question_retrieval: QuestionRetrievalService | None = None
-    grounded_answer: GroundedAnswerService | None = None
     agent_chat = resolved_overrides.agent_chat
     agent_runner = resolved_overrides.agent_runner
     agent_run_manager = resolved_overrides.agent_run_manager
@@ -552,37 +614,24 @@ def create_app(
         )
     if agent_runner is not None and agent_run_manager is None:
         agent_run_manager = AgentRunManager()
-    extract_topic: ExtractTopicService | None = None
-    if (
-        chunk_tagging is not None
-        and document_ingestion is not None
-        and ingestion_transaction_repository is not None
-        and _supports_topic_retrieval(vector_index, embedding_provider)
-    ):
-        question_retrieval = QuestionRetrievalService(
-            retriever=VectorIndexChunkRetriever(embedding_provider, vector_index),
-            selector=StructuredParagraphSelector(structured_llm_provider),
-            context_repository=SqliteRetrievalContextRepository(ingestion_database),
-        )
-        grounded_answer = GroundedAnswerService(
-            retrieval=question_retrieval,
-            provider=structured_llm_provider,
-            model_version=settings.litellm_model_profile,
-            image_artifact_gate=image_artifact_gate,
-        )
-        if agent_chat is None:
-            agent_chat = GroundedAnswerService(
-                retrieval=question_retrieval,
-                provider=agent_structured_llm_provider,
-                model_version=settings.agent_chat_model,
-                image_artifact_gate=image_artifact_gate,
-            )
-        extract_topic = ExtractTopicService(
-            ingestion=DocumentIngestionFacadeAdapter(document_ingestion),
-            tagging=DocumentTaggingFacadeAdapter(chunk_tagging),
-            retrieval=question_retrieval,
-            answering=grounded_answer,
-        )
+    topic_services = _compose_topic_services(
+        document_ingestion=document_ingestion,
+        chunk_tagging=chunk_tagging,
+        ingestion_transaction_repository=ingestion_transaction_repository,
+        vector_index=vector_index,
+        embedding_provider=embedding_provider,
+        ingestion_database=ingestion_database,
+        structured_llm_provider=structured_llm_provider,
+        agent_structured_llm_provider=agent_structured_llm_provider,
+        image_artifact_gate=image_artifact_gate,
+        agent_chat=agent_chat,
+        model_version=settings.litellm_model_profile,
+        agent_model_version=settings.agent_chat_model,
+    )
+    question_retrieval = topic_services.question_retrieval
+    grounded_answer = topic_services.grounded_answer
+    agent_chat = topic_services.agent_chat
+    extract_topic = topic_services.extract_topic
 
     container = AppContainer(
         settings=settings,
