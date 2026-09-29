@@ -93,6 +93,24 @@ assert "saxophone.chat.compatibility" not in sys.modules
     subprocess.run([sys.executable, "-c", script], check=True)
 
 
+def test_agent_import_does_not_load_legacy_selector_implementations() -> None:
+    """Keep provider-specific selector modules behind the selection boundary."""
+
+    script = """
+import importlib
+import sys
+
+importlib.import_module("saxophone.agent")
+optional_modules = (
+    "saxophone.retrieval.paragraph_selection",
+    "saxophone.retrieval.paragraph_traversal",
+    "saxophone.retrieval.role_selection",
+)
+assert all(name not in sys.modules for name in optional_modules)
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
 def test_legacy_selector_adapter_is_lazy_outside_the_active_selection_module() -> None:
     """Keep the migration-only selector branch behind a compatibility module."""
 

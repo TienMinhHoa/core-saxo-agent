@@ -11,30 +11,31 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from saxophone.retrieval.paragraph_selection import (
-    ParagraphSelectionRequest,
-    StructuredParagraphSelector,
-    build_paragraph_choices,
-)
-from saxophone.retrieval.paragraph_traversal import ParagraphTraversal
 from saxophone.retrieval.renderers import (
     AnswerContextModel,
     ConceptInventoryBuilder,
     SelectedConceptRole,
     SourceParagraph,
 )
-from saxophone.retrieval.role_selection import (
-    ConceptRoleCandidate,
-    ConceptRoleSelectionRequest,
-    ConceptRoleSelectionResult,
-    StructuredConceptRoleSelector,
-)
 from saxophone.tagging.models import ParagraphConceptRole
 
 from .contracts import AgentQuestion, SelectionStrategy
 from .document_search import DocumentSearchResult
+
+if TYPE_CHECKING:
+    from saxophone.retrieval.paragraph_selection import (
+        ParagraphSelectionRequest,
+        StructuredParagraphSelector,
+    )
+    from saxophone.retrieval.paragraph_traversal import ParagraphTraversal
+    from saxophone.retrieval.role_selection import (
+        ConceptRoleCandidate,
+        ConceptRoleSelectionRequest,
+        ConceptRoleSelectionResult,
+        StructuredConceptRoleSelector,
+    )
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -221,6 +222,8 @@ class ParagraphDirectSelector:
         if dependency is None:
             raise TypeError("selector or provider is required")
         if callable(getattr(dependency, "generate_structured", None)):
+            from saxophone.retrieval.paragraph_selection import StructuredParagraphSelector
+
             dependency = StructuredParagraphSelector(dependency)
         if not callable(getattr(dependency, "select", None)):
             raise TypeError("selector must provide select")
@@ -231,6 +234,11 @@ class ParagraphDirectSelector:
         paragraphs = request.search_result.paragraph_candidates
         if not paragraphs or not request.search_result.hits:
             return _empty_result(self.strategy)
+
+        from saxophone.retrieval.paragraph_selection import (
+            ParagraphSelectionRequest,
+            build_paragraph_choices,
+        )
 
         choices = build_paragraph_choices(paragraphs)
         selection_request = ParagraphSelectionRequest(request.question, choices)
@@ -286,12 +294,20 @@ class ConceptRoleSelector:
             raise TypeError("exactly one selector, role_selector, or provider is required")
         dependency = dependencies[0]
         if callable(getattr(dependency, "generate_structured", None)):
+            from saxophone.retrieval.role_selection import StructuredConceptRoleSelector
+
             dependency = StructuredConceptRoleSelector(dependency)
         if not callable(getattr(dependency, "select", None)):
             raise TypeError("role selector must provide select")
         self._selector = dependency
-        self._inventory_builder = inventory_builder or ConceptInventoryBuilder()
-        self._traversal = traversal or ParagraphTraversal()
+        if inventory_builder is None:
+            inventory_builder = ConceptInventoryBuilder()
+        if traversal is None:
+            from saxophone.retrieval.paragraph_traversal import ParagraphTraversal
+
+            traversal = ParagraphTraversal()
+        self._inventory_builder = inventory_builder
+        self._traversal = traversal
 
     async def select(self, request: SelectionRequest) -> SelectionResult:
         _require_request(request)
@@ -315,6 +331,12 @@ class ConceptRoleSelector:
         )
         if not scoped_relations:
             return _empty_result(self.strategy)
+
+        from saxophone.retrieval.role_selection import (
+            ConceptRoleCandidate,
+            ConceptRoleSelectionRequest,
+            ConceptRoleSelectionResult,
+        )
 
         paragraph_chunks = {
             ref: (paragraph.chunk_id or paragraph.parent_header)
