@@ -32,7 +32,6 @@ from .evidence_selection import (
     ParagraphDirectSelector,
     SelectionRequest,
     SelectionResult,
-    adapt_legacy_selector,
 )
 from .evidence import EvidenceLedgerBuilder, stable_evidence_id
 from .ports import (
@@ -85,6 +84,18 @@ from .tracing import (
     TraceStatus,
     redact_payload,
 )
+
+_COMPATIBILITY_EXPORTS = frozenset({"adapt_legacy_selector"})
+
+
+def __getattr__(name: str) -> object:
+    """Resolve migration-only helpers without loading them for active agents."""
+
+    if name not in _COMPATIBILITY_EXPORTS:
+        raise AttributeError(name)
+    from saxophone.retrieval.selector_compatibility import adapt_legacy_selector
+
+    return adapt_legacy_selector
 
 __all__ = [
     "AgentOutcome",

@@ -81,7 +81,7 @@ class QuestionRetrievalService:
         max_paragraphs: int = 20,
         max_tokens: int = 4000,
     ) -> None:
-        from saxophone.agent.evidence_selection import adapt_legacy_selector
+        from .selector_compatibility import adapt_legacy_selector
 
         self._retriever = retriever
         self._selector = adapt_legacy_selector(selector)

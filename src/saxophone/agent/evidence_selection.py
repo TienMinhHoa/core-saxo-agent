@@ -366,16 +366,14 @@ class ConceptRoleSelector:
         return result
 
 
-def adapt_legacy_selector(selector: Any) -> ParagraphDirectSelector | ConceptRoleSelector:
-    """Wrap pre-agent selectors without branching in the retrieval service."""
+def __getattr__(name: str) -> object:
+    """Resolve the migration-only selector adapter only for old callers."""
 
-    if selector is None:
-        raise TypeError("selector is required")
-    if isinstance(selector, (ParagraphDirectSelector, ConceptRoleSelector)):
-        return selector
-    if isinstance(selector, StructuredParagraphSelector):
-        return ParagraphDirectSelector(selector)
-    return ConceptRoleSelector(selector)
+    if name != "adapt_legacy_selector":
+        raise AttributeError(name)
+    from saxophone.retrieval.selector_compatibility import adapt_legacy_selector
+
+    return adapt_legacy_selector
 
 
 def _empty_result(strategy: SelectionStrategy) -> SelectionResult:
