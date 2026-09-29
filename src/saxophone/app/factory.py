@@ -713,19 +713,23 @@ def create_app(
             yield
         finally:
             try:
-                if vector_index is not None:
-                    aclose = getattr(vector_index, "aclose", None)
-                    if callable(aclose):
-                        await aclose()
-                    else:
-                        close = getattr(vector_index, "close", None)
-                        if callable(close):
-                            await anyio.to_thread.run_sync(close, limiter=io_limiter)
+                if agent_run_manager is not None:
+                    await agent_run_manager.aclose()
             finally:
-                if http_client is not None:
-                    await http_client.aclose()
-                if tracer is not None:
-                    tracer.flush()
+                try:
+                    if vector_index is not None:
+                        aclose = getattr(vector_index, "aclose", None)
+                        if callable(aclose):
+                            await aclose()
+                        else:
+                            close = getattr(vector_index, "close", None)
+                            if callable(close):
+                                await anyio.to_thread.run_sync(close, limiter=io_limiter)
+                finally:
+                    if http_client is not None:
+                        await http_client.aclose()
+                    if tracer is not None:
+                        tracer.flush()
 
     app = FastAPI(title="Saxophone RAG backend", lifespan=lifespan)
 

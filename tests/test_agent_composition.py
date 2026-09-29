@@ -52,6 +52,16 @@ class _Runner:
         )
 
 
+class _ClosableRunManager(AgentRunManager):
+    def __init__(self) -> None:
+        super().__init__()
+        self.closed = False
+
+    async def aclose(self) -> None:
+        self.closed = True
+        await super().aclose()
+
+
 def _settings(tmp_path) -> AppSettings:
     return AppSettings.from_environment(
         {
@@ -127,6 +137,26 @@ def test_composition_accepts_a_prebuilt_run_manager_without_replacing_it(tmp_pat
 
     assert app.state.container.agent_runner is runner
     assert app.state.container.agent_run_manager is manager
+
+
+def test_composition_closes_the_agent_run_manager_on_lifespan_shutdown(tmp_path) -> None:
+    runner = _Runner()
+    manager = _ClosableRunManager()
+    app = create_app(
+        _settings(tmp_path),
+        overrides=AppOverrides(
+            remote_gpu_gateway=_RemoteGpu(),
+            model_client=_ModelClient(),
+            disable_vector_index=True,
+            agent_runner=runner,
+            agent_run_manager=manager,
+        ),
+    )
+
+    with TestClient(app):
+        assert manager.closed is False
+
+    assert manager.closed is True
 
 
 @pytest.mark.anyio

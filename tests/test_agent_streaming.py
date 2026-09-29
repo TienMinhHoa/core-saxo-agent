@@ -167,3 +167,27 @@ async def test_run_manager_finishes_replay_after_terminal_sequence() -> None:
     ]
 
     assert events == []
+
+
+@pytest.mark.anyio
+async def test_run_manager_closes_active_runs_and_rejects_new_runs() -> None:
+    manager = AgentRunManager()
+    await manager.start("run-shutdown")
+    stream = manager.events("run-shutdown")
+
+    started = await anext(stream)
+    assert started.type is AgentEventType.RUN_STARTED
+
+    await manager.aclose()
+
+    shutdown = await anext(stream)
+    assert shutdown.type is AgentEventType.RUN_FAILED
+    assert shutdown.error_code == "application_shutdown"
+    with pytest.raises(StopAsyncIteration):
+        await anext(stream)
+    assert await manager.is_active("run-shutdown") is False
+
+    with pytest.raises(RuntimeError, match="run manager is closed"):
+        await manager.start("run-after-shutdown")
+
+    await manager.aclose()

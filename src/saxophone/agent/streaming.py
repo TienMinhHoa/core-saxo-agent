@@ -27,12 +27,15 @@ class AgentRunManager:
         self._queue_size = queue_size
         self._runs: dict[str, _RunState] = {}
         self._lock = asyncio.Lock()
+        self._closed = False
 
     async def start(self, run_id: str | None = None) -> str:
         """Create a run and publish its first ``run_started`` event."""
 
         normalized = _normalize_run_id(run_id or uuid4().hex)
         async with self._lock:
+            if self._closed:
+                raise RuntimeError("run manager is closed")
             if normalized in self._runs:
                 raise ValueError("run_id is already active")
             state = _RunState()
@@ -43,6 +46,30 @@ class AgentRunManager:
                 AgentEvent(AgentEventType.RUN_STARTED, run_id=normalized),
             )
         return normalized
+
+    async def aclose(self) -> None:
+        """Terminate active runs and release the manager for application shutdown."""
+
+        notifications: list[tuple[tuple[asyncio.Queue[AgentEvent], ...], AgentEvent]] = []
+        async with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            for run_id, state in self._runs.items():
+                if state.terminal:
+                    continue
+                event, subscribers = self._append_locked(
+                    run_id,
+                    state,
+                    AgentEvent(
+                        AgentEventType.RUN_FAILED,
+                        run_id=run_id,
+                        error_code="application_shutdown",
+                    ),
+                )
+                notifications.append((subscribers, event))
+        for subscribers, event in notifications:
+            await self._notify(subscribers, event)
 
     async def publish(self, event: AgentEvent) -> AgentEvent:
         """Append one event, assign its sequence, and notify subscribers."""
