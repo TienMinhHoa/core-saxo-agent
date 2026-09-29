@@ -458,3 +458,11 @@ def _scope_relations(
             raise ValueError("relation references a paragraph outside candidate scope")
         scoped.append(relation)
     return tuple(scoped)
+
+
+__all__ = [
+    "ConceptRoleSelector",
+    "ParagraphDirectSelector",
+    "SelectionRequest",
+    "SelectionResult",
+]

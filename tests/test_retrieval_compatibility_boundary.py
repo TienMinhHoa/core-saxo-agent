@@ -162,6 +162,30 @@ assert "saxophone.retrieval.selector_compatibility" not in sys.modules
     subprocess.run([sys.executable, "-c", script], check=True)
 
 
+def test_active_selection_wildcard_exports_keep_legacy_selector_lazy() -> None:
+    """Expose only active selection adapters from the implementation module."""
+
+    script = """
+import importlib
+import sys
+
+module = importlib.import_module("saxophone.agent.evidence_selection")
+assert "saxophone.retrieval.selector_compatibility" not in sys.modules
+namespace = {}
+exec("from saxophone.agent.evidence_selection import *", namespace)
+
+assert set(namespace) >= {
+    "ConceptRoleSelector",
+    "ParagraphDirectSelector",
+    "SelectionRequest",
+    "SelectionResult",
+}
+assert "adapt_legacy_selector" not in namespace
+assert "saxophone.retrieval.selector_compatibility" not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
 def test_retrieval_package_wildcard_exports_keep_legacy_modules_lazy() -> None:
     """Wildcard retrieval imports must expose only the active lightweight facade."""
 
