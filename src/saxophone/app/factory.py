@@ -149,6 +149,29 @@ class _DocumentComposition:
     process_and_persist_document: ProcessAndPersistDocument | None
 
 
+@dataclass(frozen=True, slots=True)
+class _IngestionComposition:
+    """Embedding, indexing, and document-ingestion services for one app."""
+
+    ingestion_database: Path
+    embedding_provider: EmbeddingProvider
+    embedding_reuse: EmbeddingReuseStore
+    content_ledger: SqliteContentLedger | None
+    knowledge_repository: KnowledgeRepository
+    vector_index: VectorIndex | None
+    index_document: IndexDocument | None
+    tagged_paragraph_repository: TaggedParagraphRepository
+    tag_catalog_repository: TagCatalogRepository
+    tag_generator: TagGenerator
+    tag_conflict_resolver: TagConflictResolver
+    chunk_tagger: ChunkTagger | None
+    chunk_tagging: DocumentChunkTaggingService | None
+    ingestion_transaction_repository: SqliteIngestionTransactionRepository | None
+    concept_catalog_repository: SqliteConceptCatalogRepository | None
+    document_ingestion: DocumentIngestionService | None
+    ingest_extracted_document: IngestExtractedDocument | None
+
+
 def _compose_model_clients(
     settings: AppSettings,
     overrides: AppOverrides,
@@ -332,6 +355,196 @@ def _compose_document_services(
         image_artifact_gate=image_artifact_gate,
         process_document=process_document,
         process_and_persist_document=process_and_persist_document,
+    )
+
+
+def _compose_ingestion_services(
+    settings: AppSettings,
+    overrides: AppOverrides,
+    *,
+    model_client: ModelClient,
+    structured_llm_provider: StructuredLlmProvider,
+    event_sink: EventSink,
+    artifact_repository: ArtifactRepository,
+    io_limiter: anyio.CapacityLimiter,
+) -> _IngestionComposition:
+    """Build embedding, indexing, and ingestion workflows at one boundary."""
+
+    import saxophone.workflows as workflows_facade
+    from saxophone import tagging as tagging_facade
+    from saxophone.ingestion import (
+        DocumentChunkTaggingService,
+        DocumentIngestionService,
+        IndexDocument,
+        IngestDocument,
+    )
+    from saxophone.ingestion.adapters import (
+        FileEmbeddingReuseStore,
+        RemoteEmbeddingProvider,
+    )
+    from saxophone.ingestion.concept_embedding import (
+        ConceptCatalogVectorPreparationService,
+    )
+    from saxophone.ingestion.concept_repository import SqliteConceptCatalogRepository
+    from saxophone.ingestion.content_ledger import SqliteContentLedger
+    from saxophone.ingestion.state import SqliteIngestionStateRepository
+    from saxophone.ingestion.transaction import SqliteIngestionTransactionRepository
+    from saxophone.ingestion.vector_state import SqliteVectorIndexStateRepository
+    from saxophone.ingestion.vector_sync import VectorSyncService
+    from saxophone.platform.chroma import create_chroma_vector_index
+    from saxophone.platform.knowledge import JsonKnowledgeRepository
+
+    embedding_provider = overrides.embedding_provider
+    if embedding_provider is None:
+        embedding_provider = RemoteEmbeddingProvider(
+            model_client,
+            model=settings.litellm_model_profile,
+        )
+
+    tagged_paragraph_repository = overrides.tagged_paragraph_repository
+    if tagged_paragraph_repository is None:
+        tagged_paragraph_repository = tagging_facade.JsonTaggedParagraphRepository(
+            settings.data_root / "tagged-paragraphs",
+            io_limiter=io_limiter,
+        )
+    tag_catalog_repository = overrides.tag_catalog_repository
+    if tag_catalog_repository is None:
+        tag_catalog_repository = tagging_facade.JsonTagCatalogRepository(
+            settings.data_root / "tag-catalog.json",
+            io_limiter=io_limiter,
+        )
+    knowledge_repository = overrides.knowledge_repository
+    if knowledge_repository is None:
+        knowledge_repository = JsonKnowledgeRepository(
+            settings.data_root / "knowledge",
+            io_limiter=io_limiter,
+        )
+    tag_generator = overrides.tag_generator or tagging_facade.RemoteParagraphTagger(
+        model_client,
+        model=settings.litellm_model_profile,
+    )
+    tag_conflict_resolver = overrides.tag_conflict_resolver or tagging_facade.RemoteTagConflictResolver(
+        model_client,
+        model=settings.litellm_model_profile,
+    )
+    ingestion_database = settings.data_root / "ingestion.sqlite3"
+    content_ledger = overrides.content_ledger
+    if content_ledger is None and settings.chunk_tagging_enabled:
+        content_ledger = SqliteContentLedger(ingestion_database)
+    embedding_reuse = overrides.embedding_reuse
+    if embedding_reuse is None:
+        embedding_reuse = content_ledger or FileEmbeddingReuseStore(
+            settings.data_root / "embedding-reuse.json",
+            io_limiter=io_limiter,
+        )
+    vector_index = overrides.vector_index
+    if vector_index is None and not overrides.disable_vector_index:
+        vector_index = create_chroma_vector_index(settings, io_limiter=io_limiter)
+    index_document = overrides.index_document
+    if index_document is None and vector_index is not None:
+        index_document = IndexDocument(
+            vector_index,
+            embedding_provider,
+            embedding_reuse,
+            knowledge_repository=knowledge_repository,
+        )
+
+    chunk_tagger: ChunkTagger | None = None
+    chunk_tagging: DocumentChunkTaggingService | None = None
+    ingestion_transaction_repository: SqliteIngestionTransactionRepository | None = None
+    concept_catalog_repository: SqliteConceptCatalogRepository | None = None
+    vector_state: SqliteVectorIndexStateRepository | None = None
+    document_ingestion = overrides.document_ingestion
+    if settings.chunk_tagging_enabled:
+        from saxophone.tagging.chunk_service import (
+            ChunkTaggingService,
+            ChunkTaggingTransactionService,
+        )
+        from saxophone.tagging.structured_chunk import StructuredChunkTagger
+
+        chunk_tagger = overrides.chunk_tagger or StructuredChunkTagger(
+            structured_llm_provider
+        )
+        ingestion_transaction_repository = SqliteIngestionTransactionRepository(
+            ingestion_database
+        )
+        concept_catalog_repository = SqliteConceptCatalogRepository(ingestion_database)
+        vector_state = SqliteVectorIndexStateRepository(ingestion_database)
+        chunk_tagging = DocumentChunkTaggingService(
+            ChunkTaggingTransactionService(
+                ChunkTaggingService(chunk_tagger),
+                ingestion_transaction_repository,
+            ),
+            content_ledger=content_ledger,
+        )
+
+    ingest_extracted_document = overrides.ingest_extracted_document
+    if ingest_extracted_document is None and index_document is not None:
+        if chunk_tagging is not None:
+            ingest_workflow = IngestDocument(
+                None,
+                index_document,
+                chunk_tagging=chunk_tagging,
+                vector_state=vector_state,
+                concept_catalog_repository=concept_catalog_repository,
+                concept_vector_preparation=ConceptCatalogVectorPreparationService(
+                    embedding_provider
+                ),
+            )
+        else:
+            tag_and_persist = tagging_facade.TagAndPersistParagraph(
+                tagging_facade.TagParagraph(tag_generator, tag_conflict_resolver),
+                tagged_paragraph_repository,
+                tag_catalog_repository,
+            )
+            ingest_workflow = IngestDocument(tag_and_persist, index_document)
+        if (
+            document_ingestion is None
+            and chunk_tagging is not None
+            and _supports_vector_sync(vector_index)
+        ):
+            from saxophone.tagging.vector_outbox import SqliteVectorOutboxRepository
+
+            assert ingestion_transaction_repository is not None
+            outbox = SqliteVectorOutboxRepository(ingestion_database)
+            lifecycle = SqliteIngestionStateRepository(ingestion_database)
+            assert vector_state is not None
+            vector_sync = VectorSyncService(
+                outbox,
+                vector_index,
+                state=vector_state,
+            )
+            document_ingestion = DocumentIngestionService(
+                ingest_workflow,
+                vector_sync=vector_sync,
+                lifecycle=lifecycle,
+                event_sink=event_sink,
+            )
+        ingest_extracted_document = workflows_facade.IngestExtractedDocument(
+            artifact_repository,
+            index_document,
+            ingest_document=ingest_workflow,
+            document_ingestion=document_ingestion,
+        )
+
+    return _IngestionComposition(
+        ingestion_database=ingestion_database,
+        embedding_provider=embedding_provider,
+        embedding_reuse=embedding_reuse,
+        content_ledger=content_ledger,
+        knowledge_repository=knowledge_repository,
+        vector_index=vector_index,
+        index_document=index_document,
+        tagged_paragraph_repository=tagged_paragraph_repository,
+        tag_catalog_repository=tag_catalog_repository,
+        tag_generator=tag_generator,
+        tag_conflict_resolver=tag_conflict_resolver,
+        chunk_tagger=chunk_tagger,
+        chunk_tagging=chunk_tagging,
+        ingestion_transaction_repository=ingestion_transaction_repository,
+        concept_catalog_repository=concept_catalog_repository,
+        document_ingestion=document_ingestion,
+        ingest_extracted_document=ingest_extracted_document,
     )
 
 
@@ -615,31 +828,8 @@ def create_app(
 ) -> FastAPI:
     """Compose the sole ASGI application without reading process environment."""
 
-    import saxophone.workflows as workflows_facade
-    from saxophone import tagging as tagging_facade
     from saxophone.chat import AnswerQuestion
-    from saxophone.ingestion import (
-        DocumentChunkTaggingService,
-        DocumentIngestionService,
-        IndexDocument,
-        IngestDocument,
-    )
-    from saxophone.ingestion.adapters import (
-        FileEmbeddingReuseStore,
-        RemoteEmbeddingProvider,
-    )
-    from saxophone.ingestion.concept_embedding import (
-        ConceptCatalogVectorPreparationService,
-    )
-    from saxophone.ingestion.concept_repository import SqliteConceptCatalogRepository
-    from saxophone.ingestion.content_ledger import SqliteContentLedger
-    from saxophone.ingestion.state import SqliteIngestionStateRepository
-    from saxophone.ingestion.transaction import SqliteIngestionTransactionRepository
-    from saxophone.ingestion.vector_state import SqliteVectorIndexStateRepository
-    from saxophone.ingestion.vector_sync import VectorSyncService
-    from saxophone.platform.chroma import create_chroma_vector_index
     from saxophone.platform.concurrency import create_blocking_io_limiter
-    from saxophone.platform.knowledge import JsonKnowledgeRepository
     from saxophone.retrieval import RetrieveEvidence
 
     resolved_overrides = overrides or AppOverrides()
@@ -668,134 +858,32 @@ def create_app(
     process_document = document_composition.process_document
     process_and_persist_document = document_composition.process_and_persist_document
 
-    embedding_provider = resolved_overrides.embedding_provider
-    if embedding_provider is None:
-        embedding_provider = RemoteEmbeddingProvider(
-            model_client,
-            model=settings.litellm_model_profile,
-        )
-
-    tagged_paragraph_repository = resolved_overrides.tagged_paragraph_repository
-    if tagged_paragraph_repository is None:
-        tagged_paragraph_repository = tagging_facade.JsonTaggedParagraphRepository(
-            settings.data_root / "tagged-paragraphs",
-            io_limiter=io_limiter,
-        )
-    tag_catalog_repository = resolved_overrides.tag_catalog_repository
-    if tag_catalog_repository is None:
-        tag_catalog_repository = tagging_facade.JsonTagCatalogRepository(
-            settings.data_root / "tag-catalog.json",
-            io_limiter=io_limiter,
-        )
-    knowledge_repository = resolved_overrides.knowledge_repository
-    if knowledge_repository is None:
-        knowledge_repository = JsonKnowledgeRepository(
-            settings.data_root / "knowledge",
-            io_limiter=io_limiter,
-        )
-    tag_generator = resolved_overrides.tag_generator or tagging_facade.RemoteParagraphTagger(
-        model_client, model=settings.litellm_model_profile,
+    ingestion_composition = _compose_ingestion_services(
+        settings,
+        resolved_overrides,
+        model_client=model_client,
+        structured_llm_provider=structured_llm_provider,
+        event_sink=event_sink,
+        artifact_repository=artifact_repository,
+        io_limiter=io_limiter,
     )
-    tag_conflict_resolver = resolved_overrides.tag_conflict_resolver or tagging_facade.RemoteTagConflictResolver(
-        model_client,
-        model=settings.litellm_model_profile,
-    )
-    ingestion_database = settings.data_root / "ingestion.sqlite3"
-    content_ledger = resolved_overrides.content_ledger
-    if content_ledger is None and settings.chunk_tagging_enabled:
-        content_ledger = SqliteContentLedger(ingestion_database)
-    embedding_reuse = resolved_overrides.embedding_reuse
-    if embedding_reuse is None:
-        embedding_reuse = content_ledger or FileEmbeddingReuseStore(
-            settings.data_root / "embedding-reuse.json", io_limiter=io_limiter
-        )
-    vector_index = resolved_overrides.vector_index
-    if vector_index is None and not resolved_overrides.disable_vector_index:
-        vector_index = create_chroma_vector_index(settings, io_limiter=io_limiter)
-    index_document = resolved_overrides.index_document
-    if index_document is None and vector_index is not None:
-        index_document = IndexDocument(
-            vector_index,
-            embedding_provider,
-            embedding_reuse,
-            knowledge_repository=knowledge_repository,
-        )
-    chunk_tagger: ChunkTagger | None = None
-    chunk_tagging: DocumentChunkTaggingService | None = None
-    ingestion_transaction_repository: SqliteIngestionTransactionRepository | None = None
-    concept_catalog_repository: SqliteConceptCatalogRepository | None = None
-    vector_state: SqliteVectorIndexStateRepository | None = None
-    document_ingestion = resolved_overrides.document_ingestion
-    if settings.chunk_tagging_enabled:
-        from saxophone.tagging.chunk_service import (
-            ChunkTaggingService,
-            ChunkTaggingTransactionService,
-        )
-        from saxophone.tagging.structured_chunk import StructuredChunkTagger
-
-        chunk_tagger = resolved_overrides.chunk_tagger or StructuredChunkTagger(
-            structured_llm_provider
-        )
-        ingestion_transaction_repository = SqliteIngestionTransactionRepository(
-            ingestion_database
-        )
-        concept_catalog_repository = SqliteConceptCatalogRepository(ingestion_database)
-        vector_state = SqliteVectorIndexStateRepository(ingestion_database)
-        chunk_tagging = DocumentChunkTaggingService(
-            ChunkTaggingTransactionService(
-                ChunkTaggingService(chunk_tagger),
-                ingestion_transaction_repository,
-            ),
-            content_ledger=content_ledger,
-        )
-    ingest_extracted_document = resolved_overrides.ingest_extracted_document
-    if ingest_extracted_document is None and index_document is not None:
-        if chunk_tagging is not None:
-            ingest_workflow = IngestDocument(
-                None,
-                index_document,
-                chunk_tagging=chunk_tagging,
-                vector_state=vector_state,
-                concept_catalog_repository=concept_catalog_repository,
-                concept_vector_preparation=ConceptCatalogVectorPreparationService(
-                    embedding_provider
-                ),
-            )
-        else:
-            tag_and_persist = tagging_facade.TagAndPersistParagraph(
-                tagging_facade.TagParagraph(tag_generator, tag_conflict_resolver),
-                tagged_paragraph_repository,
-                tag_catalog_repository,
-            )
-            ingest_workflow = IngestDocument(tag_and_persist, index_document)
-        if (
-            document_ingestion is None
-            and chunk_tagging is not None
-            and _supports_vector_sync(vector_index)
-        ):
-            from saxophone.tagging.vector_outbox import SqliteVectorOutboxRepository
-
-            assert ingestion_transaction_repository is not None
-            outbox = SqliteVectorOutboxRepository(ingestion_database)
-            lifecycle = SqliteIngestionStateRepository(ingestion_database)
-            assert vector_state is not None
-            vector_sync = VectorSyncService(
-                outbox,
-                vector_index,
-                state=vector_state,
-            )
-            document_ingestion = DocumentIngestionService(
-                ingest_workflow,
-                vector_sync=vector_sync,
-                lifecycle=lifecycle,
-                event_sink=event_sink,
-            )
-        ingest_extracted_document = workflows_facade.IngestExtractedDocument(
-            artifact_repository,
-            index_document,
-            ingest_document=ingest_workflow,
-            document_ingestion=document_ingestion,
-        )
+    ingestion_database = ingestion_composition.ingestion_database
+    embedding_provider = ingestion_composition.embedding_provider
+    embedding_reuse = ingestion_composition.embedding_reuse
+    content_ledger = ingestion_composition.content_ledger
+    knowledge_repository = ingestion_composition.knowledge_repository
+    vector_index = ingestion_composition.vector_index
+    index_document = ingestion_composition.index_document
+    tagged_paragraph_repository = ingestion_composition.tagged_paragraph_repository
+    tag_catalog_repository = ingestion_composition.tag_catalog_repository
+    tag_generator = ingestion_composition.tag_generator
+    tag_conflict_resolver = ingestion_composition.tag_conflict_resolver
+    chunk_tagger = ingestion_composition.chunk_tagger
+    chunk_tagging = ingestion_composition.chunk_tagging
+    ingestion_transaction_repository = ingestion_composition.ingestion_transaction_repository
+    concept_catalog_repository = ingestion_composition.concept_catalog_repository
+    document_ingestion = ingestion_composition.document_ingestion
+    ingest_extracted_document = ingestion_composition.ingest_extracted_document
 
     retrieve_evidence = resolved_overrides.retrieve_evidence
     if retrieve_evidence is None and resolved_overrides.retriever is not None:
