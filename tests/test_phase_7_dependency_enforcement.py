@@ -758,18 +758,19 @@ def test_ingestion_workflow_uses_the_public_facade() -> None:
 
 
 def test_tagging_exposes_a_public_application_facade() -> None:
-    """Consumers should receive tagging contracts and workflows from one module."""
+    """Consumers receive lightweight tagging contracts from the public facade."""
 
     from saxophone import tagging
 
     expected = {
+        "ChunkTagger",
+        "ConceptCandidate",
+        "ConceptCandidateExample",
+        "deduplicate_concept_candidates",
         "ExistingTagCandidate",
-        "JsonTagCatalogRepository",
-        "JsonTaggedParagraphRepository",
+        "normalize_concept_label",
         "ParagraphBlock",
-        "RemoteParagraphTagger",
-        "RemoteTagConflictResolver",
-        "TagAndPersistParagraph",
+        "ParagraphConceptRole",
         "TagCatalogRepository",
         "TagConflictResolution",
         "TagConflictResolutionRequest",
@@ -777,11 +778,9 @@ def test_tagging_exposes_a_public_application_facade() -> None:
         "TagGenerationRequest",
         "TagGenerationResult",
         "TagGenerator",
-        "TagParagraph",
         "TagResolution",
         "TaggedParagraph",
         "TaggedParagraphRepository",
-        "parse_chunk_paragraphs",
     }
 
     assert set(tagging.__all__) == expected

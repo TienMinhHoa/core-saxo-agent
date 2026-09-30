@@ -6,38 +6,6 @@ lightweight while existing public imports remain available.
 """
 
 from importlib import import_module
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from .adapters import RemoteParagraphTagger, RemoteTagConflictResolver
-    from .concepts import (
-        ConceptCandidate,
-        ConceptCandidateExample,
-        deduplicate_concept_candidates,
-        normalize_concept_label,
-    )
-    from .models import (
-        ExistingTagCandidate,
-        ParagraphBlock,
-        ParagraphConceptRole,
-        TagConflictResolution,
-        TagConflictResolutionRequest,
-        TagGenerationRequest,
-        TagGenerationResult,
-        TagResolution,
-        TaggedParagraph,
-    )
-    from .persistence import JsonTagCatalogRepository, JsonTaggedParagraphRepository
-    from .ports import (
-        ChunkTagger,
-        TagCatalogRepository,
-        TagConflictResolver,
-        TagGenerator,
-        TaggedParagraphRepository,
-    )
-    from .use_cases import TagAndPersistParagraph, TagParagraph
-    from .parser import parse_chunk_paragraphs
-
 
 _EXPORTS: dict[str, tuple[str, str]] = {
     "RemoteParagraphTagger": (".adapters", "RemoteParagraphTagger"),
@@ -67,27 +35,31 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "parse_chunk_paragraphs": (".parser", "parse_chunk_paragraphs"),
 }
 
-__all__ = [
+# Keep wildcard imports limited to provider-independent tagging contracts.
+# Adapter, persistence, parser, and use-case implementations remain available
+# through explicit lazy attribute access below.
+_ACTIVE_EXPORTS = (
     "ExistingTagCandidate",
-    "JsonTagCatalogRepository",
-    "JsonTaggedParagraphRepository",
     "ParagraphBlock",
-    "RemoteParagraphTagger",
-    "RemoteTagConflictResolver",
-    "TagAndPersistParagraph",
-    "TagCatalogRepository",
+    "ParagraphConceptRole",
     "TagConflictResolution",
     "TagConflictResolutionRequest",
-    "TagConflictResolver",
     "TagGenerationRequest",
     "TagGenerationResult",
-    "TagGenerator",
-    "TagParagraph",
     "TagResolution",
     "TaggedParagraph",
+    "ConceptCandidate",
+    "ConceptCandidateExample",
+    "deduplicate_concept_candidates",
+    "normalize_concept_label",
+    "ChunkTagger",
+    "TagCatalogRepository",
+    "TagConflictResolver",
+    "TagGenerator",
     "TaggedParagraphRepository",
-    "parse_chunk_paragraphs",
-]
+)
+
+__all__ = list(_ACTIVE_EXPORTS)
 
 
 def __getattr__(name: str) -> object:
