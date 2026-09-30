@@ -7,10 +7,10 @@ from types import SimpleNamespace
 
 import saxophone.chat as chat_package
 import saxophone.chat.service as service_module
-import saxophone.interfaces.api as api
 from saxophone.chat import GroundedAnswerService as exported_service
 from saxophone.chat.compatibility import AnswerSource, GroundedAnswerService
 from saxophone.chat.service import GroundedAnswerService as service_module_service
+from saxophone.interfaces import api
 
 
 def test_grounded_answer_service_isolated_behind_compatibility_boundary() -> None:
@@ -57,6 +57,32 @@ namespace = {}
 exec("from saxophone.chat import *", namespace)
 assert "GroundedAnswerService" not in namespace
 assert "saxophone.chat.compatibility" not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
+def test_chat_facade_keeps_active_implementations_lazy_until_requested() -> None:
+    """Keep plain chat imports free of active service implementation modules."""
+
+    script = """
+import importlib
+import sys
+
+package = importlib.import_module("saxophone.chat")
+active_modules = (
+    "saxophone.chat.models",
+    "saxophone.chat.ports",
+    "saxophone.chat.service",
+)
+assert all(name not in sys.modules for name in active_modules)
+
+assert package.ChatResult.__module__ == "saxophone.chat.models"
+assert "saxophone.chat.models" in sys.modules
+assert "saxophone.chat.ports" not in sys.modules
+assert "saxophone.chat.service" not in sys.modules
+
+assert package.AnswerQuestion.__module__ == "saxophone.chat.service"
+assert "saxophone.chat.service" in sys.modules
 """
     subprocess.run([sys.executable, "-c", script], check=True)
 
