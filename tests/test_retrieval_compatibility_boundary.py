@@ -295,6 +295,44 @@ assert all(name not in sys.modules for name in optional_modules)
     subprocess.run([sys.executable, "-c", script], check=True)
 
 
+def test_agent_package_import_defers_implementations_and_preserves_exports() -> None:
+    """Load agent modules only when a public symbol is explicitly requested."""
+
+    script = """
+import importlib
+import sys
+
+package = importlib.import_module("saxophone.agent")
+agent_modules = (
+    "contracts",
+    "document_search",
+    "evidence_selection",
+    "evidence",
+    "ports",
+    "graph",
+    "orchestrator",
+    "state",
+    "policies",
+    "synthesis",
+    "langchain_tools",
+    "web_search",
+    "events",
+    "langchain_callbacks",
+    "streaming",
+    "tracing",
+)
+assert all(f"saxophone.agent.{name}" not in sys.modules for name in agent_modules)
+
+from saxophone.agent import AgentQuestion, MainAgent
+
+assert AgentQuestion.__module__ == "saxophone.agent.contracts"
+assert MainAgent.__module__ == "saxophone.agent.orchestrator"
+assert "saxophone.agent.contracts" in sys.modules
+assert "saxophone.agent.orchestrator" in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
 def test_agent_import_does_not_load_sqlite_hydration_implementation() -> None:
     """Keep storage hydration behind the document-search operation boundary."""
 
