@@ -172,6 +172,14 @@ class _IngestionComposition:
     ingest_extracted_document: IngestExtractedDocument | None
 
 
+@dataclass(frozen=True, slots=True)
+class _LegacyChatComposition:
+    """Compatibility retrieval and chat adapters assembled from application ports."""
+
+    retrieve_evidence: RetrieveEvidence | None
+    answer_question: AnswerQuestion | None
+
+
 def _compose_model_clients(
     settings: AppSettings,
     overrides: AppOverrides,
@@ -548,6 +556,36 @@ def _compose_ingestion_services(
     )
 
 
+def _compose_legacy_chat_services(
+    overrides: AppOverrides,
+    *,
+    image_artifact_gate: ImageArtifactGate | None,
+) -> _LegacyChatComposition:
+    """Build the legacy JSON chat adapters without adding policy to ``create_app``."""
+
+    from saxophone.chat import AnswerQuestion
+    from saxophone.retrieval import RetrieveEvidence
+
+    retrieve_evidence = overrides.retrieve_evidence
+    if retrieve_evidence is None and overrides.retriever is not None:
+        retrieve_evidence = RetrieveEvidence(overrides.retriever)
+    answer_question = overrides.answer_question
+    if (
+        answer_question is None
+        and retrieve_evidence is not None
+        and overrides.answer_generator is not None
+    ):
+        answer_question = AnswerQuestion(
+            retrieve_evidence,
+            overrides.answer_generator,
+            image_artifact_gate,
+        )
+    return _LegacyChatComposition(
+        retrieve_evidence=retrieve_evidence,
+        answer_question=answer_question,
+    )
+
+
 def _compose_agent_services(
     settings: AppSettings,
     overrides: AppOverrides,
@@ -828,9 +866,7 @@ def create_app(
 ) -> FastAPI:
     """Compose the sole ASGI application without reading process environment."""
 
-    from saxophone.chat import AnswerQuestion
     from saxophone.platform.concurrency import create_blocking_io_limiter
-    from saxophone.retrieval import RetrieveEvidence
 
     resolved_overrides = overrides or AppOverrides()
     direct_provider = settings.model_provider == "direct"
@@ -885,20 +921,12 @@ def create_app(
     document_ingestion = ingestion_composition.document_ingestion
     ingest_extracted_document = ingestion_composition.ingest_extracted_document
 
-    retrieve_evidence = resolved_overrides.retrieve_evidence
-    if retrieve_evidence is None and resolved_overrides.retriever is not None:
-        retrieve_evidence = RetrieveEvidence(resolved_overrides.retriever)
-    answer_question = resolved_overrides.answer_question
-    if (
-        answer_question is None
-        and retrieve_evidence is not None
-        and resolved_overrides.answer_generator is not None
-    ):
-        answer_question = AnswerQuestion(
-            retrieve_evidence,
-            resolved_overrides.answer_generator,
-            image_artifact_gate,
-        )
+    legacy_chat = _compose_legacy_chat_services(
+        resolved_overrides,
+        image_artifact_gate=image_artifact_gate,
+    )
+    retrieve_evidence = legacy_chat.retrieve_evidence
+    answer_question = legacy_chat.answer_question
 
     agent_chat = resolved_overrides.agent_chat
     agent_services = _compose_agent_services(settings, resolved_overrides)
