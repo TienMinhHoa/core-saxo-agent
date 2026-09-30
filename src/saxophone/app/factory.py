@@ -138,6 +138,17 @@ class _ModelComposition:
     http_client: httpx.AsyncClient | None
 
 
+@dataclass(frozen=True, slots=True)
+class _DocumentComposition:
+    """Artifact and extraction workflows assembled for one application."""
+
+    pdf_extractor: PdfExtractor | None
+    artifact_repository: ArtifactRepository
+    image_artifact_gate: ImageArtifactGate | None
+    process_document: ProcessDocument | None
+    process_and_persist_document: ProcessAndPersistDocument | None
+
+
 def _compose_model_clients(
     settings: AppSettings,
     overrides: AppOverrides,
@@ -259,6 +270,68 @@ def _compose_model_clients(
         event_sink=event_sink,
         metrics=metrics,
         http_client=http_client,
+    )
+
+
+def _compose_document_services(
+    settings: AppSettings,
+    overrides: AppOverrides,
+    *,
+    direct_provider: bool,
+    model_client: ModelClient,
+    io_limiter: anyio.CapacityLimiter,
+) -> _DocumentComposition:
+    """Build artifact ownership and extraction workflows at one boundary."""
+
+    from saxophone.platform.artifacts import (
+        LocalArtifactRepository,
+        RepositoryBackedImageArtifactGate,
+    )
+
+    pdf_extractor = overrides.pdf_extractor
+    if pdf_extractor is None and not direct_provider:
+        from saxophone.extraction import RemotePdfExtractor
+
+        pdf_extractor = RemotePdfExtractor(
+            model_client,
+            model=settings.litellm_model_profile,
+        )
+
+    artifact_repository = overrides.artifact_repository
+    if artifact_repository is None:
+        artifact_repository = LocalArtifactRepository(
+            settings.data_root / "artifacts",
+            io_limiter=io_limiter,
+        )
+    image_artifact_gate = overrides.image_artifact_gate
+    if image_artifact_gate is None and overrides.image_artifact_resolver is not None:
+        image_artifact_gate = RepositoryBackedImageArtifactGate(
+            artifact_repository,
+            overrides.image_artifact_resolver,
+            io_limiter=io_limiter,
+        )
+
+    process_document = overrides.process_document
+    if process_document is None:
+        from saxophone.workflows import ProcessDocument
+
+        process_document = ProcessDocument(artifact_repository, pdf_extractor)
+    process_and_persist_document = overrides.process_and_persist_document
+    if process_and_persist_document is None and overrides.process_document is None:
+        from saxophone.extraction import RepositoryExtractionArtifactPayloadProvider
+        from saxophone.workflows import ProcessAndPersistDocument
+
+        process_and_persist_document = ProcessAndPersistDocument(
+            process_document,
+            RepositoryExtractionArtifactPayloadProvider(artifact_repository),
+            artifact_repository,
+        )
+    return _DocumentComposition(
+        pdf_extractor=pdf_extractor,
+        artifact_repository=artifact_repository,
+        image_artifact_gate=image_artifact_gate,
+        process_document=process_document,
+        process_and_persist_document=process_and_persist_document,
     )
 
 
@@ -564,10 +637,6 @@ def create_app(
     from saxophone.ingestion.transaction import SqliteIngestionTransactionRepository
     from saxophone.ingestion.vector_state import SqliteVectorIndexStateRepository
     from saxophone.ingestion.vector_sync import VectorSyncService
-    from saxophone.platform.artifacts import (
-        LocalArtifactRepository,
-        RepositoryBackedImageArtifactGate,
-    )
     from saxophone.platform.chroma import create_chroma_vector_index
     from saxophone.platform.concurrency import create_blocking_io_limiter
     from saxophone.platform.knowledge import JsonKnowledgeRepository
@@ -586,14 +655,18 @@ def create_app(
     event_sink = model_composition.event_sink
     metrics = model_composition.metrics
 
-    pdf_extractor = resolved_overrides.pdf_extractor
-    if pdf_extractor is None and not direct_provider:
-        from saxophone.extraction import RemotePdfExtractor
-
-        pdf_extractor = RemotePdfExtractor(
-            model_client,
-            model=settings.litellm_model_profile,
-        )
+    document_composition = _compose_document_services(
+        settings,
+        resolved_overrides,
+        direct_provider=direct_provider,
+        model_client=model_client,
+        io_limiter=io_limiter,
+    )
+    pdf_extractor = document_composition.pdf_extractor
+    artifact_repository = document_composition.artifact_repository
+    image_artifact_gate = document_composition.image_artifact_gate
+    process_document = document_composition.process_document
+    process_and_persist_document = document_composition.process_and_persist_document
 
     embedding_provider = resolved_overrides.embedding_provider
     if embedding_provider is None:
@@ -602,19 +675,6 @@ def create_app(
             model=settings.litellm_model_profile,
         )
 
-    artifact_repository = resolved_overrides.artifact_repository
-    if artifact_repository is None:
-        artifact_repository = LocalArtifactRepository(
-            settings.data_root / "artifacts",
-            io_limiter=io_limiter,
-        )
-    image_artifact_gate = resolved_overrides.image_artifact_gate
-    if image_artifact_gate is None and resolved_overrides.image_artifact_resolver is not None:
-        image_artifact_gate = RepositoryBackedImageArtifactGate(
-            artifact_repository,
-            resolved_overrides.image_artifact_resolver,
-            io_limiter=io_limiter,
-        )
     tagged_paragraph_repository = resolved_overrides.tagged_paragraph_repository
     if tagged_paragraph_repository is None:
         tagged_paragraph_repository = tagging_facade.JsonTaggedParagraphRepository(
@@ -640,18 +700,6 @@ def create_app(
         model_client,
         model=settings.litellm_model_profile,
     )
-    process_document = resolved_overrides.process_document
-    if process_document is None:
-        process_document = workflows_facade.ProcessDocument(artifact_repository, pdf_extractor)
-    process_and_persist_document = resolved_overrides.process_and_persist_document
-    if process_and_persist_document is None and resolved_overrides.process_document is None:
-        from saxophone.extraction import RepositoryExtractionArtifactPayloadProvider
-
-        process_and_persist_document = workflows_facade.ProcessAndPersistDocument(
-            process_document,
-            RepositoryExtractionArtifactPayloadProvider(artifact_repository),
-            artifact_repository,
-        )
     ingestion_database = settings.data_root / "ingestion.sqlite3"
     content_ledger = resolved_overrides.content_ledger
     if content_ledger is None and settings.chunk_tagging_enabled:
