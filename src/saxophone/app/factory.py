@@ -341,6 +341,53 @@ class AppOverrides:
     agent_checkpointer: object | None = None
 
 
+def _configure_application_routes(
+    app: FastAPI,
+    container: AppContainer,
+    settings: AppSettings,
+) -> None:
+    """Attach inbound adapters after application services are composed."""
+
+    from saxophone.interfaces.api import (
+        build_agent_chat_router,
+        build_capability_router,
+    )
+    from saxophone.interfaces.db_browser import build_database_browser_router
+    from saxophone.interfaces.pdf_layout_web import app as pdf_layout_app
+
+    app.include_router(
+        build_capability_router(
+            retrieve_evidence=container.retrieve_evidence,
+            answer_question=container.answer_question,
+            pdf_extractor=container.pdf_extractor,
+            process_workflow=container.process_document,
+            process_and_persist_workflow=container.process_and_persist_document,
+            artifact_repository=container.artifact_repository,
+            image_artifact_resolver=container.image_artifact_resolver,
+            image_artifact_gate=container.image_artifact_gate,
+            index_document=container.index_document,
+            ingest_extracted_document=container.ingest_extracted_document,
+            max_upload_bytes=settings.max_upload_bytes,
+        ),
+    )
+    app.include_router(
+        build_agent_chat_router(
+            agent_chat=container.agent_chat,
+            agent_runner=container.agent_runner,
+            agent_run_manager=container.agent_run_manager,
+            image_artifact_resolver=container.image_artifact_resolver,
+            image_artifact_gate=container.image_artifact_gate,
+        )
+    )
+    database_browser = (
+        container.vector_index
+        if _supports_database_browser(container.vector_index)
+        else None
+    )
+    app.include_router(build_database_browser_router(browser=database_browser))
+    app.mount("/pdf-layout", pdf_layout_app)
+
+
 def create_layout_app() -> FastAPI:
     """Compose PDF layout mode without general model-service dependencies."""
     from saxophone.interfaces.pdf_layout_web import app as pdf_layout_app
@@ -379,11 +426,6 @@ def create_app(
     from saxophone.ingestion.transaction import SqliteIngestionTransactionRepository
     from saxophone.ingestion.vector_state import SqliteVectorIndexStateRepository
     from saxophone.ingestion.vector_sync import VectorSyncService
-    from saxophone.interfaces.api import (
-        build_agent_chat_router,
-        build_capability_router,
-    )
-    from saxophone.interfaces.db_browser import build_database_browser_router
     from saxophone.platform.artifacts import (
         LocalArtifactRepository,
         RepositoryBackedImageArtifactGate,
@@ -780,41 +822,7 @@ def create_app(
         return response
 
     app.state.container = container
-    app.include_router(
-        build_capability_router(
-            retrieve_evidence=container.retrieve_evidence,
-            answer_question=container.answer_question,
-            pdf_extractor=container.pdf_extractor,
-            process_workflow=container.process_document,
-            process_and_persist_workflow=container.process_and_persist_document,
-            artifact_repository=container.artifact_repository,
-            image_artifact_resolver=container.image_artifact_resolver,
-            image_artifact_gate=container.image_artifact_gate,
-            index_document=container.index_document,
-            ingest_extracted_document=container.ingest_extracted_document,
-            max_upload_bytes=settings.max_upload_bytes,
-        ),
-    )
-    app.include_router(
-        build_agent_chat_router(
-            agent_chat=container.agent_chat,
-            agent_runner=container.agent_runner,
-            agent_run_manager=container.agent_run_manager,
-            image_artifact_resolver=container.image_artifact_resolver,
-            image_artifact_gate=container.image_artifact_gate,
-        )
-    )
-    database_browser = (
-        container.vector_index
-        if _supports_database_browser(container.vector_index)
-        else None
-    )
-    app.include_router(
-        build_database_browser_router(browser=database_browser)
-    )
-    from saxophone.interfaces.pdf_layout_web import app as pdf_layout_app
-
-    app.mount("/pdf-layout", pdf_layout_app)
+    _configure_application_routes(app, container, settings)
 
     @app.get("/api/v1/health")
     async def health() -> dict[str, object]:
