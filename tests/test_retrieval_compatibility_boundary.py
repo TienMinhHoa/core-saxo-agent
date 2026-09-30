@@ -223,6 +223,31 @@ assert "saxophone.services.extract_topic" not in sys.modules
     subprocess.run([sys.executable, "-c", script], check=True)
 
 
+def test_factory_import_does_not_load_ingestion_implementations() -> None:
+    """Keep ingestion adapters behind application composition."""
+
+    script = """
+import importlib
+import sys
+
+importlib.import_module("saxophone.app.factory")
+optional_modules = (
+    "saxophone.ingestion.adapters",
+    "saxophone.ingestion.concept_embedding",
+    "saxophone.ingestion.concept_repository",
+    "saxophone.ingestion.content_ledger",
+    "saxophone.ingestion.state",
+    "saxophone.ingestion.transaction",
+    "saxophone.ingestion.vector_state",
+    "saxophone.ingestion.vector_sync",
+    "saxophone.ingestion.use_cases",
+    "saxophone.ingestion.services",
+)
+assert all(name not in sys.modules for name in optional_modules)
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
 def test_workflows_wildcard_import_keeps_pdf_layout_lazy() -> None:
     """Wildcard workflow imports should not pull the optional layout runtime in."""
 

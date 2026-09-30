@@ -2,90 +2,61 @@
 
 from __future__ import annotations
 
+import re
+import sys
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
-import re
-import sys
-from typing import TYPE_CHECKING, AsyncIterator
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
-import httpx
 import anyio
-from fastapi import FastAPI
-from fastapi import Request
+import httpx
+from fastapi import FastAPI, Request
 from fastapi.responses import Response
 
-from saxophone.agent.contracts import RunBudget
-from saxophone.agent.evidence_selection import ParagraphDirectSelector
-from saxophone.agent.graph import AgentGraphDependencies
-from saxophone.agent.orchestrator import MainAgent
-from saxophone.agent.streaming import AgentRunManager
-from saxophone.agent.tracing import AgentTracer
-from saxophone.app.settings import AppSettings
-from saxophone.chat import (
-    AnswerGenerator,
-    AnswerQuestion,
-    ImageArtifactGate,
-)
-from saxophone.documents import ArtifactRepository, ImageArtifactResolver, KnowledgeRepository
-from saxophone.extraction import PdfExtractor
-from saxophone.ingestion.adapters import FileEmbeddingReuseStore, RemoteEmbeddingProvider
-from saxophone.ingestion.concept_embedding import ConceptCatalogVectorPreparationService
-from saxophone.ingestion.concept_repository import SqliteConceptCatalogRepository
-from saxophone.ingestion.content_ledger import SqliteContentLedger
-from saxophone.ingestion import (
-    EmbeddingProvider,
-    EmbeddingReuseStore,
-    DocumentIngestionService,
-    DocumentChunkTaggingService,
-    IngestDocument,
-    IndexDocument,
-    VectorIndex,
-)
-from saxophone.ingestion.state import SqliteIngestionStateRepository
-from saxophone.ingestion.transaction import SqliteIngestionTransactionRepository
-from saxophone.ingestion.vector_state import SqliteVectorIndexStateRepository
-from saxophone.ingestion.vector_sync import VectorSyncService
-from saxophone.platform.artifacts import (
-    LocalArtifactRepository,
-    RepositoryBackedImageArtifactGate,
-)
-from saxophone.platform.chroma import create_chroma_vector_index
-from saxophone.platform.concurrency import create_blocking_io_limiter
-from saxophone.platform.knowledge import JsonKnowledgeRepository
-from saxophone.platform.langfuse_tracing import create_langfuse_tracer
-from saxophone.platform.direct_model_client import DirectApiModelClient
-from saxophone.platform.model_client import LiteLLMModelClient, ModelClient
-from saxophone.platform.observability import (
-    DailyTextFileEventSink,
-    EventMetrics,
-    EventSink,
-    LoggingEventSink,
-)
-from saxophone.platform.remote_gpu import (
-    CachedRemoteGpuGateway,
-    DirectProviderHealthGateway,
-    HttpRemoteGpuGateway,
-    RemoteGpuGateway,
-)
-from saxophone.retrieval import ChunkRetriever, RetrieveEvidence
-from saxophone.retrieval.adapters import VectorIndexChunkRetriever
-from saxophone import tagging as tagging_facade
-from saxophone.interfaces.api import build_agent_chat_router, build_capability_router
-from saxophone.interfaces.db_browser import build_database_browser_router
 import saxophone.workflows as workflows_facade
+from saxophone import tagging as tagging_facade
+from saxophone.app.settings import AppSettings
 
 if TYPE_CHECKING:
+    from saxophone.agent.graph import AgentGraphDependencies
+    from saxophone.agent.orchestrator import MainAgent
+    from saxophone.agent.streaming import AgentRunManager
+    from saxophone.agent.tracing import AgentTracer
+    from saxophone.chat import AnswerGenerator, AnswerQuestion, ImageArtifactGate
     from saxophone.chat.compatibility import GroundedAnswerService
+    from saxophone.documents import (
+        ArtifactRepository,
+        ImageArtifactResolver,
+        KnowledgeRepository,
+    )
+    from saxophone.extraction import PdfExtractor
+    from saxophone.ingestion import (
+        DocumentChunkTaggingService,
+        DocumentIngestionService,
+        EmbeddingProvider,
+        EmbeddingReuseStore,
+        IndexDocument,
+        VectorIndex,
+    )
+    from saxophone.ingestion.concept_repository import SqliteConceptCatalogRepository
+    from saxophone.ingestion.content_ledger import SqliteContentLedger
+    from saxophone.ingestion.transaction import SqliteIngestionTransactionRepository
+    from saxophone.platform.direct_model_client import DirectApiModelClient
+    from saxophone.platform.model_client import ModelClient
+    from saxophone.platform.observability import EventMetrics, EventSink
+    from saxophone.platform.remote_gpu import RemoteGpuGateway
+    from saxophone.retrieval import ChunkRetriever, RetrieveEvidence
     from saxophone.retrieval.question_retrieval import QuestionRetrievalService
     from saxophone.services.extract_topic import ExtractTopicService
     from saxophone.tagging import (
         ChunkTagger,
         TagCatalogRepository,
         TagConflictResolver,
-        TagGenerator,
         TaggedParagraphRepository,
+        TagGenerator,
     )
     from saxophone.tagging.structured_provider import StructuredLlmProvider
 
@@ -156,6 +127,11 @@ def _compose_agent_services(
 ) -> _AgentComposition:
     """Build the optional agent graph runtime and its streaming/tracing helpers."""
 
+    from saxophone.agent.contracts import RunBudget
+    from saxophone.agent.orchestrator import MainAgent
+    from saxophone.agent.streaming import AgentRunManager
+    from saxophone.platform.langfuse_tracing import create_langfuse_tracer
+
     tracer = overrides.tracer or create_langfuse_tracer(settings)
     runner = overrides.agent_runner
     if runner is None and overrides.agent_graph_dependencies is not None:
@@ -198,8 +174,11 @@ def _compose_topic_services(
 
     assert vector_index is not None
     assert embedding_provider is not None
+    from saxophone.agent.evidence_selection import ParagraphDirectSelector
+
     # Load the legacy adapter only when compatibility topic services are composed.
     from saxophone.chat.compatibility import GroundedAnswerService
+    from saxophone.retrieval.adapters import VectorIndexChunkRetriever
     from saxophone.retrieval.question_retrieval import QuestionRetrievalService
     from saxophone.retrieval.sqlite_context import SqliteRetrievalContextRepository
     from saxophone.services.extract_topic import (
@@ -250,6 +229,8 @@ def _create_direct_model_client(
     event_sink: EventSink,
     metrics: EventMetrics | None,
 ) -> DirectApiModelClient:
+    from saxophone.platform.direct_model_client import DirectApiModelClient
+
     assert settings.deepseek_api_key is not None
     assert settings.openai_api_key is not None
     return DirectApiModelClient(
@@ -372,6 +353,51 @@ def create_app(
     overrides: AppOverrides | None = None,
 ) -> FastAPI:
     """Compose the sole ASGI application without reading process environment."""
+
+    from saxophone.chat import AnswerQuestion
+    from saxophone.ingestion import (
+        DocumentChunkTaggingService,
+        DocumentIngestionService,
+        IndexDocument,
+        IngestDocument,
+    )
+    from saxophone.ingestion.adapters import (
+        FileEmbeddingReuseStore,
+        RemoteEmbeddingProvider,
+    )
+    from saxophone.ingestion.concept_embedding import (
+        ConceptCatalogVectorPreparationService,
+    )
+    from saxophone.ingestion.concept_repository import SqliteConceptCatalogRepository
+    from saxophone.ingestion.content_ledger import SqliteContentLedger
+    from saxophone.ingestion.state import SqliteIngestionStateRepository
+    from saxophone.ingestion.transaction import SqliteIngestionTransactionRepository
+    from saxophone.ingestion.vector_state import SqliteVectorIndexStateRepository
+    from saxophone.ingestion.vector_sync import VectorSyncService
+    from saxophone.interfaces.api import (
+        build_agent_chat_router,
+        build_capability_router,
+    )
+    from saxophone.interfaces.db_browser import build_database_browser_router
+    from saxophone.platform.artifacts import (
+        LocalArtifactRepository,
+        RepositoryBackedImageArtifactGate,
+    )
+    from saxophone.platform.chroma import create_chroma_vector_index
+    from saxophone.platform.concurrency import create_blocking_io_limiter
+    from saxophone.platform.knowledge import JsonKnowledgeRepository
+    from saxophone.platform.model_client import LiteLLMModelClient
+    from saxophone.platform.observability import (
+        DailyTextFileEventSink,
+        EventMetrics,
+        LoggingEventSink,
+    )
+    from saxophone.platform.remote_gpu import (
+        CachedRemoteGpuGateway,
+        DirectProviderHealthGateway,
+        HttpRemoteGpuGateway,
+    )
+    from saxophone.retrieval import RetrieveEvidence
 
     resolved_overrides = overrides or AppOverrides()
     direct_provider = settings.model_provider == "direct"
@@ -637,13 +663,16 @@ def create_app(
     if retrieve_evidence is None and resolved_overrides.retriever is not None:
         retrieve_evidence = RetrieveEvidence(resolved_overrides.retriever)
     answer_question = resolved_overrides.answer_question
-    if answer_question is None and retrieve_evidence is not None:
-        if resolved_overrides.answer_generator is not None:
-            answer_question = AnswerQuestion(
-                retrieve_evidence,
-                resolved_overrides.answer_generator,
-                image_artifact_gate,
-            )
+    if (
+        answer_question is None
+        and retrieve_evidence is not None
+        and resolved_overrides.answer_generator is not None
+    ):
+        answer_question = AnswerQuestion(
+            retrieve_evidence,
+            resolved_overrides.answer_generator,
+            image_artifact_gate,
+        )
 
     agent_chat = resolved_overrides.agent_chat
     agent_services = _compose_agent_services(settings, resolved_overrides)
