@@ -9,37 +9,10 @@ stack as a side effect.
 from importlib import import_module
 from typing import TYPE_CHECKING
 
-from .models import ChunkHit, EvidenceBundle
-from .ports import ChunkRetriever
-from .use_cases import RetrieveEvidence
-
 if TYPE_CHECKING:
-    from .question_retrieval import (
-        QuestionRequest,
-        QuestionRetrievalService,
-        RetrievalBundle,
-        RetrievalBundleStatus,
-    )
-    from .role_selection import (
-        ConceptRoleCandidate,
-        ConceptRoleSelection,
-        ConceptRoleSelectionRequest,
-        ConceptRoleSelectionResult,
-        ConceptRoleSelector,
-        RemoteConceptRoleSelector,
-    )
-    from .renderers import ConceptInventory, ConceptInventoryBuilder
-    from .paragraph_traversal import ParagraphTraversal
-    from .paragraph_selection import (
-        ParagraphChoice,
-        ParagraphSelection,
-        ParagraphSelectionRequest,
-        ParagraphSelectionResult,
-        StructuredParagraphSelector,
-        build_paragraph_choices,
-        render_paragraph_choices,
-    )
-    from .context_limiter import ContextLimiter
+    from .models import ChunkHit, EvidenceBundle
+    from .ports import ChunkRetriever
+    from .use_cases import RetrieveEvidence
 
 
 _COMPATIBILITY_EXPORTS = frozenset(
@@ -52,6 +25,10 @@ _COMPATIBILITY_EXPORTS = frozenset(
 )
 
 _LAZY_EXPORT_MODULES = {
+    "ChunkHit": ".models",
+    "EvidenceBundle": ".models",
+    "ChunkRetriever": ".ports",
+    "RetrieveEvidence": ".use_cases",
     "ConceptRoleCandidate": ".role_selection",
     "ConceptRoleSelection": ".role_selection",
     "ConceptRoleSelectionRequest": ".role_selection",
@@ -82,7 +59,9 @@ def __getattr__(name: str) -> object:
     if module_name is None:
         raise AttributeError(name)
     module = import_module(module_name, __name__)
-    return getattr(module, name)
+    value = getattr(module, name)
+    globals()[name] = value
+    return value
 
 __all__ = [
     "ChunkHit",

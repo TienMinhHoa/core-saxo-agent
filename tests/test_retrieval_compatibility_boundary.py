@@ -78,6 +78,29 @@ assert "saxophone.retrieval.context_limiter" in sys.modules
     subprocess.run([sys.executable, "-c", script], check=True)
 
 
+def test_retrieval_facade_keeps_active_implementations_lazy() -> None:
+    """Keep even the active retrieval implementations behind explicit access."""
+
+    script = """
+import importlib
+import sys
+
+package = importlib.import_module("saxophone.retrieval")
+active_modules = (
+    "saxophone.retrieval.models",
+    "saxophone.retrieval.ports",
+    "saxophone.retrieval.use_cases",
+)
+assert all(name not in sys.modules for name in active_modules)
+
+assert package.ChunkHit.__module__ == "saxophone.retrieval.models"
+assert package.ChunkRetriever.__module__ == "saxophone.retrieval.ports"
+assert package.RetrieveEvidence.__module__ == "saxophone.retrieval.use_cases"
+assert all(name in sys.modules for name in active_modules)
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
 def test_factory_import_does_not_load_legacy_question_retrieval() -> None:
     """Keep composition-root imports free of the compatibility retrieval graph."""
 
