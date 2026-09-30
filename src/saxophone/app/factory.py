@@ -72,11 +72,6 @@ from saxophone.platform.remote_gpu import (
 from saxophone.retrieval import ChunkRetriever, RetrieveEvidence
 from saxophone.retrieval.adapters import VectorIndexChunkRetriever
 from saxophone import tagging as tagging_facade
-from saxophone.services.extract_topic import (
-    DocumentIngestionFacadeAdapter,
-    DocumentTaggingFacadeAdapter,
-    ExtractTopicService,
-)
 from saxophone.interfaces.api import build_agent_chat_router, build_capability_router
 from saxophone.interfaces.db_browser import build_database_browser_router
 import saxophone.workflows as workflows_facade
@@ -84,6 +79,7 @@ import saxophone.workflows as workflows_facade
 if TYPE_CHECKING:
     from saxophone.chat.compatibility import GroundedAnswerService
     from saxophone.retrieval.question_retrieval import QuestionRetrievalService
+    from saxophone.services.extract_topic import ExtractTopicService
     from saxophone.tagging import (
         ChunkTagger,
         TagCatalogRepository,
@@ -202,11 +198,15 @@ def _compose_topic_services(
 
     assert vector_index is not None
     assert embedding_provider is not None
-    from saxophone.retrieval.question_retrieval import QuestionRetrievalService
-    from saxophone.retrieval.sqlite_context import SqliteRetrievalContextRepository
-
     # Load the legacy adapter only when compatibility topic services are composed.
     from saxophone.chat.compatibility import GroundedAnswerService
+    from saxophone.retrieval.question_retrieval import QuestionRetrievalService
+    from saxophone.retrieval.sqlite_context import SqliteRetrievalContextRepository
+    from saxophone.services.extract_topic import (
+        DocumentIngestionFacadeAdapter,
+        DocumentTaggingFacadeAdapter,
+        ExtractTopicService,
+    )
 
     question_retrieval = QuestionRetrievalService(
         retriever=VectorIndexChunkRetriever(embedding_provider, vector_index),

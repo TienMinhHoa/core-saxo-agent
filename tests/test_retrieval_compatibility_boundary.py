@@ -210,6 +210,19 @@ assert all(name not in sys.modules for name in optional_modules)
     subprocess.run([sys.executable, "-c", script], check=True)
 
 
+def test_factory_import_does_not_load_legacy_topic_service() -> None:
+    """Keep the compatibility topic service behind topic composition."""
+
+    script = """
+import importlib
+import sys
+
+importlib.import_module("saxophone.app.factory")
+assert "saxophone.services.extract_topic" not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
 def test_workflows_wildcard_import_keeps_pdf_layout_lazy() -> None:
     """Wildcard workflow imports should not pull the optional layout runtime in."""
 
