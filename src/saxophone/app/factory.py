@@ -45,7 +45,7 @@ if TYPE_CHECKING:
     from saxophone.platform.direct_model_client import DirectApiModelClient
     from saxophone.platform.model_client import ModelClient
     from saxophone.platform.observability import EventMetrics, EventSink
-    from saxophone.platform.remote_gpu import RemoteGpuGateway
+    from saxophone.platform.remote_gpu import CachedRemoteGpuGateway, RemoteGpuGateway
     from saxophone.retrieval import ChunkRetriever, RetrieveEvidence
     from saxophone.retrieval.question_retrieval import QuestionRetrievalService
     from saxophone.services.extract_topic import ExtractTopicService
@@ -122,6 +122,144 @@ class _AgentComposition:
     runner: MainAgent | None
     run_manager: AgentRunManager | None
     tracer: AgentTracer | None
+
+
+@dataclass(frozen=True, slots=True)
+class _ModelComposition:
+    """Model, health, and structured-provider dependencies for one app."""
+
+    remote_gpu_gateway: RemoteGpuGateway
+    cached_remote_gpu_gateway: CachedRemoteGpuGateway
+    model_client: ModelClient
+    structured_llm_provider: StructuredLlmProvider
+    agent_structured_llm_provider: StructuredLlmProvider
+    event_sink: EventSink
+    metrics: EventMetrics | None
+    http_client: httpx.AsyncClient | None
+
+
+def _compose_model_clients(
+    settings: AppSettings,
+    overrides: AppOverrides,
+) -> _ModelComposition:
+    """Build shared model transports and structured providers once per app."""
+
+    from saxophone.platform.model_client import LiteLLMModelClient
+    from saxophone.platform.observability import (
+        DailyTextFileEventSink,
+        EventMetrics,
+        LoggingEventSink,
+    )
+    from saxophone.platform.remote_gpu import (
+        CachedRemoteGpuGateway,
+        DirectProviderHealthGateway,
+        HttpRemoteGpuGateway,
+    )
+
+    direct_provider = settings.model_provider == "direct"
+    http_client: httpx.AsyncClient | None = None
+    remote_gpu_gateway = overrides.remote_gpu_gateway
+    model_client = overrides.model_client
+    if overrides.event_sink is None:
+        metrics = EventMetrics()
+        event_sink = DailyTextFileEventSink(
+            Path("logs"),
+            metrics=metrics,
+            progress_stream=sys.stdout,
+        )
+    else:
+        event_sink = overrides.event_sink
+        metrics = event_sink.metrics if isinstance(event_sink, LoggingEventSink) else None
+    if remote_gpu_gateway is None or model_client is None:
+        http_client = httpx.AsyncClient(verify=settings.remote_gpu_tls_verify)
+    if remote_gpu_gateway is None:
+        if direct_provider:
+            assert settings.deepseek_api_key is not None
+            assert settings.openai_api_key is not None
+            remote_gpu_gateway = DirectProviderHealthGateway(
+                http_client=http_client,
+                deepseek_api_base_url=settings.deepseek_api_base_url,
+                deepseek_api_key=settings.deepseek_api_key,
+                openai_api_base_url=settings.openai_api_base_url,
+                openai_api_key=settings.openai_api_key,
+                timeout_seconds=settings.remote_gpu_health_timeout_seconds,
+            )
+        else:
+            remote_gpu_gateway = HttpRemoteGpuGateway(
+                settings,
+                http_client=http_client,
+                timeout_seconds=settings.remote_gpu_health_timeout_seconds,
+            )
+    cached_remote_gpu_gateway = CachedRemoteGpuGateway(
+        remote_gpu_gateway,
+        ttl_seconds=settings.remote_gpu_health_cache_seconds,
+    )
+    if model_client is None:
+        if direct_provider:
+            model_client = _create_direct_model_client(
+                settings,
+                http_client=http_client,
+                deepseek_model=settings.deepseek_model,
+                event_sink=event_sink,
+                metrics=metrics,
+            )
+        else:
+            model_client = LiteLLMModelClient(
+                settings.litellm_endpoint,
+                http_client=http_client,
+                bearer_token=settings.remote_gpu_bearer_token,
+                timeout_seconds=settings.litellm_timeout_seconds,
+                max_attempts=settings.litellm_max_attempts,
+                retry_backoff_seconds=settings.litellm_retry_backoff_seconds,
+                retry_jitter_ratio=settings.litellm_retry_jitter_ratio,
+                circuit_breaker_failure_threshold=settings.litellm_circuit_breaker_failure_threshold,
+                circuit_breaker_cooldown_seconds=settings.litellm_circuit_breaker_cooldown_seconds,
+                event_sink=event_sink,
+                metrics=metrics,
+            )
+    structured_llm_provider = overrides.structured_llm_provider
+    if structured_llm_provider is None:
+        from saxophone.tagging.structured_provider import (
+            RemoteStructuredLlmProvider,
+            StructuredOutputMode,
+        )
+
+        structured_llm_provider = RemoteStructuredLlmProvider(
+            model_client,
+            model=settings.litellm_model_profile,
+            mode=StructuredOutputMode(settings.litellm_structured_output_mode),
+        )
+    agent_structured_llm_provider = overrides.agent_structured_llm_provider
+    if agent_structured_llm_provider is None:
+        from saxophone.tagging.structured_provider import (
+            RemoteStructuredLlmProvider,
+            StructuredOutputMode,
+        )
+
+        agent_model_client = model_client
+        if direct_provider and overrides.model_client is None:
+            agent_model_client = _create_direct_model_client(
+                settings,
+                http_client=http_client,
+                deepseek_model=settings.agent_chat_model,
+                event_sink=event_sink,
+                metrics=metrics,
+            )
+        agent_structured_llm_provider = RemoteStructuredLlmProvider(
+            agent_model_client,
+            model=settings.agent_chat_model,
+            mode=StructuredOutputMode(settings.litellm_structured_output_mode),
+        )
+    return _ModelComposition(
+        remote_gpu_gateway=remote_gpu_gateway,
+        cached_remote_gpu_gateway=cached_remote_gpu_gateway,
+        model_client=model_client,
+        structured_llm_provider=structured_llm_provider,
+        agent_structured_llm_provider=agent_structured_llm_provider,
+        event_sink=event_sink,
+        metrics=metrics,
+        http_client=http_client,
+    )
 
 
 def _compose_agent_services(
@@ -433,115 +571,20 @@ def create_app(
     from saxophone.platform.chroma import create_chroma_vector_index
     from saxophone.platform.concurrency import create_blocking_io_limiter
     from saxophone.platform.knowledge import JsonKnowledgeRepository
-    from saxophone.platform.model_client import LiteLLMModelClient
-    from saxophone.platform.observability import (
-        DailyTextFileEventSink,
-        EventMetrics,
-        LoggingEventSink,
-    )
-    from saxophone.platform.remote_gpu import (
-        CachedRemoteGpuGateway,
-        DirectProviderHealthGateway,
-        HttpRemoteGpuGateway,
-    )
     from saxophone.retrieval import RetrieveEvidence
 
     resolved_overrides = overrides or AppOverrides()
     direct_provider = settings.model_provider == "direct"
     io_limiter = create_blocking_io_limiter()
-    http_client: httpx.AsyncClient | None = None
-    remote_gpu_gateway = resolved_overrides.remote_gpu_gateway
-    model_client = resolved_overrides.model_client
-    if resolved_overrides.event_sink is None:
-        metrics = EventMetrics()
-        event_sink = DailyTextFileEventSink(
-            Path("logs"),
-            metrics=metrics,
-            progress_stream=sys.stdout,
-        )
-    else:
-        event_sink = resolved_overrides.event_sink
-        metrics = event_sink.metrics if isinstance(event_sink, LoggingEventSink) else None
-    if remote_gpu_gateway is None or model_client is None:
-        http_client = httpx.AsyncClient(verify=settings.remote_gpu_tls_verify)
-    if remote_gpu_gateway is None:
-        if direct_provider:
-            assert settings.deepseek_api_key is not None
-            assert settings.openai_api_key is not None
-            remote_gpu_gateway = DirectProviderHealthGateway(
-                http_client=http_client,
-                deepseek_api_base_url=settings.deepseek_api_base_url,
-                deepseek_api_key=settings.deepseek_api_key,
-                openai_api_base_url=settings.openai_api_base_url,
-                openai_api_key=settings.openai_api_key,
-                timeout_seconds=settings.remote_gpu_health_timeout_seconds,
-            )
-        else:
-            remote_gpu_gateway = HttpRemoteGpuGateway(
-                settings,
-                http_client=http_client,
-                timeout_seconds=settings.remote_gpu_health_timeout_seconds,
-            )
-    cached_remote_gpu_gateway = CachedRemoteGpuGateway(
-        remote_gpu_gateway,
-        ttl_seconds=settings.remote_gpu_health_cache_seconds,
-    )
-    if model_client is None:
-        if direct_provider:
-            model_client = _create_direct_model_client(
-                settings,
-                http_client=http_client,
-                deepseek_model=settings.deepseek_model,
-                event_sink=event_sink,
-                metrics=metrics,
-            )
-        else:
-            model_client = LiteLLMModelClient(
-                settings.litellm_endpoint,
-                http_client=http_client,
-                bearer_token=settings.remote_gpu_bearer_token,
-                timeout_seconds=settings.litellm_timeout_seconds,
-                max_attempts=settings.litellm_max_attempts,
-                retry_backoff_seconds=settings.litellm_retry_backoff_seconds,
-                retry_jitter_ratio=settings.litellm_retry_jitter_ratio,
-                circuit_breaker_failure_threshold=settings.litellm_circuit_breaker_failure_threshold,
-                circuit_breaker_cooldown_seconds=settings.litellm_circuit_breaker_cooldown_seconds,
-                event_sink=event_sink,
-                metrics=metrics,
-            )
-    structured_llm_provider = resolved_overrides.structured_llm_provider
-    if structured_llm_provider is None:
-        from saxophone.tagging.structured_provider import (
-            RemoteStructuredLlmProvider,
-            StructuredOutputMode,
-        )
-
-        structured_llm_provider = RemoteStructuredLlmProvider(
-            model_client,
-            model=settings.litellm_model_profile,
-            mode=StructuredOutputMode(settings.litellm_structured_output_mode),
-        )
-    agent_structured_llm_provider = resolved_overrides.agent_structured_llm_provider
-    if agent_structured_llm_provider is None:
-        from saxophone.tagging.structured_provider import (
-            RemoteStructuredLlmProvider,
-            StructuredOutputMode,
-        )
-
-        agent_model_client = model_client
-        if direct_provider and resolved_overrides.model_client is None:
-            agent_model_client = _create_direct_model_client(
-                settings,
-                http_client=http_client,
-                deepseek_model=settings.agent_chat_model,
-                event_sink=event_sink,
-                metrics=metrics,
-            )
-        agent_structured_llm_provider = RemoteStructuredLlmProvider(
-            agent_model_client,
-            model=settings.agent_chat_model,
-            mode=StructuredOutputMode(settings.litellm_structured_output_mode),
-        )
+    model_composition = _compose_model_clients(settings, resolved_overrides)
+    http_client = model_composition.http_client
+    remote_gpu_gateway = model_composition.remote_gpu_gateway
+    cached_remote_gpu_gateway = model_composition.cached_remote_gpu_gateway
+    model_client = model_composition.model_client
+    structured_llm_provider = model_composition.structured_llm_provider
+    agent_structured_llm_provider = model_composition.agent_structured_llm_provider
+    event_sink = model_composition.event_sink
+    metrics = model_composition.metrics
 
     pdf_extractor = resolved_overrides.pdf_extractor
     if pdf_extractor is None and not direct_provider:
