@@ -248,6 +248,20 @@ assert all(name not in sys.modules for name in optional_modules)
     subprocess.run([sys.executable, "-c", script], check=True)
 
 
+def test_factory_import_does_not_load_workflow_or_tagging_facades() -> None:
+    """Keep even public implementation facades behind app composition."""
+
+    script = """
+import importlib
+import sys
+
+importlib.import_module("saxophone.app.factory")
+assert "saxophone.workflows" not in sys.modules
+assert "saxophone.tagging" not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
 def test_workflows_wildcard_import_keeps_pdf_layout_lazy() -> None:
     """Wildcard workflow imports should not pull the optional layout runtime in."""
 

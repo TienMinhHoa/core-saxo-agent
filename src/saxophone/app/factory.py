@@ -16,8 +16,6 @@ import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import Response
 
-import saxophone.workflows as workflows_facade
-from saxophone import tagging as tagging_facade
 from saxophone.app.settings import AppSettings
 
 if TYPE_CHECKING:
@@ -59,6 +57,11 @@ if TYPE_CHECKING:
         TagGenerator,
     )
     from saxophone.tagging.structured_provider import StructuredLlmProvider
+    from saxophone.workflows import (
+        IngestExtractedDocument,
+        ProcessAndPersistDocument,
+        ProcessDocument,
+    )
 
 
 def _capability_status(*, configured: bool, model_service_status: str) -> str:
@@ -275,10 +278,10 @@ class AppContainer:
     artifact_repository: ArtifactRepository | None = None
     image_artifact_resolver: ImageArtifactResolver | None = None
     image_artifact_gate: ImageArtifactGate | None = None
-    process_document: workflows_facade.ProcessDocument | None = None
-    process_and_persist_document: workflows_facade.ProcessAndPersistDocument | None = None
+    process_document: ProcessDocument | None = None
+    process_and_persist_document: ProcessAndPersistDocument | None = None
     index_document: IndexDocument | None = None
-    ingest_extracted_document: workflows_facade.IngestExtractedDocument | None = None
+    ingest_extracted_document: IngestExtractedDocument | None = None
     tagged_paragraph_repository: TaggedParagraphRepository | None = None
     tag_catalog_repository: TagCatalogRepository | None = None
     tag_generator: TagGenerator | None = None
@@ -318,12 +321,12 @@ class AppOverrides:
     content_ledger: SqliteContentLedger | None = None
     artifact_repository: ArtifactRepository | None = None
     image_artifact_resolver: ImageArtifactResolver | None = None
-    process_document: workflows_facade.ProcessDocument | None = None
-    process_and_persist_document: workflows_facade.ProcessAndPersistDocument | None = None
+    process_document: ProcessDocument | None = None
+    process_and_persist_document: ProcessAndPersistDocument | None = None
     vector_index: VectorIndex | None = None
     disable_vector_index: bool = False
     index_document: IndexDocument | None = None
-    ingest_extracted_document: workflows_facade.IngestExtractedDocument | None = None
+    ingest_extracted_document: IngestExtractedDocument | None = None
     tagged_paragraph_repository: TaggedParagraphRepository | None = None
     tag_catalog_repository: TagCatalogRepository | None = None
     tag_generator: TagGenerator | None = None
@@ -354,6 +357,8 @@ def create_app(
 ) -> FastAPI:
     """Compose the sole ASGI application without reading process environment."""
 
+    import saxophone.workflows as workflows_facade
+    from saxophone import tagging as tagging_facade
     from saxophone.chat import AnswerQuestion
     from saxophone.ingestion import (
         DocumentChunkTaggingService,
