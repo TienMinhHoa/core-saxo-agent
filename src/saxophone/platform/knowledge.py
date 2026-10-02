@@ -75,7 +75,13 @@ class JsonKnowledgeRepository:
             "paragraph_count": chunk.paragraph_count,
             "image_count": chunk.image_count,
         }
-        _write_json_atomically(self._path_for(chunk.chunk_id), payload)
+        _write_json_atomically(
+            self._path_for(
+                chunk.chunk_id,
+                exact_root_error="root path must not contain a symbolic link",
+            ),
+            payload,
+        )
 
     def _read(self, chunk_id: str) -> dict[str, object]:
         with self._path_for(chunk_id).open(encoding="utf-8") as stored:
@@ -92,8 +98,13 @@ class JsonKnowledgeRepository:
     def _delete(self, chunk_id: str) -> None:
         self._path_for(chunk_id).unlink()
 
-    def _path_for(self, chunk_id: str) -> Path:
-        _reject_symbolic_link_in_path(self._root)
+    def _path_for(
+        self,
+        chunk_id: str,
+        *,
+        exact_root_error: str = "root must not be a symbolic link",
+    ) -> Path:
+        _reject_symbolic_link_in_path(self._root, exact_root_error=exact_root_error)
         if not isinstance(chunk_id, str) or not chunk_id.strip():
             raise ValueError("chunk_id must not be blank")
         digest = hashlib.sha256(chunk_id.encode("utf-8")).hexdigest()
@@ -119,7 +130,11 @@ def _write_json_atomically(path: Path, payload: object) -> None:
         raise
 
 
-def _reject_symbolic_link_in_path(path: Path) -> None:
+def _reject_symbolic_link_in_path(
+    path: Path,
+    *,
+    exact_root_error: str = "root must not be a symbolic link",
+) -> None:
     """Reject a root whose explicit path crosses a symbolic-link component."""
 
     absolute_path = path.absolute()
@@ -128,5 +143,5 @@ def _reject_symbolic_link_in_path(path: Path) -> None:
         current /= component
         if current.is_symlink():
             if current == absolute_path:
-                raise ValueError("root must not be a symbolic link")
+                raise ValueError(exact_root_error)
             raise ValueError("root path must not contain a symbolic link")

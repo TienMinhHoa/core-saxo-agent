@@ -724,6 +724,25 @@ async def test_chroma_search_preserves_valid_scalar_filters() -> None:
 
 
 @pytest.mark.anyio
+async def test_chroma_search_omits_empty_where_clause() -> None:
+    class _UnfilteredCollection:
+        def query(self, **kwargs):
+            assert "where" not in kwargs
+            return {
+                "ids": [["chunk-1"]],
+                "documents": [["source text"]],
+                "metadatas": [[{"chunk_id": "chunk-1", "source_version": "extract-v1"}]],
+                "distances": [[0.2]],
+            }
+
+    index = ChromaVectorIndex(_UnfilteredCollection())
+
+    hits = await index.search((0.3, 0.4), limit=1)
+
+    assert [hit.chunk_id for hit in hits] == ["chunk-1"]
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     "result",
     [

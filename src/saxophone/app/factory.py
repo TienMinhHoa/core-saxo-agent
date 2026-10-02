@@ -2,109 +2,66 @@
 
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
-from dataclasses import asdict, dataclass
-from pathlib import Path
 import re
 import sys
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from dataclasses import asdict, dataclass, replace
+from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
-import httpx
 import anyio
-from fastapi import FastAPI
-from fastapi import Request
+import httpx
+from fastapi import FastAPI, Request
 from fastapi.responses import Response
 
 from saxophone.app.settings import AppSettings
-from saxophone.chat import (
-    AnswerGenerator,
-    AnswerQuestion,
-    GroundedAnswerService,
-    ImageArtifactGate,
-)
-from saxophone.documents import ArtifactRepository, ImageArtifactResolver, KnowledgeRepository
-from saxophone.extraction import (
-    PdfExtractor,
-    RemotePdfExtractor,
-    RepositoryExtractionArtifactPayloadProvider,
-)
-from saxophone.ingestion.adapters import FileEmbeddingReuseStore, RemoteEmbeddingProvider
-from saxophone.ingestion.concept_embedding import ConceptCatalogVectorPreparationService
-from saxophone.ingestion.concept_repository import SqliteConceptCatalogRepository
-from saxophone.ingestion.content_ledger import SqliteContentLedger
-from saxophone.ingestion import (
-    EmbeddingProvider,
-    EmbeddingReuseStore,
-    DocumentIngestionService,
-    DocumentChunkTaggingService,
-    IngestDocument,
-    IndexDocument,
-    VectorIndex,
-)
-from saxophone.ingestion.state import SqliteIngestionStateRepository
-from saxophone.ingestion.transaction import SqliteIngestionTransactionRepository
-from saxophone.ingestion.vector_state import SqliteVectorIndexStateRepository
-from saxophone.ingestion.vector_sync import VectorSyncService
-from saxophone.platform.artifacts import (
-    LocalArtifactRepository,
-    RepositoryBackedImageArtifactGate,
-)
-from saxophone.platform.chroma import create_chroma_vector_index
-from saxophone.platform.concurrency import create_blocking_io_limiter
-from saxophone.platform.knowledge import JsonKnowledgeRepository
-from saxophone.platform.direct_model_client import DirectApiModelClient
-from saxophone.platform.model_client import LiteLLMModelClient, ModelClient
-from saxophone.platform.observability import (
-    DailyTextFileEventSink,
-    EventMetrics,
-    EventSink,
-    LoggingEventSink,
-)
-from saxophone.platform.remote_gpu import (
-    CachedRemoteGpuGateway,
-    DirectProviderHealthGateway,
-    HttpRemoteGpuGateway,
-    RemoteGpuGateway,
-)
-from saxophone.retrieval import ChunkRetriever, QuestionRetrievalService, RetrieveEvidence
-from saxophone.retrieval.adapters import VectorIndexChunkRetriever
-from saxophone.retrieval.paragraph_selection import StructuredParagraphSelector
-from saxophone.retrieval.sqlite_context import SqliteRetrievalContextRepository
-from saxophone.services.extract_topic import (
-    DocumentIngestionFacadeAdapter,
-    DocumentTaggingFacadeAdapter,
-    ExtractTopicService,
-)
-from saxophone.tagging import (
-    JsonTagCatalogRepository,
-    JsonTaggedParagraphRepository,
-    RemoteParagraphTagger,
-    RemoteTagConflictResolver,
-    TagAndPersistParagraph,
-    TagCatalogRepository,
-    TagConflictResolver,
-    TagGenerator,
-    TagParagraph,
-    TaggedParagraphRepository,
-    ChunkTagger,
-)
-from saxophone.tagging.chunk_service import ChunkTaggingService, ChunkTaggingTransactionService
-from saxophone.tagging.structured_chunk import StructuredChunkTagger
-from saxophone.tagging.vector_outbox import SqliteVectorOutboxRepository
-from saxophone.tagging.structured_provider import (
-    RemoteStructuredLlmProvider,
-    StructuredLlmProvider,
-    StructuredOutputMode,
-)
-from saxophone.interfaces.api import build_agent_chat_router, build_capability_router
-from saxophone.interfaces.db_browser import build_database_browser_router
-from saxophone.interfaces.pdf_layout_web import app as pdf_layout_app
-from saxophone.workflows import (
-    IngestExtractedDocument,
-    ProcessAndPersistDocument,
-    ProcessDocument,
-)
+
+if TYPE_CHECKING:
+    from saxophone.agent.graph import AgentGraphDependencies
+    from saxophone.agent.orchestrator import MainAgent
+    from saxophone.agent.streaming import AgentRunManager
+    from saxophone.agent.tracing import AgentTracer
+    from saxophone.chat import AnswerGenerator, AnswerQuestion, ImageArtifactGate
+    from saxophone.chat.compatibility import GroundedAnswerService
+    from saxophone.documents import (
+        ArtifactRepository,
+        ImageArtifactResolver,
+        KnowledgeRepository,
+    )
+    from saxophone.extraction import PdfExtractor
+    from saxophone.ingestion import (
+        DocumentChunkTaggingService,
+        DocumentIngestionService,
+        EmbeddingProvider,
+        EmbeddingReuseStore,
+        IndexDocument,
+        VectorIndex,
+    )
+    from saxophone.ingestion.concept_repository import SqliteConceptCatalogRepository
+    from saxophone.ingestion.content_ledger import SqliteContentLedger
+    from saxophone.ingestion.transaction import SqliteIngestionTransactionRepository
+    from saxophone.platform.direct_model_client import DirectApiModelClient
+    from saxophone.platform.model_client import ModelClient
+    from saxophone.platform.observability import EventMetrics, EventSink
+    from saxophone.platform.remote_gpu import CachedRemoteGpuGateway, RemoteGpuGateway
+    from saxophone.retrieval import ChunkRetriever, RetrieveEvidence
+    from saxophone.retrieval.question_retrieval import QuestionRetrievalService
+    from saxophone.services.extract_topic import ExtractTopicService
+    from saxophone.tagging import (
+        ChunkTagger,
+        TagCatalogRepository,
+        TagConflictResolver,
+        TaggedParagraphRepository,
+        TagGenerator,
+    )
+    from saxophone.tagging.structured_provider import StructuredLlmProvider
+    from saxophone.workflows import (
+        IngestExtractedDocument,
+        ProcessAndPersistDocument,
+        ProcessDocument,
+    )
 
 
 def _capability_status(*, configured: bool, model_service_status: str) -> str:
@@ -148,141 +105,105 @@ def _supports_topic_retrieval(
     )
 
 
-def _supports_database_browser(vector_index: object | None) -> bool:
-    return vector_index is not None and all(
-        callable(getattr(vector_index, method, None))
-        for method in ("list_collections", "get_records")
-    )
+@dataclass(frozen=True, slots=True)
+class _TopicComposition:
+    """Compatibility topic services assembled from the shared retrieval ports."""
 
-
-def _create_direct_model_client(
-    settings: AppSettings,
-    *,
-    http_client: httpx.AsyncClient,
-    deepseek_model: str,
-    event_sink: EventSink,
-    metrics: EventMetrics | None,
-) -> DirectApiModelClient:
-    assert settings.deepseek_api_key is not None
-    assert settings.openai_api_key is not None
-    return DirectApiModelClient(
-        http_client=http_client,
-        deepseek_api_base_url=settings.deepseek_api_base_url,
-        deepseek_api_key=settings.deepseek_api_key,
-        deepseek_model=deepseek_model,
-        deepseek_reasoning_effort=settings.deepseek_reasoning_effort,
-        deepseek_max_tokens=settings.deepseek_max_tokens,
-        openai_api_base_url=settings.openai_api_base_url,
-        openai_api_key=settings.openai_api_key,
-        openai_embedding_model=settings.openai_embedding_model,
-        embedding_dimension=settings.embedding_dimension,
-        timeout_seconds=settings.litellm_timeout_seconds,
-        max_attempts=settings.litellm_max_attempts,
-        retry_backoff_seconds=settings.litellm_retry_backoff_seconds,
-        event_sink=event_sink,
-        metrics=metrics,
-    )
+    question_retrieval: QuestionRetrievalService | None
+    grounded_answer: GroundedAnswerService | None
+    agent_chat: GroundedAnswerService | None
+    extract_topic: ExtractTopicService | None
 
 
 @dataclass(frozen=True, slots=True)
-class AppContainer:
-    """Explicit dependencies owned by one application instance."""
+class _AgentComposition:
+    """Agent runtime collaborators assembled from overrides and settings."""
 
-    settings: AppSettings
+    runner: MainAgent | None
+    run_manager: AgentRunManager | None
+    tracer: AgentTracer | None
+
+
+@dataclass(frozen=True, slots=True)
+class _ModelComposition:
+    """Model, health, and structured-provider dependencies for one app."""
+
     remote_gpu_gateway: RemoteGpuGateway
+    cached_remote_gpu_gateway: CachedRemoteGpuGateway
     model_client: ModelClient
     structured_llm_provider: StructuredLlmProvider
     agent_structured_llm_provider: StructuredLlmProvider
     event_sink: EventSink
-    metrics: EventMetrics | None = None
-    http_client: httpx.AsyncClient | None = None
-    retrieve_evidence: RetrieveEvidence | None = None
-    answer_question: AnswerQuestion | None = None
-    pdf_extractor: PdfExtractor | None = None
-    embedding_provider: EmbeddingProvider | None = None
-    embedding_reuse: EmbeddingReuseStore | None = None
-    content_ledger: SqliteContentLedger | None = None
-    vector_index: VectorIndex | None = None
-    artifact_repository: ArtifactRepository | None = None
-    image_artifact_resolver: ImageArtifactResolver | None = None
-    image_artifact_gate: ImageArtifactGate | None = None
-    process_document: ProcessDocument | None = None
-    process_and_persist_document: ProcessAndPersistDocument | None = None
-    index_document: IndexDocument | None = None
-    ingest_extracted_document: IngestExtractedDocument | None = None
-    tagged_paragraph_repository: TaggedParagraphRepository | None = None
-    tag_catalog_repository: TagCatalogRepository | None = None
-    tag_generator: TagGenerator | None = None
-    tag_conflict_resolver: TagConflictResolver | None = None
-    knowledge_repository: KnowledgeRepository | None = None
-    chunk_tagger: ChunkTagger | None = None
-    chunk_tagging: DocumentChunkTaggingService | None = None
-    ingestion_transaction_repository: SqliteIngestionTransactionRepository | None = None
-    concept_catalog_repository: SqliteConceptCatalogRepository | None = None
-    document_ingestion: DocumentIngestionService | None = None
-    question_retrieval: QuestionRetrievalService | None = None
-    grounded_answer: GroundedAnswerService | None = None
-    agent_chat: GroundedAnswerService | None = None
-    extract_topic: ExtractTopicService | None = None
+    metrics: EventMetrics | None
+    http_client: httpx.AsyncClient | None
 
 
 @dataclass(frozen=True, slots=True)
-class AppOverrides:
-    """Explicit test-only substitutions for infrastructure ports."""
+class _DocumentComposition:
+    """Artifact and extraction workflows assembled for one application."""
 
-    remote_gpu_gateway: RemoteGpuGateway | None = None
-    model_client: ModelClient | None = None
-    structured_llm_provider: StructuredLlmProvider | None = None
-    agent_structured_llm_provider: StructuredLlmProvider | None = None
-    event_sink: EventSink | None = None
-    retrieve_evidence: RetrieveEvidence | None = None
-    answer_question: AnswerQuestion | None = None
-    retriever: ChunkRetriever | None = None
-    answer_generator: AnswerGenerator | None = None
-    image_artifact_gate: ImageArtifactGate | None = None
-    pdf_extractor: PdfExtractor | None = None
-    embedding_provider: EmbeddingProvider | None = None
-    embedding_reuse: EmbeddingReuseStore | None = None
-    content_ledger: SqliteContentLedger | None = None
-    artifact_repository: ArtifactRepository | None = None
-    image_artifact_resolver: ImageArtifactResolver | None = None
-    process_document: ProcessDocument | None = None
-    process_and_persist_document: ProcessAndPersistDocument | None = None
-    vector_index: VectorIndex | None = None
-    disable_vector_index: bool = False
-    index_document: IndexDocument | None = None
-    ingest_extracted_document: IngestExtractedDocument | None = None
-    tagged_paragraph_repository: TaggedParagraphRepository | None = None
-    tag_catalog_repository: TagCatalogRepository | None = None
-    tag_generator: TagGenerator | None = None
-    tag_conflict_resolver: TagConflictResolver | None = None
-    knowledge_repository: KnowledgeRepository | None = None
-    chunk_tagger: ChunkTagger | None = None
-    document_ingestion: DocumentIngestionService | None = None
-    agent_chat: GroundedAnswerService | None = None
+    pdf_extractor: PdfExtractor | None
+    artifact_repository: ArtifactRepository
+    image_artifact_resolver: ImageArtifactResolver | None
+    image_artifact_gate: ImageArtifactGate | None
+    process_document: ProcessDocument | None
+    process_and_persist_document: ProcessAndPersistDocument | None
 
 
-def create_layout_app() -> FastAPI:
-    """Compose PDF layout mode without general model-service dependencies."""
-    app = FastAPI(title="Saxophone PDF Layout")
-    app.mount("/pdf-layout", pdf_layout_app)
-    return app
+@dataclass(frozen=True, slots=True)
+class _IngestionComposition:
+    """Embedding, indexing, and document-ingestion services for one app."""
+
+    ingestion_database: Path
+    embedding_provider: EmbeddingProvider
+    embedding_reuse: EmbeddingReuseStore
+    content_ledger: SqliteContentLedger | None
+    knowledge_repository: KnowledgeRepository
+    vector_index: VectorIndex | None
+    index_document: IndexDocument | None
+    tagged_paragraph_repository: TaggedParagraphRepository
+    tag_catalog_repository: TagCatalogRepository
+    tag_generator: TagGenerator
+    tag_conflict_resolver: TagConflictResolver
+    chunk_tagger: ChunkTagger | None
+    chunk_tagging: DocumentChunkTaggingService | None
+    ingestion_transaction_repository: SqliteIngestionTransactionRepository | None
+    concept_catalog_repository: SqliteConceptCatalogRepository | None
+    document_ingestion: DocumentIngestionService | None
+    ingest_extracted_document: IngestExtractedDocument | None
 
 
-def create_app(
+@dataclass(frozen=True, slots=True)
+class _LegacyChatComposition:
+    """Compatibility retrieval and chat adapters assembled from application ports."""
+
+    retrieve_evidence: RetrieveEvidence | None
+    answer_question: AnswerQuestion | None
+
+
+def _compose_model_clients(
     settings: AppSettings,
-    *,
-    overrides: AppOverrides | None = None,
-) -> FastAPI:
-    """Compose the sole ASGI application without reading process environment."""
+    overrides: AppOverrides,
+) -> _ModelComposition:
+    """Build shared model transports and structured providers once per app."""
 
-    resolved_overrides = overrides or AppOverrides()
+    from saxophone.platform.model_client import LiteLLMModelClient
+    from saxophone.platform.observability import (
+        DailyTextFileEventSink,
+        EventMetrics,
+        LoggingEventSink,
+    )
+    from saxophone.platform.remote_gpu import (
+        CachedRemoteGpuGateway,
+        DirectProviderHealthGateway,
+        HttpRemoteGpuGateway,
+    )
+
     direct_provider = settings.model_provider == "direct"
-    io_limiter = create_blocking_io_limiter()
     http_client: httpx.AsyncClient | None = None
-    remote_gpu_gateway = resolved_overrides.remote_gpu_gateway
-    model_client = resolved_overrides.model_client
-    if resolved_overrides.event_sink is None:
+    remote_gpu_gateway = overrides.remote_gpu_gateway
+    model_client = overrides.model_client
+    if overrides.event_sink is None:
         metrics = EventMetrics()
         event_sink = DailyTextFileEventSink(
             Path("logs"),
@@ -290,7 +211,7 @@ def create_app(
             progress_stream=sys.stdout,
         )
     else:
-        event_sink = resolved_overrides.event_sink
+        event_sink = overrides.event_sink
         metrics = event_sink.metrics if isinstance(event_sink, LoggingEventSink) else None
     if remote_gpu_gateway is None or model_client is None:
         http_client = httpx.AsyncClient(verify=settings.remote_gpu_tls_verify)
@@ -339,17 +260,27 @@ def create_app(
                 event_sink=event_sink,
                 metrics=metrics,
             )
-    structured_llm_provider = resolved_overrides.structured_llm_provider
+    structured_llm_provider = overrides.structured_llm_provider
     if structured_llm_provider is None:
+        from saxophone.tagging.structured_provider import (
+            RemoteStructuredLlmProvider,
+            StructuredOutputMode,
+        )
+
         structured_llm_provider = RemoteStructuredLlmProvider(
             model_client,
             model=settings.litellm_model_profile,
             mode=StructuredOutputMode(settings.litellm_structured_output_mode),
         )
-    agent_structured_llm_provider = resolved_overrides.agent_structured_llm_provider
+    agent_structured_llm_provider = overrides.agent_structured_llm_provider
     if agent_structured_llm_provider is None:
+        from saxophone.tagging.structured_provider import (
+            RemoteStructuredLlmProvider,
+            StructuredOutputMode,
+        )
+
         agent_model_client = model_client
-        if direct_provider and resolved_overrides.model_client is None:
+        if direct_provider and overrides.model_client is None:
             agent_model_client = _create_direct_model_client(
                 settings,
                 http_client=http_client,
@@ -362,81 +293,174 @@ def create_app(
             model=settings.agent_chat_model,
             mode=StructuredOutputMode(settings.litellm_structured_output_mode),
         )
+    return _ModelComposition(
+        remote_gpu_gateway=remote_gpu_gateway,
+        cached_remote_gpu_gateway=cached_remote_gpu_gateway,
+        model_client=model_client,
+        structured_llm_provider=structured_llm_provider,
+        agent_structured_llm_provider=agent_structured_llm_provider,
+        event_sink=event_sink,
+        metrics=metrics,
+        http_client=http_client,
+    )
 
-    pdf_extractor = resolved_overrides.pdf_extractor
+
+def _compose_document_services(
+    settings: AppSettings,
+    overrides: AppOverrides,
+    *,
+    direct_provider: bool,
+    model_client: ModelClient,
+    io_limiter: anyio.CapacityLimiter,
+) -> _DocumentComposition:
+    """Build artifact ownership and extraction workflows at one boundary."""
+
+    from saxophone.platform.artifacts import (
+        FilesystemImageArtifactResolver,
+        LocalArtifactRepository,
+        MountedImageArtifactRepository,
+        RepositoryBackedImageArtifactGate,
+    )
+
+    pdf_extractor = overrides.pdf_extractor
     if pdf_extractor is None and not direct_provider:
+        from saxophone.extraction import RemotePdfExtractor
+
         pdf_extractor = RemotePdfExtractor(
             model_client,
             model=settings.litellm_model_profile,
         )
 
-    embedding_provider = resolved_overrides.embedding_provider
+    artifact_repository = overrides.artifact_repository
+    if artifact_repository is None:
+        artifact_repository = LocalArtifactRepository(
+            settings.data_root / "artifacts",
+            io_limiter=io_limiter,
+        )
+    image_artifact_resolver = overrides.image_artifact_resolver
+    if image_artifact_resolver is None and settings.image_root is not None:
+        image_artifact_resolver = FilesystemImageArtifactResolver(settings.image_root)
+    if isinstance(artifact_repository, LocalArtifactRepository) and settings.image_root is not None:
+        artifact_repository = MountedImageArtifactRepository(
+            artifact_repository,
+            settings.image_root,
+        )
+    image_artifact_gate = overrides.image_artifact_gate
+    if image_artifact_gate is None and image_artifact_resolver is not None:
+        image_artifact_gate = RepositoryBackedImageArtifactGate(
+            artifact_repository,
+            image_artifact_resolver,
+            io_limiter=io_limiter,
+        )
+
+    process_document = overrides.process_document
+    if process_document is None:
+        from saxophone.workflows import ProcessDocument
+
+        process_document = ProcessDocument(artifact_repository, pdf_extractor)
+    process_and_persist_document = overrides.process_and_persist_document
+    if process_and_persist_document is None and overrides.process_document is None:
+        from saxophone.extraction import RepositoryExtractionArtifactPayloadProvider
+        from saxophone.workflows import ProcessAndPersistDocument
+
+        process_and_persist_document = ProcessAndPersistDocument(
+            process_document,
+            RepositoryExtractionArtifactPayloadProvider(artifact_repository),
+            artifact_repository,
+        )
+    return _DocumentComposition(
+        pdf_extractor=pdf_extractor,
+        artifact_repository=artifact_repository,
+        image_artifact_resolver=image_artifact_resolver,
+        image_artifact_gate=image_artifact_gate,
+        process_document=process_document,
+        process_and_persist_document=process_and_persist_document,
+    )
+
+
+def _compose_ingestion_services(
+    settings: AppSettings,
+    overrides: AppOverrides,
+    *,
+    model_client: ModelClient,
+    structured_llm_provider: StructuredLlmProvider,
+    event_sink: EventSink,
+    artifact_repository: ArtifactRepository,
+    io_limiter: anyio.CapacityLimiter,
+) -> _IngestionComposition:
+    """Build embedding, indexing, and ingestion workflows at one boundary."""
+
+    import saxophone.workflows as workflows_facade
+    from saxophone import tagging as tagging_facade
+    from saxophone.ingestion import (
+        DocumentChunkTaggingService,
+        DocumentIngestionService,
+        IndexDocument,
+        IngestDocument,
+    )
+    from saxophone.ingestion.adapters import (
+        FileEmbeddingReuseStore,
+        RemoteEmbeddingProvider,
+    )
+    from saxophone.ingestion.concept_embedding import (
+        ConceptCatalogVectorPreparationService,
+    )
+    from saxophone.ingestion.concept_repository import SqliteConceptCatalogRepository
+    from saxophone.ingestion.content_ledger import SqliteContentLedger
+    from saxophone.ingestion.state import SqliteIngestionStateRepository
+    from saxophone.ingestion.transaction import SqliteIngestionTransactionRepository
+    from saxophone.ingestion.vector_state import SqliteVectorIndexStateRepository
+    from saxophone.ingestion.vector_sync import VectorSyncService
+    from saxophone.platform.chroma import create_chroma_vector_index
+    from saxophone.platform.knowledge import JsonKnowledgeRepository
+
+    embedding_provider = overrides.embedding_provider
     if embedding_provider is None:
         embedding_provider = RemoteEmbeddingProvider(
             model_client,
             model=settings.litellm_model_profile,
         )
 
-    artifact_repository = resolved_overrides.artifact_repository
-    if artifact_repository is None:
-        artifact_repository = LocalArtifactRepository(
-            settings.data_root / "artifacts",
-            io_limiter=io_limiter,
-        )
-    image_artifact_gate = resolved_overrides.image_artifact_gate
-    if image_artifact_gate is None and resolved_overrides.image_artifact_resolver is not None:
-        image_artifact_gate = RepositoryBackedImageArtifactGate(
-            artifact_repository,
-            resolved_overrides.image_artifact_resolver,
-            io_limiter=io_limiter,
-        )
-    tagged_paragraph_repository = resolved_overrides.tagged_paragraph_repository
+    tagged_paragraph_repository = overrides.tagged_paragraph_repository
     if tagged_paragraph_repository is None:
-        tagged_paragraph_repository = JsonTaggedParagraphRepository(
+        tagged_paragraph_repository = tagging_facade.JsonTaggedParagraphRepository(
             settings.data_root / "tagged-paragraphs",
             io_limiter=io_limiter,
         )
-    tag_catalog_repository = resolved_overrides.tag_catalog_repository
+    tag_catalog_repository = overrides.tag_catalog_repository
     if tag_catalog_repository is None:
-        tag_catalog_repository = JsonTagCatalogRepository(
+        tag_catalog_repository = tagging_facade.JsonTagCatalogRepository(
             settings.data_root / "tag-catalog.json",
             io_limiter=io_limiter,
         )
-    knowledge_repository = resolved_overrides.knowledge_repository
+    knowledge_repository = overrides.knowledge_repository
     if knowledge_repository is None:
         knowledge_repository = JsonKnowledgeRepository(
             settings.data_root / "knowledge",
             io_limiter=io_limiter,
         )
-    tag_generator = resolved_overrides.tag_generator or RemoteParagraphTagger(
-        model_client, model=settings.litellm_model_profile,
+    tag_generator = overrides.tag_generator or tagging_facade.RemoteParagraphTagger(
+        model_client,
+        model=settings.litellm_model_profile,
     )
-    tag_conflict_resolver = resolved_overrides.tag_conflict_resolver or RemoteTagConflictResolver(
-        model_client, model=settings.litellm_model_profile,
+    tag_conflict_resolver = overrides.tag_conflict_resolver or tagging_facade.RemoteTagConflictResolver(
+        model_client,
+        model=settings.litellm_model_profile,
     )
-    process_document = resolved_overrides.process_document
-    if process_document is None:
-        process_document = ProcessDocument(artifact_repository, pdf_extractor)
-    process_and_persist_document = resolved_overrides.process_and_persist_document
-    if process_and_persist_document is None and resolved_overrides.process_document is None:
-        process_and_persist_document = ProcessAndPersistDocument(
-            process_document,
-            RepositoryExtractionArtifactPayloadProvider(artifact_repository),
-            artifact_repository,
-        )
     ingestion_database = settings.data_root / "ingestion.sqlite3"
-    content_ledger = resolved_overrides.content_ledger
+    content_ledger = overrides.content_ledger
     if content_ledger is None and settings.chunk_tagging_enabled:
         content_ledger = SqliteContentLedger(ingestion_database)
-    embedding_reuse = resolved_overrides.embedding_reuse
+    embedding_reuse = overrides.embedding_reuse
     if embedding_reuse is None:
         embedding_reuse = content_ledger or FileEmbeddingReuseStore(
-            settings.data_root / "embedding-reuse.json", io_limiter=io_limiter
+            settings.data_root / "embedding-reuse.json",
+            io_limiter=io_limiter,
         )
-    vector_index = resolved_overrides.vector_index
-    if vector_index is None and not resolved_overrides.disable_vector_index:
+    vector_index = overrides.vector_index
+    if vector_index is None and not overrides.disable_vector_index:
         vector_index = create_chroma_vector_index(settings, io_limiter=io_limiter)
-    index_document = resolved_overrides.index_document
+    index_document = overrides.index_document
     if index_document is None and vector_index is not None:
         index_document = IndexDocument(
             vector_index,
@@ -444,14 +468,21 @@ def create_app(
             embedding_reuse,
             knowledge_repository=knowledge_repository,
         )
+
     chunk_tagger: ChunkTagger | None = None
     chunk_tagging: DocumentChunkTaggingService | None = None
     ingestion_transaction_repository: SqliteIngestionTransactionRepository | None = None
     concept_catalog_repository: SqliteConceptCatalogRepository | None = None
     vector_state: SqliteVectorIndexStateRepository | None = None
-    document_ingestion = resolved_overrides.document_ingestion
+    document_ingestion = overrides.document_ingestion
     if settings.chunk_tagging_enabled:
-        chunk_tagger = resolved_overrides.chunk_tagger or StructuredChunkTagger(
+        from saxophone.tagging.chunk_service import (
+            ChunkTaggingService,
+            ChunkTaggingTransactionService,
+        )
+        from saxophone.tagging.structured_chunk import StructuredChunkTagger
+
+        chunk_tagger = overrides.chunk_tagger or StructuredChunkTagger(
             structured_llm_provider
         )
         ingestion_transaction_repository = SqliteIngestionTransactionRepository(
@@ -466,7 +497,8 @@ def create_app(
             ),
             content_ledger=content_ledger,
         )
-    ingest_extracted_document = resolved_overrides.ingest_extracted_document
+
+    ingest_extracted_document = overrides.ingest_extracted_document
     if ingest_extracted_document is None and index_document is not None:
         if chunk_tagging is not None:
             ingest_workflow = IngestDocument(
@@ -480,8 +512,8 @@ def create_app(
                 ),
             )
         else:
-            tag_and_persist = TagAndPersistParagraph(
-                TagParagraph(tag_generator, tag_conflict_resolver),
+            tag_and_persist = tagging_facade.TagAndPersistParagraph(
+                tagging_facade.TagParagraph(tag_generator, tag_conflict_resolver),
                 tagged_paragraph_repository,
                 tag_catalog_repository,
             )
@@ -491,6 +523,8 @@ def create_app(
             and chunk_tagging is not None
             and _supports_vector_sync(vector_index)
         ):
+            from saxophone.tagging.vector_outbox import SqliteVectorOutboxRepository
+
             assert ingestion_transaction_repository is not None
             outbox = SqliteVectorOutboxRepository(ingestion_database)
             lifecycle = SqliteIngestionStateRepository(ingestion_database)
@@ -506,57 +540,507 @@ def create_app(
                 lifecycle=lifecycle,
                 event_sink=event_sink,
             )
-        ingest_extracted_document = IngestExtractedDocument(
+        ingest_extracted_document = workflows_facade.IngestExtractedDocument(
             artifact_repository,
             index_document,
             ingest_document=ingest_workflow,
             document_ingestion=document_ingestion,
         )
 
-    retrieve_evidence = resolved_overrides.retrieve_evidence
-    if retrieve_evidence is None and resolved_overrides.retriever is not None:
-        retrieve_evidence = RetrieveEvidence(resolved_overrides.retriever)
-    answer_question = resolved_overrides.answer_question
-    if answer_question is None and retrieve_evidence is not None:
-        if resolved_overrides.answer_generator is not None:
-            answer_question = AnswerQuestion(
-                retrieve_evidence,
-                resolved_overrides.answer_generator,
-                resolved_overrides.image_artifact_gate,
-            )
+    return _IngestionComposition(
+        ingestion_database=ingestion_database,
+        embedding_provider=embedding_provider,
+        embedding_reuse=embedding_reuse,
+        content_ledger=content_ledger,
+        knowledge_repository=knowledge_repository,
+        vector_index=vector_index,
+        index_document=index_document,
+        tagged_paragraph_repository=tagged_paragraph_repository,
+        tag_catalog_repository=tag_catalog_repository,
+        tag_generator=tag_generator,
+        tag_conflict_resolver=tag_conflict_resolver,
+        chunk_tagger=chunk_tagger,
+        chunk_tagging=chunk_tagging,
+        ingestion_transaction_repository=ingestion_transaction_repository,
+        concept_catalog_repository=concept_catalog_repository,
+        document_ingestion=document_ingestion,
+        ingest_extracted_document=ingest_extracted_document,
+    )
 
-    question_retrieval: QuestionRetrievalService | None = None
-    grounded_answer: GroundedAnswerService | None = None
-    agent_chat = resolved_overrides.agent_chat
-    extract_topic: ExtractTopicService | None = None
+
+def _compose_legacy_chat_services(
+    overrides: AppOverrides,
+    *,
+    image_artifact_gate: ImageArtifactGate | None,
+) -> _LegacyChatComposition:
+    """Build the legacy JSON chat adapters without adding policy to ``create_app``."""
+
+    from saxophone.chat import AnswerQuestion
+    from saxophone.retrieval import RetrieveEvidence
+
+    retrieve_evidence = overrides.retrieve_evidence
+    if retrieve_evidence is None and overrides.retriever is not None:
+        retrieve_evidence = RetrieveEvidence(overrides.retriever)
+    answer_question = overrides.answer_question
     if (
+        answer_question is None
+        and retrieve_evidence is not None
+        and overrides.answer_generator is not None
+    ):
+        answer_question = AnswerQuestion(
+            retrieve_evidence,
+            overrides.answer_generator,
+            image_artifact_gate,
+        )
+    return _LegacyChatComposition(
+        retrieve_evidence=retrieve_evidence,
+        answer_question=answer_question,
+    )
+
+
+def _compose_agent_services(
+    settings: AppSettings,
+    overrides: AppOverrides,
+) -> _AgentComposition:
+    """Build the optional agent graph runtime and its streaming/tracing helpers."""
+
+    from saxophone.agent.contracts import RunBudget
+    from saxophone.agent.orchestrator import MainAgent
+    from saxophone.agent.streaming import AgentRunManager
+    from saxophone.platform.langfuse_tracing import create_langfuse_tracer
+
+    tracer = overrides.tracer or create_langfuse_tracer(settings)
+    runner = overrides.agent_runner
+    if runner is None and overrides.agent_graph_dependencies is not None:
+        runner = MainAgent(
+            dependencies=overrides.agent_graph_dependencies,
+            checkpointer=overrides.agent_checkpointer,
+            tracer=tracer,
+            budget_factory=lambda: RunBudget.from_settings(settings),
+        )
+    run_manager = overrides.agent_run_manager
+    if runner is not None and run_manager is None:
+        run_manager = AgentRunManager()
+    return _AgentComposition(runner, run_manager, tracer)
+
+
+def _compose_production_agent_dependencies(
+    *,
+    settings: AppSettings,
+    vector_index: object | None,
+    embedding_provider: object | None,
+    ingestion_database: Path,
+    structured_provider: object,
+    agent_provider: object,
+    http_client: httpx.AsyncClient | None,
+):
+    """Assemble the production agent only when document retrieval is usable."""
+
+    if not _supports_topic_retrieval(vector_index, embedding_provider):
+        return None
+    from saxophone.agent.document_search import SemanticDocumentSearchTool
+    from saxophone.agent.document_query_planning import DocumentSearchQueryPlanner
+    from saxophone.agent.evidence_selection import ConceptRoleSelector, ParagraphDirectSelector
+    from saxophone.agent.graph import AgentGraphDependencies
+    from saxophone.agent.synthesis import EvidenceSynthesisService
+    from saxophone.agent.web_search import WebSearchAdapter, WebSearchQueryPlanner
+    from saxophone.platform.langchain_model import StructuredProviderChatModel, ThinkingToolChatModel
+    from saxophone.retrieval.adapters import VectorIndexChunkRetriever
+    from saxophone.retrieval.sqlite_context import SqliteRetrievalContextRepository
+
+    retriever = VectorIndexChunkRetriever(embedding_provider, vector_index)
+    context = SqliteRetrievalContextRepository(ingestion_database)
+    document_search = SemanticDocumentSearchTool(retriever, context)
+    paragraph_selector = ParagraphDirectSelector(provider=agent_provider)
+    concept_selector = ConceptRoleSelector(provider=agent_provider)
+    synthesizer = EvidenceSynthesisService(
+        StructuredProviderChatModel(provider=agent_provider, model_name=settings.agent_chat_model)
+    )
+    web_search = None
+    if settings.tavily_api_key is not None and http_client is not None:
+        from saxophone.platform.web_search_client import TavilySearchClient
+
+        web_search = WebSearchAdapter(
+            TavilySearchClient(
+                http_client=http_client,
+                api_key=settings.tavily_api_key,
+                base_url=settings.tavily_base_url,
+                timeout_seconds=settings.agent_tool_timeout_seconds,
+            ),
+            max_results=settings.tavily_max_results,
+            query_planner=WebSearchQueryPlanner(agent_provider),
+        )
+    return AgentGraphDependencies(
+        document_search=document_search,
+        paragraph_selector=paragraph_selector,
+        concept_selector=concept_selector,
+        web_search=web_search,
+        synthesizer=synthesizer,
+        orchestrator_model=ThinkingToolChatModel(provider=agent_provider),
+        document_query_planner=DocumentSearchQueryPlanner(agent_provider),
+    )
+
+
+def _compose_topic_services(
+    *,
+    document_ingestion: DocumentIngestionService | None,
+    chunk_tagging: DocumentChunkTaggingService | None,
+    ingestion_transaction_repository: SqliteIngestionTransactionRepository | None,
+    vector_index: VectorIndex | None,
+    embedding_provider: EmbeddingProvider | None,
+    ingestion_database: Path,
+    structured_llm_provider: StructuredLlmProvider,
+    agent_structured_llm_provider: StructuredLlmProvider,
+    image_artifact_gate: ImageArtifactGate | None,
+    agent_chat: GroundedAnswerService | None,
+    model_version: str,
+    agent_model_version: str,
+) -> _TopicComposition:
+    """Assemble compatibility topic services when retrieval is fully available."""
+
+    if not (
         chunk_tagging is not None
         and document_ingestion is not None
         and ingestion_transaction_repository is not None
         and _supports_topic_retrieval(vector_index, embedding_provider)
     ):
-        question_retrieval = QuestionRetrievalService(
-            retriever=VectorIndexChunkRetriever(embedding_provider, vector_index),
-            selector=StructuredParagraphSelector(structured_llm_provider),
-            context_repository=SqliteRetrievalContextRepository(ingestion_database),
-        )
-        grounded_answer = GroundedAnswerService(
+        return _TopicComposition(None, None, agent_chat, None)
+
+    assert vector_index is not None
+    assert embedding_provider is not None
+    from saxophone.agent.evidence_selection import ParagraphDirectSelector
+
+    # Load the legacy adapter only when compatibility topic services are composed.
+    from saxophone.chat.compatibility import GroundedAnswerService
+    from saxophone.retrieval.adapters import VectorIndexChunkRetriever
+    from saxophone.retrieval.question_retrieval import QuestionRetrievalService
+    from saxophone.retrieval.sqlite_context import SqliteRetrievalContextRepository
+    from saxophone.services.extract_topic import (
+        DocumentIngestionFacadeAdapter,
+        DocumentTaggingFacadeAdapter,
+        ExtractTopicService,
+    )
+
+    question_retrieval = QuestionRetrievalService(
+        retriever=VectorIndexChunkRetriever(embedding_provider, vector_index),
+        selector=ParagraphDirectSelector(provider=structured_llm_provider),
+        context_repository=SqliteRetrievalContextRepository(ingestion_database),
+    )
+    grounded_answer = GroundedAnswerService(
+        retrieval=question_retrieval,
+        provider=structured_llm_provider,
+        model_version=model_version,
+        image_artifact_gate=image_artifact_gate,
+    )
+    if agent_chat is None:
+        agent_chat = GroundedAnswerService(
             retrieval=question_retrieval,
-            provider=structured_llm_provider,
-            model_version=settings.litellm_model_profile,
+            provider=agent_structured_llm_provider,
+            model_version=agent_model_version,
+            image_artifact_gate=image_artifact_gate,
         )
-        if agent_chat is None:
-            agent_chat = GroundedAnswerService(
-                retrieval=question_retrieval,
-                provider=agent_structured_llm_provider,
-                model_version=settings.agent_chat_model,
+    extract_topic = ExtractTopicService(
+        ingestion=DocumentIngestionFacadeAdapter(document_ingestion),
+        tagging=DocumentTaggingFacadeAdapter(chunk_tagging),
+        retrieval=question_retrieval,
+        answering=grounded_answer,
+    )
+    return _TopicComposition(question_retrieval, grounded_answer, agent_chat, extract_topic)
+
+
+def _supports_database_browser(vector_index: object | None) -> bool:
+    return vector_index is not None and all(
+        callable(getattr(vector_index, method, None))
+        for method in ("list_collections", "get_records")
+    )
+
+
+def _create_direct_model_client(
+    settings: AppSettings,
+    *,
+    http_client: httpx.AsyncClient,
+    deepseek_model: str,
+    event_sink: EventSink,
+    metrics: EventMetrics | None,
+) -> DirectApiModelClient:
+    from saxophone.platform.direct_model_client import DirectApiModelClient
+
+    assert settings.deepseek_api_key is not None
+    assert settings.openai_api_key is not None
+    return DirectApiModelClient(
+        http_client=http_client,
+        deepseek_api_base_url=settings.deepseek_api_base_url,
+        deepseek_api_key=settings.deepseek_api_key,
+        deepseek_model=deepseek_model,
+        deepseek_reasoning_effort=settings.deepseek_reasoning_effort,
+        deepseek_max_tokens=settings.deepseek_max_tokens,
+        openai_api_base_url=settings.openai_api_base_url,
+        openai_api_key=settings.openai_api_key,
+        openai_embedding_model=settings.openai_embedding_model,
+        embedding_dimension=settings.embedding_dimension,
+        timeout_seconds=settings.litellm_timeout_seconds,
+        max_attempts=settings.litellm_max_attempts,
+        retry_backoff_seconds=settings.litellm_retry_backoff_seconds,
+        event_sink=event_sink,
+        metrics=metrics,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class AppContainer:
+    """Explicit dependencies owned by one application instance."""
+
+    settings: AppSettings
+    remote_gpu_gateway: RemoteGpuGateway
+    model_client: ModelClient
+    structured_llm_provider: StructuredLlmProvider
+    agent_structured_llm_provider: StructuredLlmProvider
+    event_sink: EventSink
+    metrics: EventMetrics | None = None
+    tracer: AgentTracer | None = None
+    http_client: httpx.AsyncClient | None = None
+    retrieve_evidence: RetrieveEvidence | None = None
+    answer_question: AnswerQuestion | None = None
+    pdf_extractor: PdfExtractor | None = None
+    embedding_provider: EmbeddingProvider | None = None
+    embedding_reuse: EmbeddingReuseStore | None = None
+    content_ledger: SqliteContentLedger | None = None
+    vector_index: VectorIndex | None = None
+    artifact_repository: ArtifactRepository | None = None
+    image_artifact_resolver: ImageArtifactResolver | None = None
+    image_artifact_gate: ImageArtifactGate | None = None
+    process_document: ProcessDocument | None = None
+    process_and_persist_document: ProcessAndPersistDocument | None = None
+    index_document: IndexDocument | None = None
+    ingest_extracted_document: IngestExtractedDocument | None = None
+    tagged_paragraph_repository: TaggedParagraphRepository | None = None
+    tag_catalog_repository: TagCatalogRepository | None = None
+    tag_generator: TagGenerator | None = None
+    tag_conflict_resolver: TagConflictResolver | None = None
+    knowledge_repository: KnowledgeRepository | None = None
+    chunk_tagger: ChunkTagger | None = None
+    chunk_tagging: DocumentChunkTaggingService | None = None
+    ingestion_transaction_repository: SqliteIngestionTransactionRepository | None = None
+    concept_catalog_repository: SqliteConceptCatalogRepository | None = None
+    document_ingestion: DocumentIngestionService | None = None
+    question_retrieval: QuestionRetrievalService | None = None
+    grounded_answer: GroundedAnswerService | None = None
+    agent_chat: GroundedAnswerService | None = None
+    agent_runner: MainAgent | None = None
+    agent_run_manager: AgentRunManager | None = None
+    extract_topic: ExtractTopicService | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AppOverrides:
+    """Explicit test-only substitutions for infrastructure ports."""
+
+    remote_gpu_gateway: RemoteGpuGateway | None = None
+    model_client: ModelClient | None = None
+    structured_llm_provider: StructuredLlmProvider | None = None
+    agent_structured_llm_provider: StructuredLlmProvider | None = None
+    event_sink: EventSink | None = None
+    tracer: AgentTracer | None = None
+    retrieve_evidence: RetrieveEvidence | None = None
+    answer_question: AnswerQuestion | None = None
+    retriever: ChunkRetriever | None = None
+    answer_generator: AnswerGenerator | None = None
+    image_artifact_gate: ImageArtifactGate | None = None
+    pdf_extractor: PdfExtractor | None = None
+    embedding_provider: EmbeddingProvider | None = None
+    embedding_reuse: EmbeddingReuseStore | None = None
+    content_ledger: SqliteContentLedger | None = None
+    artifact_repository: ArtifactRepository | None = None
+    image_artifact_resolver: ImageArtifactResolver | None = None
+    process_document: ProcessDocument | None = None
+    process_and_persist_document: ProcessAndPersistDocument | None = None
+    vector_index: VectorIndex | None = None
+    disable_vector_index: bool = False
+    index_document: IndexDocument | None = None
+    ingest_extracted_document: IngestExtractedDocument | None = None
+    tagged_paragraph_repository: TaggedParagraphRepository | None = None
+    tag_catalog_repository: TagCatalogRepository | None = None
+    tag_generator: TagGenerator | None = None
+    tag_conflict_resolver: TagConflictResolver | None = None
+    knowledge_repository: KnowledgeRepository | None = None
+    chunk_tagger: ChunkTagger | None = None
+    document_ingestion: DocumentIngestionService | None = None
+    agent_chat: GroundedAnswerService | None = None
+    agent_runner: MainAgent | None = None
+    agent_run_manager: AgentRunManager | None = None
+    agent_graph_dependencies: AgentGraphDependencies | None = None
+    agent_checkpointer: object | None = None
+
+
+def _configure_application_routes(
+    app: FastAPI,
+    container: AppContainer,
+    settings: AppSettings,
+) -> None:
+    """Attach inbound adapters after application services are composed."""
+
+    from saxophone.interfaces.api import (
+        build_agent_chat_router,
+        build_capability_router,
+    )
+    from saxophone.interfaces.db_browser import build_database_browser_router
+    from saxophone.interfaces.pdf_layout_web import app as pdf_layout_app
+
+    app.include_router(
+        build_capability_router(
+            retrieve_evidence=container.retrieve_evidence,
+            answer_question=container.answer_question,
+            pdf_extractor=container.pdf_extractor,
+            process_workflow=container.process_document,
+            process_and_persist_workflow=container.process_and_persist_document,
+            artifact_repository=container.artifact_repository,
+            image_artifact_resolver=container.image_artifact_resolver,
+            image_artifact_gate=container.image_artifact_gate,
+            index_document=container.index_document,
+            ingest_extracted_document=container.ingest_extracted_document,
+            max_upload_bytes=settings.max_upload_bytes,
+        ),
+    )
+    app.include_router(
+        build_agent_chat_router(
+            agent_chat=container.agent_chat,
+            agent_runner=container.agent_runner,
+            agent_run_manager=container.agent_run_manager,
+            image_artifact_resolver=container.image_artifact_resolver,
+            image_artifact_gate=container.image_artifact_gate,
+        )
+    )
+    database_browser = (
+        container.vector_index
+        if _supports_database_browser(container.vector_index)
+        else None
+    )
+    app.include_router(build_database_browser_router(browser=database_browser))
+    app.mount("/pdf-layout", pdf_layout_app)
+
+
+def create_layout_app() -> FastAPI:
+    """Compose PDF layout mode without general model-service dependencies."""
+    from saxophone.interfaces.pdf_layout_web import app as pdf_layout_app
+
+    app = FastAPI(title="Saxophone PDF Layout")
+    app.mount("/pdf-layout", pdf_layout_app)
+    return app
+
+
+def create_app(
+    settings: AppSettings,
+    *,
+    overrides: AppOverrides | None = None,
+) -> FastAPI:
+    """Compose the sole ASGI application without reading process environment."""
+
+    from saxophone.platform.chat_logging import configure_chat_logging
+    from saxophone.platform.concurrency import create_blocking_io_limiter
+
+    resolved_overrides = overrides or AppOverrides()
+    configure_chat_logging()
+    direct_provider = settings.model_provider == "direct"
+    io_limiter = create_blocking_io_limiter()
+    model_composition = _compose_model_clients(settings, resolved_overrides)
+    http_client = model_composition.http_client
+    remote_gpu_gateway = model_composition.remote_gpu_gateway
+    cached_remote_gpu_gateway = model_composition.cached_remote_gpu_gateway
+    model_client = model_composition.model_client
+    structured_llm_provider = model_composition.structured_llm_provider
+    agent_structured_llm_provider = model_composition.agent_structured_llm_provider
+    event_sink = model_composition.event_sink
+    metrics = model_composition.metrics
+
+    document_composition = _compose_document_services(
+        settings,
+        resolved_overrides,
+        direct_provider=direct_provider,
+        model_client=model_client,
+        io_limiter=io_limiter,
+    )
+    pdf_extractor = document_composition.pdf_extractor
+    artifact_repository = document_composition.artifact_repository
+    image_artifact_gate = document_composition.image_artifact_gate
+    image_artifact_resolver = document_composition.image_artifact_resolver
+    process_document = document_composition.process_document
+    process_and_persist_document = document_composition.process_and_persist_document
+
+    ingestion_composition = _compose_ingestion_services(
+        settings,
+        resolved_overrides,
+        model_client=model_client,
+        structured_llm_provider=structured_llm_provider,
+        event_sink=event_sink,
+        artifact_repository=artifact_repository,
+        io_limiter=io_limiter,
+    )
+    ingestion_database = ingestion_composition.ingestion_database
+    embedding_provider = ingestion_composition.embedding_provider
+    embedding_reuse = ingestion_composition.embedding_reuse
+    content_ledger = ingestion_composition.content_ledger
+    knowledge_repository = ingestion_composition.knowledge_repository
+    vector_index = ingestion_composition.vector_index
+    index_document = ingestion_composition.index_document
+    tagged_paragraph_repository = ingestion_composition.tagged_paragraph_repository
+    tag_catalog_repository = ingestion_composition.tag_catalog_repository
+    tag_generator = ingestion_composition.tag_generator
+    tag_conflict_resolver = ingestion_composition.tag_conflict_resolver
+    chunk_tagger = ingestion_composition.chunk_tagger
+    chunk_tagging = ingestion_composition.chunk_tagging
+    ingestion_transaction_repository = ingestion_composition.ingestion_transaction_repository
+    concept_catalog_repository = ingestion_composition.concept_catalog_repository
+    document_ingestion = ingestion_composition.document_ingestion
+    ingest_extracted_document = ingestion_composition.ingest_extracted_document
+
+    legacy_chat = _compose_legacy_chat_services(
+        resolved_overrides,
+        image_artifact_gate=image_artifact_gate,
+    )
+    retrieve_evidence = legacy_chat.retrieve_evidence
+    answer_question = legacy_chat.answer_question
+
+    agent_chat = resolved_overrides.agent_chat
+    if (
+        resolved_overrides.agent_runner is None
+        and resolved_overrides.agent_graph_dependencies is None
+    ):
+        production_dependencies = _compose_production_agent_dependencies(
+            settings=settings,
+            vector_index=vector_index,
+            embedding_provider=embedding_provider,
+            ingestion_database=ingestion_database,
+            structured_provider=structured_llm_provider,
+            agent_provider=agent_structured_llm_provider,
+            http_client=http_client,
+        )
+        if production_dependencies is not None:
+            resolved_overrides = replace(
+                resolved_overrides,
+                agent_graph_dependencies=production_dependencies,
             )
-        extract_topic = ExtractTopicService(
-            ingestion=DocumentIngestionFacadeAdapter(document_ingestion),
-            tagging=DocumentTaggingFacadeAdapter(chunk_tagging),
-            retrieval=question_retrieval,
-            answering=grounded_answer,
-        )
+    agent_services = _compose_agent_services(settings, resolved_overrides)
+    agent_runner = agent_services.runner
+    agent_run_manager = agent_services.run_manager
+    tracer = agent_services.tracer
+    topic_services = _compose_topic_services(
+        document_ingestion=document_ingestion,
+        chunk_tagging=chunk_tagging,
+        ingestion_transaction_repository=ingestion_transaction_repository,
+        vector_index=vector_index,
+        embedding_provider=embedding_provider,
+        ingestion_database=ingestion_database,
+        structured_llm_provider=structured_llm_provider,
+        agent_structured_llm_provider=agent_structured_llm_provider,
+        image_artifact_gate=image_artifact_gate,
+        agent_chat=agent_chat,
+        model_version=settings.litellm_model_profile,
+        agent_model_version=settings.agent_chat_model,
+    )
+    question_retrieval = topic_services.question_retrieval
+    grounded_answer = topic_services.grounded_answer
+    agent_chat = topic_services.agent_chat
+    extract_topic = topic_services.extract_topic
 
     container = AppContainer(
         settings=settings,
@@ -566,6 +1050,7 @@ def create_app(
         agent_structured_llm_provider=agent_structured_llm_provider,
         event_sink=event_sink,
         metrics=metrics,
+        tracer=tracer,
         http_client=http_client,
         retrieve_evidence=retrieve_evidence,
         answer_question=answer_question,
@@ -575,7 +1060,7 @@ def create_app(
         content_ledger=content_ledger,
         vector_index=vector_index,
         artifact_repository=artifact_repository,
-        image_artifact_resolver=resolved_overrides.image_artifact_resolver,
+        image_artifact_resolver=image_artifact_resolver,
         image_artifact_gate=image_artifact_gate,
         process_document=process_document,
         process_and_persist_document=process_and_persist_document,
@@ -594,6 +1079,8 @@ def create_app(
         question_retrieval=question_retrieval,
         grounded_answer=grounded_answer,
         agent_chat=agent_chat,
+        agent_runner=agent_runner,
+        agent_run_manager=agent_run_manager,
         extract_topic=extract_topic,
     )
 
@@ -603,17 +1090,23 @@ def create_app(
             yield
         finally:
             try:
-                if vector_index is not None:
-                    aclose = getattr(vector_index, "aclose", None)
-                    if callable(aclose):
-                        await aclose()
-                    else:
-                        close = getattr(vector_index, "close", None)
-                        if callable(close):
-                            await anyio.to_thread.run_sync(close, limiter=io_limiter)
+                if agent_run_manager is not None:
+                    await agent_run_manager.aclose()
             finally:
-                if http_client is not None:
-                    await http_client.aclose()
+                try:
+                    if vector_index is not None:
+                        aclose = getattr(vector_index, "aclose", None)
+                        if callable(aclose):
+                            await aclose()
+                        else:
+                            close = getattr(vector_index, "close", None)
+                            if callable(close):
+                                await anyio.to_thread.run_sync(close, limiter=io_limiter)
+                finally:
+                    if http_client is not None:
+                        await http_client.aclose()
+                    if tracer is not None:
+                        tracer.flush()
 
     app = FastAPI(title="Saxophone RAG backend", lifespan=lifespan)
 
@@ -626,31 +1119,7 @@ def create_app(
         return response
 
     app.state.container = container
-    app.include_router(
-        build_capability_router(
-            retrieve_evidence=container.retrieve_evidence,
-            answer_question=container.answer_question,
-            pdf_extractor=container.pdf_extractor,
-            process_workflow=container.process_document,
-            process_and_persist_workflow=container.process_and_persist_document,
-            artifact_repository=container.artifact_repository,
-            image_artifact_resolver=container.image_artifact_resolver,
-            image_artifact_gate=container.image_artifact_gate,
-            index_document=container.index_document,
-            ingest_extracted_document=container.ingest_extracted_document,
-            max_upload_bytes=settings.max_upload_bytes,
-        ),
-    )
-    app.include_router(build_agent_chat_router(agent_chat=container.agent_chat))
-    database_browser = (
-        container.vector_index
-        if _supports_database_browser(container.vector_index)
-        else None
-    )
-    app.include_router(
-        build_database_browser_router(browser=database_browser)
-    )
-    app.mount("/pdf-layout", pdf_layout_app)
+    _configure_application_routes(app, container, settings)
 
     @app.get("/api/v1/health")
     async def health() -> dict[str, object]:

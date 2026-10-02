@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import ast
-from pathlib import Path
 import tomllib
-
+from pathlib import Path
 
 SOURCE_ROOT = Path(__file__).parents[1] / "src" / "saxophone"
 FORBIDDEN_PROVIDER_ROOTS = frozenset(
@@ -442,8 +441,6 @@ def test_ingestion_exposes_a_public_application_facade() -> None:
         "ChunkIndexRecord",
         "EmbeddingProvider",
         "EmbeddingReuseStore",
-        "IngestDocument",
-        "IndexDocument",
         "IndexInputRecord",
         "IngestionCommand",
         "IngestionReport",
@@ -454,6 +451,15 @@ def test_ingestion_exposes_a_public_application_facade() -> None:
 
     assert set(ingestion.__all__) == expected
     assert all(hasattr(ingestion, name) for name in expected)
+
+
+def test_ingestion_use_cases_remain_available_as_explicit_compatibility_imports() -> None:
+    """Keep migration callers working without exposing heavy use cases to wildcard imports."""
+
+    from saxophone.ingestion import IndexDocument, IngestDocument
+
+    assert IngestDocument.__module__ == "saxophone.ingestion.use_cases"
+    assert IndexDocument.__module__ == "saxophone.ingestion.use_cases"
 
 
 def test_extraction_consumers_use_the_public_facade() -> None:
@@ -663,7 +669,11 @@ def test_workflows_exposes_a_public_application_facade() -> None:
             "start_extraction",
         }
 
-    assert set(workflows.__all__) == expected
+    assert set(workflows.__all__) == {
+        "IngestExtractedDocument",
+        "ProcessAndPersistDocument",
+        "ProcessDocument",
+    }
     assert all(hasattr(workflows, name) for name in expected)
 
 
@@ -679,16 +689,7 @@ def test_extraction_exposes_a_public_application_facade() -> None:
         "PdfExtractionRequest",
         "PdfExtractionResult",
         "PdfExtractor",
-        "PersistExtractionArtifacts",
-        "RemotePdfExtractor",
-        "RepositoryExtractionArtifactPayloadProvider",
-        "RAW_PDF_RASTER_SPACE",
-        "finite_number",
-        "is_raw_pdf_raster_space",
-                "normalize_blocks",
-                "read_layout_pages",
-                "render_pdf_pages",
-            }
+    }
 
     assert set(extraction.__all__) == expected
     assert all(hasattr(extraction, name) for name in expected)
@@ -757,18 +758,19 @@ def test_ingestion_workflow_uses_the_public_facade() -> None:
 
 
 def test_tagging_exposes_a_public_application_facade() -> None:
-    """Consumers should receive tagging contracts and workflows from one module."""
+    """Consumers receive lightweight tagging contracts from the public facade."""
 
     from saxophone import tagging
 
     expected = {
+        "ChunkTagger",
+        "ConceptCandidate",
+        "ConceptCandidateExample",
+        "deduplicate_concept_candidates",
         "ExistingTagCandidate",
-        "JsonTagCatalogRepository",
-        "JsonTaggedParagraphRepository",
+        "normalize_concept_label",
         "ParagraphBlock",
-        "RemoteParagraphTagger",
-        "RemoteTagConflictResolver",
-        "TagAndPersistParagraph",
+        "ParagraphConceptRole",
         "TagCatalogRepository",
         "TagConflictResolution",
         "TagConflictResolutionRequest",
@@ -776,11 +778,9 @@ def test_tagging_exposes_a_public_application_facade() -> None:
         "TagGenerationRequest",
         "TagGenerationResult",
         "TagGenerator",
-        "TagParagraph",
         "TagResolution",
         "TaggedParagraph",
         "TaggedParagraphRepository",
-        "parse_chunk_paragraphs",
     }
 
     assert set(tagging.__all__) == expected

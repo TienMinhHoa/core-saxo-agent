@@ -28,6 +28,9 @@ from saxophone.platform.observability import EventMetrics, EventSink, Structured
 _DEEPSEEK_TASKS = {
     ModelTask.CHUNK_TAGGING,
     ModelTask.RETRIEVAL_SELECT,
+    ModelTask.ORCHESTRATOR_DECISION,
+    ModelTask.WEB_SEARCH_QUERY_PLAN,
+    ModelTask.DOCUMENT_SEARCH_QUERY_PLAN,
     ModelTask.ANSWER_GENERATE,
 }
 _RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}

@@ -1,67 +1,74 @@
-"""Public application facade for paragraph tagging."""
+"""Public application facade for paragraph tagging.
 
-from .adapters import RemoteParagraphTagger, RemoteTagConflictResolver
-from .concepts import (
-    ConceptCandidate,
-    ConceptCandidateExample,
-    deduplicate_concept_candidates,
-    normalize_concept_label,
-)
-from .models import (
-    ExistingTagCandidate,
-    ParagraphBlock,
-    ParagraphConceptRole,
-    TagConflictResolution,
-    TagConflictResolutionRequest,
-    TagGenerationRequest,
-    TagGenerationResult,
-    TagResolution,
-    TaggedParagraph,
-)
-from .persistence import JsonTagCatalogRepository, JsonTaggedParagraphRepository
-from .ports import (
-    TagCatalogRepository,
-    TagConflictResolver,
-    TagGenerator,
-    TaggedParagraphRepository,
-)
+The facade keeps provider, persistence, and parsing implementations behind
+explicit attribute access. Importing the package alone therefore stays
+lightweight while existing public imports remain available.
+"""
 
-__all__ = [
+from importlib import import_module
+
+_EXPORTS: dict[str, tuple[str, str]] = {
+    "RemoteParagraphTagger": (".adapters", "RemoteParagraphTagger"),
+    "RemoteTagConflictResolver": (".adapters", "RemoteTagConflictResolver"),
+    "ConceptCandidate": (".concepts", "ConceptCandidate"),
+    "ConceptCandidateExample": (".concepts", "ConceptCandidateExample"),
+    "deduplicate_concept_candidates": (".concepts", "deduplicate_concept_candidates"),
+    "normalize_concept_label": (".concepts", "normalize_concept_label"),
+    "ExistingTagCandidate": (".models", "ExistingTagCandidate"),
+    "ParagraphBlock": (".models", "ParagraphBlock"),
+    "ParagraphConceptRole": (".models", "ParagraphConceptRole"),
+    "TagConflictResolution": (".models", "TagConflictResolution"),
+    "TagConflictResolutionRequest": (".models", "TagConflictResolutionRequest"),
+    "TagGenerationRequest": (".models", "TagGenerationRequest"),
+    "TagGenerationResult": (".models", "TagGenerationResult"),
+    "TagResolution": (".models", "TagResolution"),
+    "TaggedParagraph": (".models", "TaggedParagraph"),
+    "JsonTagCatalogRepository": (".persistence", "JsonTagCatalogRepository"),
+    "JsonTaggedParagraphRepository": (".persistence", "JsonTaggedParagraphRepository"),
+    "ChunkTagger": (".ports", "ChunkTagger"),
+    "TagCatalogRepository": (".ports", "TagCatalogRepository"),
+    "TagConflictResolver": (".ports", "TagConflictResolver"),
+    "TagGenerator": (".ports", "TagGenerator"),
+    "TaggedParagraphRepository": (".ports", "TaggedParagraphRepository"),
+    "TagAndPersistParagraph": (".use_cases", "TagAndPersistParagraph"),
+    "TagParagraph": (".use_cases", "TagParagraph"),
+    "parse_chunk_paragraphs": (".parser", "parse_chunk_paragraphs"),
+}
+
+# Keep wildcard imports limited to provider-independent tagging contracts.
+# Adapter, persistence, parser, and use-case implementations remain available
+# through explicit lazy attribute access below.
+_ACTIVE_EXPORTS = (
     "ExistingTagCandidate",
-    "JsonTagCatalogRepository",
-    "JsonTaggedParagraphRepository",
     "ParagraphBlock",
-    "RemoteParagraphTagger",
-    "RemoteTagConflictResolver",
-    "TagAndPersistParagraph",
-    "TagCatalogRepository",
+    "ParagraphConceptRole",
     "TagConflictResolution",
     "TagConflictResolutionRequest",
-    "TagConflictResolver",
     "TagGenerationRequest",
     "TagGenerationResult",
-    "TagGenerator",
-    "TagParagraph",
     "TagResolution",
     "TaggedParagraph",
+    "ConceptCandidate",
+    "ConceptCandidateExample",
+    "deduplicate_concept_candidates",
+    "normalize_concept_label",
+    "ChunkTagger",
+    "TagCatalogRepository",
+    "TagConflictResolver",
+    "TagGenerator",
     "TaggedParagraphRepository",
-    "parse_chunk_paragraphs",
-]
+)
+
+__all__ = list(_ACTIVE_EXPORTS)
 
 
 def __getattr__(name: str) -> object:
-    """Load workflow/parser exports lazily to avoid ingestion import cycles."""
+    """Resolve facade exports only when a consumer asks for them."""
 
-    if name in {"TagAndPersistParagraph", "TagParagraph"}:
-        from .use_cases import TagAndPersistParagraph, TagParagraph
-
-        return {"TagAndPersistParagraph": TagAndPersistParagraph, "TagParagraph": TagParagraph}[name]
-    if name == "ChunkTagger":
-        from .ports import ChunkTagger
-
-        return ChunkTagger
-    if name == "parse_chunk_paragraphs":
-        from .parser import parse_chunk_paragraphs
-
-        return parse_chunk_paragraphs
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    try:
+        module_name, attribute_name = _EXPORTS[name]
+    except KeyError as error:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from error
+    value = getattr(import_module(module_name, __name__), attribute_name)
+    globals()[name] = value
+    return value

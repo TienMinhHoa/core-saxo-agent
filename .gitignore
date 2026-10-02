@@ -14,11 +14,16 @@ __pycache__/
 .coverage.*
 htmlcov/
 
+# Test reports, logs, cache and temporary files
+/test-artifacts/
+
 # Virtual environments and uv cache
 .venv/
 venv/
 env/
 .uv-cache/
+.codex/
+
 
 # Packaging artifacts
 build/
@@ -34,6 +39,10 @@ dist/
 # Local documentation and agent traces
 /docs/
 /.gnhf/
+/.codex/
+.codex/
+temp/
+/temp/
 
 # Logs and temporary files
 *.log

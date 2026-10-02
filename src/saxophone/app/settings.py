@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Mapping
 from urllib.parse import urlsplit
 
@@ -21,6 +21,7 @@ class AppSettings:
     data_root: Path
     remote_gpu_base_url: str
     remote_gpu_bearer_token: str = field(repr=False)
+    image_root: Path | None = None
     remote_gpu_tls_verify: bool = True
     remote_gpu_max_in_flight: int = 4
     remote_gpu_retention_days: int = 30
@@ -41,6 +42,19 @@ class AppSettings:
     deepseek_api_key: str | None = field(default=None, repr=False)
     deepseek_model: str = "deepseek-flash"
     agent_chat_model: str = "deepseek-pro"
+    agent_max_tool_calls: int = 8
+    agent_max_document_search_calls: int = 3
+    agent_max_web_search_calls: int = 2
+    agent_max_hits_per_tool: int = 20
+    agent_tool_timeout_seconds: float = 20.0
+    agent_max_context_tokens: int = 12_000
+    tavily_api_key: str | None = field(default=None, repr=False)
+    tavily_base_url: str = "https://api.tavily.com"
+    tavily_max_results: int = 5
+    langfuse_enabled: bool = False
+    langfuse_secret_key: str | None = field(default=None, repr=False)
+    langfuse_public_key: str | None = field(default=None, repr=False)
+    langfuse_base_url: str | None = None
     deepseek_reasoning_effort: str = "max"
     deepseek_max_tokens: int = 65536
     openai_api_base_url: str = "https://api.openai.com/v1"
@@ -55,6 +69,8 @@ class AppSettings:
     def __post_init__(self) -> None:
         """Keep direct construction subject to the same runtime contract."""
         _validate_runtime_path(self.data_root, "data_root")
+        if self.image_root is not None:
+            _validate_runtime_path(self.image_root, "image_root")
         _validate_runtime_path(
             self.chroma_persist_directory, "chroma_persist_directory"
         )
@@ -73,6 +89,20 @@ class AppSettings:
         )
         _parse_structured_output_mode(self.litellm_structured_output_mode)
         _validate_runtime_boolean(self.chunk_tagging_enabled, "chunk_tagging_enabled")
+        _validate_runtime_boolean(self.langfuse_enabled, "langfuse_enabled")
+        _validate_optional_runtime_text(self.langfuse_secret_key, "LANGFUSE_SECRET_KEY")
+        _validate_optional_runtime_text(self.langfuse_public_key, "LANGFUSE_PUBLIC_KEY")
+        _validate_optional_runtime_text(self.langfuse_base_url, "LANGFUSE_BASE_URL")
+        _validate_optional_runtime_text(self.tavily_api_key, "TAVILY_API_KEY")
+        _parse_optional_https_url(self.tavily_base_url, default="https://api.tavily.com", variable="TAVILY_BASE_URL")
+        _validate_runtime_integer(self.tavily_max_results, "TAVILY_MAX_RESULTS", strictly_positive=True)
+        _parse_optional_langfuse_url(self.langfuse_base_url)
+        if self.langfuse_enabled:
+            _require_configured_langfuse(
+                self.langfuse_secret_key,
+                self.langfuse_public_key,
+                self.langfuse_base_url,
+            )
         _parse_model_provider(self.model_provider)
         _parse_optional_https_url(
             self.deepseek_api_base_url,
@@ -86,6 +116,23 @@ class AppSettings:
         )
         _parse_required_text(self.deepseek_model, "SAXO_DEEPSEEK_MODEL")
         _parse_agent_chat_model(self.agent_chat_model)
+        for field_name in (
+            "agent_max_tool_calls",
+            "agent_max_document_search_calls",
+            "agent_max_web_search_calls",
+            "agent_max_hits_per_tool",
+            "agent_max_context_tokens",
+        ):
+            _validate_runtime_integer(
+                getattr(self, field_name),
+                field_name,
+                strictly_positive=True,
+            )
+        _validate_runtime_float(
+            self.agent_tool_timeout_seconds,
+            "agent_tool_timeout_seconds",
+            strictly_positive=True,
+        )
         _parse_reasoning_effort(self.deepseek_reasoning_effort)
         _parse_required_text(
             self.openai_embedding_model,
@@ -209,8 +256,19 @@ class AppSettings:
             environment.get("SAXO_OPENAI_API_KEY") or environment.get("OPENAI_API_KEY"),
             "OPENAI_API_KEY",
         )
+        tavily_api_key = _parse_optional_env_token(environment, "TAVILY_API_KEY")
+        tavily_base_url = _parse_optional_https_url(
+            environment.get("TAVILY_BASE_URL"),
+            default="https://api.tavily.com",
+            variable="TAVILY_BASE_URL",
+        )
         data_root = _parse_data_root(
             environment.get("SAXO_DATA_ROOT", "runtime/saxophone")
+        )
+        image_root = (
+            _parse_runtime_path(environment["SAXO_IMAGE_ROOT"], "SAXO_IMAGE_ROOT")
+            if "SAXO_IMAGE_ROOT" in environment
+            else None
         )
         if model_provider == "direct":
             base_url = deepseek_api_base_url
@@ -250,6 +308,7 @@ class AppSettings:
         )
         return cls(
             data_root=data_root,
+            image_root=image_root,
             remote_gpu_base_url=base_url,
             remote_gpu_bearer_token=bearer_token,
             remote_gpu_tls_verify=_parse_boolean(
@@ -325,6 +384,51 @@ class AppSettings:
             agent_chat_model=_parse_agent_chat_model(
                 environment.get("SAXO_AGENT_CHAT_MODEL", "deepseek-pro")
             ),
+            agent_max_tool_calls=_parse_positive_integer(
+                environment.get("SAXO_AGENT_MAX_TOOL_CALLS", "8"),
+                "SAXO_AGENT_MAX_TOOL_CALLS",
+            ),
+            agent_max_document_search_calls=_parse_positive_integer(
+                environment.get("SAXO_AGENT_MAX_DOCUMENT_SEARCH_CALLS", "3"),
+                "SAXO_AGENT_MAX_DOCUMENT_SEARCH_CALLS",
+            ),
+            agent_max_web_search_calls=_parse_positive_integer(
+                environment.get("SAXO_AGENT_MAX_WEB_SEARCH_CALLS", "2"),
+                "SAXO_AGENT_MAX_WEB_SEARCH_CALLS",
+            ),
+            agent_max_hits_per_tool=_parse_positive_integer(
+                environment.get("SAXO_AGENT_MAX_HITS_PER_TOOL", "20"),
+                "SAXO_AGENT_MAX_HITS_PER_TOOL",
+            ),
+            agent_tool_timeout_seconds=_parse_non_negative_float(
+                environment.get("SAXO_AGENT_TOOL_TIMEOUT_SECONDS", "20"),
+                "SAXO_AGENT_TOOL_TIMEOUT_SECONDS",
+                strictly_positive=True,
+            ),
+            agent_max_context_tokens=_parse_positive_integer(
+                environment.get("SAXO_AGENT_MAX_CONTEXT_TOKENS", "12000"),
+                "SAXO_AGENT_MAX_CONTEXT_TOKENS",
+            ),
+            tavily_api_key=tavily_api_key,
+            tavily_base_url=tavily_base_url,
+            tavily_max_results=_parse_positive_integer(
+                environment.get("TAVILY_MAX_RESULTS", "5"), "TAVILY_MAX_RESULTS"
+            ),
+            langfuse_enabled=_parse_boolean(
+                environment.get("SAXO_LANGFUSE_ENABLED", "false"),
+                "SAXO_LANGFUSE_ENABLED",
+            ),
+            langfuse_secret_key=_parse_optional_token(
+                environment.get("LANGFUSE_SECRET_KEY"),
+                "LANGFUSE_SECRET_KEY",
+            ),
+            langfuse_public_key=_parse_optional_token(
+                environment.get("LANGFUSE_PUBLIC_KEY"),
+                "LANGFUSE_PUBLIC_KEY",
+            ),
+            langfuse_base_url=_parse_optional_langfuse_url(
+                environment.get("LANGFUSE_BASE_URL"),
+            ),
             deepseek_reasoning_effort=_parse_reasoning_effort(
                 environment.get("SAXO_DEEPSEEK_REASONING_EFFORT", "max")
             ),
@@ -363,18 +467,46 @@ def _validate_environment_mapping(environment: object) -> None:
             raise SettingsValidationError("environment keys and values must be text")
 
 
+def _parse_optional_env_token(environment: Mapping[str, str], variable: str) -> str | None:
+    """Treat an explicitly supplied blank or unsafe secret as a config error."""
+
+    if variable not in environment:
+        return None
+    value = environment[variable]
+    if not value.strip():
+        raise SettingsValidationError(f"{variable} must not be empty")
+    return _parse_optional_token(value, variable)
+
+
 def _parse_data_root(value: str | None) -> Path:
     if not value or not value.strip():
         raise SettingsValidationError("SAXO_DATA_ROOT must not be empty")
     path = Path(value)
-    if path.drive and not path.is_absolute():
+    windows_path = PureWindowsPath(value)
+    if (path.drive and not path.is_absolute()) or (
+        windows_path.drive and not windows_path.is_absolute()
+    ):
         raise SettingsValidationError("SAXO_DATA_ROOT must not be drive-relative")
     if path.root and not path.is_absolute():
         raise SettingsValidationError("SAXO_DATA_ROOT must not be root-relative")
-    if ".." in path.parts:
+    if ".." in path.parts or ".." in windows_path.parts:
         raise SettingsValidationError(
             "SAXO_DATA_ROOT must not traverse parent directories"
         )
+    return path
+
+
+def _parse_runtime_path(value: str | None, variable: str) -> Path:
+    if not value or not value.strip():
+        raise SettingsValidationError(f"{variable} must not be empty")
+    path = Path(value)
+    windows_path = PureWindowsPath(value)
+    if (path.drive and not path.is_absolute()) or (
+        windows_path.drive and not windows_path.is_absolute()
+    ):
+        raise SettingsValidationError(f"{variable} must not be drive-relative")
+    if ".." in path.parts or ".." in windows_path.parts:
+        raise SettingsValidationError(f"{variable} must not traverse parent directories")
     return path
 
 
@@ -382,7 +514,10 @@ def _parse_chroma_directory(value: str | None) -> Path:
     if not value or not value.strip():
         raise SettingsValidationError("SAXO_CHROMA_PERSIST_DIRECTORY must not be empty")
     path = Path(value)
-    if path.drive and not path.is_absolute():
+    windows_path = PureWindowsPath(value)
+    if (path.drive and not path.is_absolute()) or (
+        windows_path.drive and not windows_path.is_absolute()
+    ):
         raise SettingsValidationError(
             "SAXO_CHROMA_PERSIST_DIRECTORY must not be drive-relative"
         )
@@ -390,7 +525,7 @@ def _parse_chroma_directory(value: str | None) -> Path:
         raise SettingsValidationError(
             "SAXO_CHROMA_PERSIST_DIRECTORY must not be root-relative"
         )
-    if ".." in path.parts:
+    if ".." in path.parts or ".." in windows_path.parts:
         raise SettingsValidationError(
             "SAXO_CHROMA_PERSIST_DIRECTORY must not traverse parent directories",
         )
@@ -443,6 +578,54 @@ def _parse_optional_https_url(value: str | None, *, default: str, variable: str)
     except ValueError as error:
         raise SettingsValidationError(f"{variable} contains an invalid port") from error
     return url
+
+
+def _parse_optional_langfuse_url(value: str | None) -> str | None:
+    """Validate the optional Langfuse host without exposing credentials.
+
+    Langfuse may run on a private HTTP endpoint, so both HTTP and HTTPS are
+    accepted here while URL credentials, query strings, and fragments remain
+    disallowed.
+    """
+
+    variable = "LANGFUSE_BASE_URL"
+    _validate_optional_runtime_text(value, variable)
+    if value is None or not value.strip():
+        return None
+    url = value.strip()
+    parsed = urlsplit(url)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise SettingsValidationError(
+            f"{variable} must be an HTTP or HTTPS URL without credentials, query, or fragment",
+        )
+    try:
+        parsed.port
+    except ValueError as error:
+        raise SettingsValidationError(f"{variable} contains an invalid port") from error
+    return url
+
+
+def _require_configured_langfuse(
+    secret_key: str | None,
+    public_key: str | None,
+    base_url: str | None,
+) -> None:
+    for value, variable in (
+        (secret_key, "LANGFUSE_SECRET_KEY"),
+        (public_key, "LANGFUSE_PUBLIC_KEY"),
+        (base_url, "LANGFUSE_BASE_URL"),
+    ):
+        if value is None or not value.strip():
+            raise SettingsValidationError(
+                f"{variable} is required when SAXO_LANGFUSE_ENABLED is true",
+            )
 
 
 def _parse_required_token(
@@ -623,11 +806,14 @@ def _validate_runtime_path(value: object, field_name: str) -> None:
         )
     if value == Path("."):
         raise SettingsValidationError(f"{field_name} must not be empty")
-    if value.drive and not value.is_absolute():
+    windows_path = PureWindowsPath(str(value))
+    if (value.drive and not value.is_absolute()) or (
+        windows_path.drive and not windows_path.is_absolute()
+    ):
         raise SettingsValidationError(f"{field_name} must not be drive-relative")
     if value.root and not value.is_absolute():
         raise SettingsValidationError(f"{field_name} must not be root-relative")
-    if ".." in value.parts:
+    if ".." in value.parts or ".." in windows_path.parts:
         raise SettingsValidationError(
             f"{field_name} must not traverse parent directories"
         )
@@ -642,8 +828,9 @@ def _validate_windows_device_path_components(value: Path, field_name: str) -> No
     """Reject path segments that Windows resolves as device names."""
     reserved_names = {"CON", "PRN", "AUX", "NUL"}
     invalid_characters = set('<>:"|?*')
-    for component in value.parts:
-        if component == value.anchor:
+    windows_path = PureWindowsPath(str(value))
+    for component in windows_path.parts:
+        if component == windows_path.anchor:
             continue
         if component.endswith((" ", ".")):
             raise SettingsValidationError(

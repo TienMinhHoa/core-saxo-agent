@@ -35,6 +35,9 @@ class ModelTask(StrEnum):
     TAG_RESOLVE = "tag_resolve"
     CHUNK_TAGGING = "chunk_tagging"
     RETRIEVAL_SELECT = "retrieval_select"
+    ORCHESTRATOR_DECISION = "orchestrator_decision"
+    WEB_SEARCH_QUERY_PLAN = "web_search_query_plan"
+    DOCUMENT_SEARCH_QUERY_PLAN = "document_search_query_plan"
     ANSWER_GENERATE = "answer_generate"
 
 

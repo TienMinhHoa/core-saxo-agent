@@ -1,40 +1,49 @@
-"""Provider-independent extraction contracts."""
+"""Stable facade for provider-independent extraction contracts and policies."""
 
-from .models import (
-    CoordinateSpace,
-    ExtractionCoordinate,
-    PdfExtractionRequest,
-    PdfExtractionResult,
-)
-from .ports import ExtractionArtifactPayloadProvider, PdfExtractor
-from .persistence import (
-    PersistExtractionArtifacts,
-    RepositoryExtractionArtifactPayloadProvider,
-)
-from .remote import RemotePdfExtractor
-from .layout import (
-    RAW_PDF_RASTER_SPACE,
-    finite_number,
-    is_raw_pdf_raster_space,
-    normalize_blocks,
-)
-from .layout_view import read_layout_pages
-from .pdf_pages import render_pdf_pages
+from importlib import import_module
+from typing import Any
 
-__all__ = [
+_EXPORTS = {
+    "CoordinateSpace": (".models", "CoordinateSpace"),
+    "ExtractionCoordinate": (".models", "ExtractionCoordinate"),
+    "PdfExtractionRequest": (".models", "PdfExtractionRequest"),
+    "PdfExtractionResult": (".models", "PdfExtractionResult"),
+    "ExtractionArtifactPayloadProvider": (".ports", "ExtractionArtifactPayloadProvider"),
+    "PdfExtractor": (".ports", "PdfExtractor"),
+    "PersistExtractionArtifacts": (".persistence", "PersistExtractionArtifacts"),
+    "RepositoryExtractionArtifactPayloadProvider": (
+        ".persistence",
+        "RepositoryExtractionArtifactPayloadProvider",
+    ),
+    "RemotePdfExtractor": (".remote", "RemotePdfExtractor"),
+    "RAW_PDF_RASTER_SPACE": (".layout", "RAW_PDF_RASTER_SPACE"),
+    "normalize_blocks": (".layout", "normalize_blocks"),
+    "finite_number": (".layout", "finite_number"),
+    "is_raw_pdf_raster_space": (".layout", "is_raw_pdf_raster_space"),
+    "read_layout_pages": (".layout_view", "read_layout_pages"),
+    "render_pdf_pages": (".pdf_pages", "render_pdf_pages"),
+}
+
+# Keep wildcard imports limited to provider-independent extraction contracts.
+_ACTIVE_EXPORTS = (
     "CoordinateSpace",
     "ExtractionCoordinate",
     "PdfExtractionRequest",
     "PdfExtractionResult",
-    "PdfExtractor",
     "ExtractionArtifactPayloadProvider",
-    "PersistExtractionArtifacts",
-    "RemotePdfExtractor",
-    "RepositoryExtractionArtifactPayloadProvider",
-    "RAW_PDF_RASTER_SPACE",
-    "normalize_blocks",
-    "finite_number",
-    "is_raw_pdf_raster_space",
-    "read_layout_pages",
-    "render_pdf_pages",
-]
+    "PdfExtractor",
+)
+
+__all__ = list(_ACTIVE_EXPORTS)
+
+
+def __getattr__(name: str) -> Any:
+    """Load extraction implementations only when a public symbol is used."""
+
+    try:
+        module_name, attribute_name = _EXPORTS[name]
+    except KeyError as error:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from error
+    value = getattr(import_module(module_name, __name__), attribute_name)
+    globals()[name] = value
+    return value

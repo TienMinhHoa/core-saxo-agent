@@ -11,7 +11,6 @@ from pathlib import Path
 from saxophone.documents.policies import is_safe_document_reference
 from saxophone.tagging.models import ParagraphConceptRole
 from saxophone.tagging.models import ParagraphBlock
-from saxophone.retrieval.sqlite_context import SqliteRetrievalContextRepository
 from saxophone.tagging.sqlite_repository import SqliteTaggingRepository
 from saxophone.tagging.vector_outbox import SqliteVectorOutboxRepository, VectorOutboxEvent
 
@@ -192,6 +191,8 @@ class SqliteIngestionTransactionRepository:
         with sqlite3.connect(self._path) as connection:
             SqliteTaggingRepository._create_schema(connection)
             SqliteVectorOutboxRepository._create_schema(connection)
+            from saxophone.retrieval.sqlite_context import SqliteRetrievalContextRepository
+
             SqliteRetrievalContextRepository._create_schema(connection)
 
             existing_ids = tuple(
@@ -235,7 +236,11 @@ class SqliteIngestionTransactionRepository:
                     chunk.source_version,
                     chunk.chunk_id,
                     chunk.search_text,
-                    json.dumps(dict(chunk.metadata), ensure_ascii=False, sort_keys=True),
+                    json.dumps(
+                        _chunk_metadata_with_image_captions(chunk, paragraphs),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
                 ),
             )
             connection.executemany(
@@ -298,6 +303,8 @@ class SqliteIngestionTransactionRepository:
         with sqlite3.connect(self._path) as connection:
             SqliteTaggingRepository._create_schema(connection)
             SqliteVectorOutboxRepository._create_schema(connection)
+            from saxophone.retrieval.sqlite_context import SqliteRetrievalContextRepository
+
             SqliteRetrievalContextRepository._create_schema(connection)
 
             connection.execute(
@@ -342,7 +349,11 @@ class SqliteIngestionTransactionRepository:
                             chunk.source_version,
                             chunk.chunk_id,
                             chunk.search_text,
-                            json.dumps(dict(chunk.metadata), ensure_ascii=False, sort_keys=True),
+                            json.dumps(
+                                _chunk_metadata_with_image_captions(chunk, paragraphs),
+                                ensure_ascii=False,
+                                sort_keys=True,
+                            ),
                         )
                         for chunk in chunks
                     ),
@@ -623,3 +634,21 @@ class SqliteIngestionTransactionRepository:
         if len(normalized) != len(set(normalized)):
             raise ValueError("paragraph_ids must be unique")
         return normalized
+
+
+def _chunk_metadata_with_image_captions(
+    chunk: IngestionSourceChunk,
+    paragraphs: Sequence[ParagraphBlock],
+) -> dict[str, object]:
+    """Keep paragraph image captions available to retrieval hydration."""
+
+    metadata = dict(chunk.metadata)
+    captions = {
+        image_ref: caption
+        for paragraph in paragraphs
+        if paragraph.chunk_id == chunk.chunk_id
+        for image_ref, caption in paragraph.image_captions.items()
+    }
+    if captions:
+        metadata["image_captions"] = captions
+    return metadata

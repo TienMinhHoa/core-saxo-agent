@@ -55,6 +55,37 @@ def test_structured_provider_maps_task_and_validates_typed_output() -> None:
     assert client.request.input["schema"]["title"] == "AnswerPayload"
 
 
+@pytest.mark.parametrize(
+    ("task_type", "model_task"),
+    [
+        ("orchestrator_decision", ModelTask.ORCHESTRATOR_DECISION),
+        ("web_search_query_planning", ModelTask.WEB_SEARCH_QUERY_PLAN),
+        ("document_search_query_planning", ModelTask.DOCUMENT_SEARCH_QUERY_PLAN),
+    ],
+)
+def test_agent_decision_tasks_reach_the_model_client(task_type: str, model_task: ModelTask) -> None:
+    client = FakeClient(ModelResponse(
+        task=model_task,
+        model="deepseek-v3",
+        response_schema=f"structured-{task_type}",
+        output={"answer": "ready"},
+        source_version="structured-v1",
+    ))
+    provider = RemoteStructuredLlmProvider(
+        client, model="deepseek-v3", mode=StructuredOutputMode.JSON_OBJECT
+    )
+
+    result = asyncio.run(provider.generate_structured(
+        task_type=task_type,
+        system_prompt="Choose the next action.",
+        user_prompt="Find the answer.",
+        response_model=AnswerPayload,
+    ))
+
+    assert result.answer == "ready"
+    assert client.request.task is model_task
+
+
 def test_json_object_mode_includes_the_output_contract_in_the_prompt() -> None:
     client = FakeClient(
         ModelResponse(

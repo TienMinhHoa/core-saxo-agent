@@ -9,6 +9,9 @@ from fastapi.testclient import TestClient
 
 from saxophone.app.factory import AppOverrides, create_app
 from saxophone.app.settings import AppSettings, SettingsValidationError
+from saxophone.agent.contracts import AgentOutcome, ClarificationRequest, RunBudget
+from saxophone.agent.orchestrator import AgentRunResult
+from saxophone.agent.state import AgentStage
 from saxophone.chat.service import (
     AnswerSource,
     GroundedAnswerResponse,
@@ -60,6 +63,8 @@ def test_agent_chat_page_serves_separate_html_css_and_javascript_assets() -> Non
     assert '"Bạn"' in script.text
     assert "nguồn đã sử dụng" in script.text
     assert "source.citation" in script.text
+    assert "needs_clarification" in script.text
+    assert "clarification-option" in script.text
 
 
 def test_agent_chat_message_endpoint_runs_grounded_question_flow() -> None:
@@ -118,6 +123,41 @@ def test_agent_chat_message_endpoint_runs_grounded_question_flow() -> None:
             }
         ],
         "model_version": "deepseek-pro",
+    }
+
+
+def test_agent_chat_message_endpoint_exposes_structured_clarification() -> None:
+    service = _AgentChat(
+        AgentRunResult(
+            run_id="run-clarification",
+            outcome=AgentOutcome.NEEDS_CLARIFICATION,
+            stage=AgentStage.WAITING_FOR_CLARIFICATION,
+            budget=RunBudget(),
+            clarification=ClarificationRequest(
+                "Which triad do you mean?",
+                ("Major triad", "Minor triad"),
+                "multiple_supported_interpretations",
+            ),
+        ),
+        [],
+    )
+
+    response = TestClient(_router_app(service)).post(
+        "/agent/chat/messages",
+        json={"question": "Which triad?"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "needs_clarification",
+        "answer": None,
+        "sources": [],
+        "clarification": {
+            "question": "Which triad do you mean?",
+            "options": ["Major triad", "Minor triad"],
+            "reason_code": "multiple_supported_interpretations",
+        },
+        "model_version": None,
     }
 
 

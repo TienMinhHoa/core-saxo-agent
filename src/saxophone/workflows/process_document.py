@@ -10,7 +10,6 @@ from saxophone.extraction import (
     PdfExtractionRequest,
     PdfExtractionResult,
     PdfExtractor,
-    PersistExtractionArtifacts,
 )
 
 
@@ -56,6 +55,9 @@ class ProcessAndPersistDocument:
         payloads: ExtractionArtifactPayloadProvider,
         artifacts: ArtifactRepository,
     ) -> None:
+        # Persistence is only needed when this compatibility workflow is composed.
+        from saxophone.extraction import PersistExtractionArtifacts
+
         self._process = process
         self._payloads = payloads
         self._persist = PersistExtractionArtifacts(artifacts)

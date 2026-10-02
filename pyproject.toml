@@ -12,6 +12,10 @@ dependencies = [
     "chromadb>=0.5,<2",
     "fastapi>=0.115,<1",
     "httpx>=0.28,<1",
+    "langchain>=1,<2",
+    "langchain-core>=0.3,<2",
+    "langfuse>=2.60,<3",
+    "langgraph>=0.2,<2",
     "openai>=1,<3",
     "python-dotenv>=1,<2",
     "python-multipart>=0.0.9,<1",
@@ -53,4 +57,5 @@ namespaces = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+cache_dir = "test-artifacts/pytest_cache"
 addopts = "-ra"

@@ -1,0 +1,554 @@
+from __future__ import annotations
+
+import importlib
+import subprocess
+import sys
+
+import saxophone.agent as agent_package
+import saxophone.agent.evidence_selection as active_selection
+from saxophone.retrieval import selector_compatibility
+
+_COMPATIBILITY_EXPORTS = (
+    "QuestionRequest",
+    "QuestionRetrievalService",
+    "RetrievalBundle",
+    "RetrievalBundleStatus",
+)
+
+
+def test_retrieval_package_keeps_compatibility_exports_lazy() -> None:
+    """Do not load the legacy question flow while importing active retrieval APIs."""
+
+    package = importlib.import_module("saxophone.retrieval")
+    for name in _COMPATIBILITY_EXPORTS:
+        package.__dict__.pop(name, None)
+    importlib.reload(package)
+
+    assert all(name not in package.__dict__ for name in _COMPATIBILITY_EXPORTS)
+
+    request_type = package.QuestionRequest
+
+    assert request_type.__module__ == "saxophone.retrieval.question_retrieval"
+    assert all(name not in package.__dict__ for name in _COMPATIBILITY_EXPORTS)
+
+
+def test_retrieval_package_preserves_explicit_compatibility_imports() -> None:
+    """Existing callers can still import each compatibility symbol explicitly."""
+
+    from saxophone.retrieval import (
+        QuestionRequest,
+        QuestionRetrievalService,
+        RetrievalBundle,
+        RetrievalBundleStatus,
+    )
+
+    assert QuestionRequest.__name__ == "QuestionRequest"
+    assert QuestionRetrievalService.__name__ == "QuestionRetrievalService"
+    assert RetrievalBundle.__name__ == "RetrievalBundle"
+    assert RetrievalBundleStatus.__name__ == "RetrievalBundleStatus"
+
+
+def test_retrieval_selector_exports_load_only_when_requested() -> None:
+    """Keep optional selector modules out of basic retrieval imports."""
+
+    script = """
+import importlib
+import sys
+
+package = importlib.import_module("saxophone.retrieval")
+optional_modules = (
+    "saxophone.retrieval.role_selection",
+    "saxophone.retrieval.renderers",
+    "saxophone.retrieval.paragraph_traversal",
+    "saxophone.retrieval.paragraph_selection",
+    "saxophone.retrieval.context_limiter",
+)
+assert all(name not in sys.modules for name in optional_modules)
+
+assert package.StructuredParagraphSelector.__module__ == "saxophone.retrieval.paragraph_selection"
+assert package.ConceptRoleSelector.__module__ == "saxophone.retrieval.role_selection"
+assert "saxophone.retrieval.paragraph_selection" in sys.modules
+assert "saxophone.retrieval.role_selection" in sys.modules
+assert "saxophone.retrieval.paragraph_traversal" not in sys.modules
+assert "saxophone.retrieval.context_limiter" not in sys.modules
+
+assert package.ContextLimiter.__module__ == "saxophone.retrieval.context_limiter"
+assert "saxophone.retrieval.context_limiter" in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
+def test_retrieval_facade_keeps_active_implementations_lazy() -> None:
+    """Keep even the active retrieval implementations behind explicit access."""
+
+    script = """
+import importlib
+import sys
+
+package = importlib.import_module("saxophone.retrieval")
+active_modules = (
+    "saxophone.retrieval.models",
+    "saxophone.retrieval.ports",
+    "saxophone.retrieval.use_cases",
+)
+assert all(name not in sys.modules for name in active_modules)
+
+assert package.ChunkHit.__module__ == "saxophone.retrieval.models"
+assert package.ChunkRetriever.__module__ == "saxophone.retrieval.ports"
+assert package.RetrieveEvidence.__module__ == "saxophone.retrieval.use_cases"
+assert all(name in sys.modules for name in active_modules)
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
+def test_factory_import_does_not_load_legacy_question_retrieval() -> None:
+    """Keep composition-root imports free of the compatibility retrieval graph."""
+
+    script = """
+import importlib
+import sys
+
+importlib.import_module("saxophone.app.factory")
+assert "saxophone.retrieval.question_retrieval" not in sys.modules
+assert "saxophone.chat.compatibility" not in sys.modules
+assert "saxophone.retrieval.sqlite_context" not in sys.modules
+assert "saxophone.retrieval.renderers" not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
+def test_factory_import_does_not_load_tagging_implementations() -> None:
+    """Keep tagging providers and persistence behind application composition."""
+
+    script = """
+import importlib
+import sys
+
+importlib.import_module("saxophone.app.factory")
+optional_modules = (
+    "saxophone.tagging.adapters",
+    "saxophone.tagging.persistence",
+    "saxophone.tagging.structured_chunk",
+)
+assert all(name not in sys.modules for name in optional_modules)
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
+def test_factory_import_does_not_load_structured_tagging_provider() -> None:
+    """Keep the optional structured provider behind application composition."""
+
+    script = """
+import importlib
+import sys
+
+importlib.import_module("saxophone.app.factory")
+assert "saxophone.tagging.structured_provider" not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
+def test_factory_import_does_not_load_pdf_layout_compatibility() -> None:
+    """Keep the optional PDF layout runtime behind its mount boundary."""
+
+    script = """
+import importlib
+import sys
+
+importlib.import_module("saxophone.app.factory")
+optional_modules = (
+    "saxophone.interfaces.pdf_layout_web",
+    "saxophone.workflows.pdf_layout_extraction",
+    "saxophone.extraction.paddle_vllm",
+)
+assert all(name not in sys.modules for name in optional_modules)
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
+def test_factory_import_does_not_load_remote_extraction_compatibility() -> None:
+    """Keep the remote extraction adapter behind application composition."""
+
+    script = """
+import importlib
+import sys
+
+importlib.import_module("saxophone.app.factory")
+assert "saxophone.extraction.remote" not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
+def test_factory_import_does_not_load_extraction_persistence_implementation() -> None:
+    """Keep extraction persistence behind the process-and-persist workflow boundary."""
+
+    script = """
+import importlib
+import sys
+
+importlib.import_module("saxophone.app.factory")
+assert "saxophone.extraction.persistence" not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
+def test_factory_import_does_not_load_core_workflow_implementations() -> None:
+    """Keep document workflow modules behind the application composition boundary."""
+
+    script = """
+import importlib
+import sys
+
+importlib.import_module("saxophone.app.factory")
+optional_modules = (
+    "saxophone.workflows.ingest_extracted_document",
+    "saxophone.workflows.process_document",
+    "saxophone.tagging.parser",
+)
+assert all(name not in sys.modules for name in optional_modules)
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
+def test_factory_import_does_not_load_legacy_topic_service() -> None:
+    """Keep the compatibility topic service behind topic composition."""
+
+    script = """
+import importlib
+import sys
+
+importlib.import_module("saxophone.app.factory")
+assert "saxophone.services.extract_topic" not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
+def test_factory_import_does_not_load_ingestion_implementations() -> None:
+    """Keep ingestion adapters behind application composition."""
+
+    script = """
+import importlib
+import sys
+
+importlib.import_module("saxophone.app.factory")
+optional_modules = (
+    "saxophone.ingestion.adapters",
+    "saxophone.ingestion.concept_embedding",
+    "saxophone.ingestion.concept_repository",
+    "saxophone.ingestion.content_ledger",
+    "saxophone.ingestion.state",
+    "saxophone.ingestion.transaction",
+    "saxophone.ingestion.vector_state",
+    "saxophone.ingestion.vector_sync",
+    "saxophone.ingestion.use_cases",
+    "saxophone.ingestion.services",
+)
+assert all(name not in sys.modules for name in optional_modules)
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
+def test_factory_import_does_not_load_workflow_or_tagging_facades() -> None:
+    """Keep even public implementation facades behind app composition."""
+
+    script = """
+import importlib
+import sys
+
+importlib.import_module("saxophone.app.factory")
+assert "saxophone.workflows" not in sys.modules
+assert "saxophone.tagging" not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
+def test_workflows_wildcard_import_keeps_pdf_layout_lazy() -> None:
+    """Wildcard workflow imports should not pull the optional layout runtime in."""
+
+    script = """
+import importlib
+import sys
+
+package = importlib.import_module("saxophone.workflows")
+layout_modules = (
+    "saxophone.interfaces.pdf_layout_web",
+    "saxophone.workflows.pdf_layout_extraction",
+    "saxophone.workflows.pdf_layout_jobs",
+    "saxophone.extraction.paddle_vllm",
+)
+assert all(name not in sys.modules for name in layout_modules)
+
+namespace = {}
+exec("from saxophone.workflows import *", namespace)
+
+assert {"ProcessDocument", "ProcessAndPersistDocument", "IngestExtractedDocument"} <= namespace.keys()
+assert all(name not in sys.modules for name in layout_modules)
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
+def test_extraction_facade_keeps_optional_adapters_lazy() -> None:
+    """Load remote and persistence adapters only when their symbols are requested."""
+
+    script = """
+import importlib
+import sys
+
+package = importlib.import_module("saxophone.extraction")
+assert "saxophone.extraction.remote" not in sys.modules
+assert "saxophone.extraction.persistence" not in sys.modules
+assert package.PdfExtractionRequest.__module__ == "saxophone.extraction.models"
+assert "saxophone.extraction.remote" not in sys.modules
+assert package.RemotePdfExtractor.__module__ == "saxophone.extraction.remote"
+assert "saxophone.extraction.persistence" not in sys.modules
+assert package.PersistExtractionArtifacts.__module__ == "saxophone.extraction.persistence"
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
+def test_extraction_wildcard_import_keeps_optional_adapters_lazy() -> None:
+    """Wildcard extraction imports should expose contracts without loading adapters."""
+
+    script = """
+import importlib
+import sys
+
+package = importlib.import_module("saxophone.extraction")
+optional_modules = (
+    "saxophone.extraction.persistence",
+    "saxophone.extraction.remote",
+    "saxophone.extraction.layout",
+    "saxophone.extraction.layout_view",
+    "saxophone.extraction.pdf_pages",
+)
+assert all(name not in sys.modules for name in optional_modules)
+
+namespace = {}
+exec("from saxophone.extraction import *", namespace)
+
+assert {
+    "CoordinateSpace",
+    "ExtractionArtifactPayloadProvider",
+    "ExtractionCoordinate",
+    "PdfExtractionRequest",
+    "PdfExtractionResult",
+    "PdfExtractor",
+} <= namespace.keys()
+assert all(name not in namespace for name in (
+    "PersistExtractionArtifacts",
+    "RemotePdfExtractor",
+    "RepositoryExtractionArtifactPayloadProvider",
+    "normalize_blocks",
+    "read_layout_pages",
+    "render_pdf_pages",
+))
+assert all(name not in sys.modules for name in optional_modules)
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
+def test_agent_import_does_not_load_legacy_selector_implementations() -> None:
+    """Keep provider-specific selector modules behind the selection boundary."""
+
+    script = """
+import importlib
+import sys
+
+importlib.import_module("saxophone.agent")
+optional_modules = (
+    "saxophone.retrieval.paragraph_selection",
+    "saxophone.retrieval.paragraph_traversal",
+    "saxophone.retrieval.role_selection",
+    "saxophone.retrieval.renderers",
+    "saxophone.tagging",
+    "saxophone.tagging.adapters",
+    "saxophone.tagging.persistence",
+    "saxophone.tagging.parser",
+)
+assert all(name not in sys.modules for name in optional_modules)
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
+def test_agent_package_import_defers_implementations_and_preserves_exports() -> None:
+    """Load agent modules only when a public symbol is explicitly requested."""
+
+    script = """
+import importlib
+import sys
+
+package = importlib.import_module("saxophone.agent")
+agent_modules = (
+    "contracts",
+    "document_search",
+    "evidence_selection",
+    "evidence",
+    "ports",
+    "graph",
+    "orchestrator",
+    "state",
+    "policies",
+    "synthesis",
+    "langchain_tools",
+    "web_search",
+    "events",
+    "langchain_callbacks",
+    "streaming",
+    "tracing",
+)
+assert all(f"saxophone.agent.{name}" not in sys.modules for name in agent_modules)
+
+from saxophone.agent import AgentQuestion, MainAgent
+
+assert AgentQuestion.__module__ == "saxophone.agent.contracts"
+assert MainAgent.__module__ == "saxophone.agent.orchestrator"
+assert "saxophone.agent.contracts" in sys.modules
+assert "saxophone.agent.orchestrator" in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
+def test_agent_import_does_not_load_sqlite_hydration_implementation() -> None:
+    """Keep storage hydration behind the document-search operation boundary."""
+
+    script = """
+import importlib
+import sys
+
+importlib.import_module("saxophone.agent")
+assert "saxophone.retrieval.sqlite_context" not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
+def test_tagging_facade_import_does_not_load_implementation_modules() -> None:
+    """Keep tagging adapters and persistence behind explicit facade access."""
+
+    script = """
+import importlib
+import sys
+
+importlib.import_module("saxophone.tagging")
+optional_modules = (
+    "saxophone.tagging.adapters",
+    "saxophone.tagging.concepts",
+    "saxophone.tagging.models",
+    "saxophone.tagging.persistence",
+    "saxophone.tagging.ports",
+    "saxophone.tagging.parser",
+    "saxophone.tagging.use_cases",
+)
+assert all(name not in sys.modules for name in optional_modules)
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
+def test_legacy_selector_adapter_is_lazy_outside_the_active_selection_module() -> None:
+    """Keep the migration-only selector branch behind a compatibility module."""
+
+    assert "adapt_legacy_selector" not in active_selection.__dict__
+    assert "adapt_legacy_selector" not in agent_package.__dict__
+    assert callable(selector_compatibility.adapt_legacy_selector)
+
+
+def test_legacy_selector_adapter_imports_remain_compatible() -> None:
+    """Preserve explicit imports while resolving the adapter lazily."""
+
+    from saxophone.agent import adapt_legacy_selector as package_adapter
+    from saxophone.agent.evidence_selection import (
+        adapt_legacy_selector as module_adapter,
+    )
+
+    assert package_adapter is selector_compatibility.adapt_legacy_selector
+    assert module_adapter is selector_compatibility.adapt_legacy_selector
+
+
+def test_agent_package_wildcard_exports_keep_legacy_selector_lazy() -> None:
+    """Wildcard imports must not pull the migration-only selector adapter in."""
+
+    script = """
+import importlib
+import sys
+
+package = importlib.import_module("saxophone.agent")
+assert "saxophone.retrieval.selector_compatibility" not in sys.modules
+namespace = {}
+exec("from saxophone.agent import *", namespace)
+assert "adapt_legacy_selector" not in namespace
+assert "saxophone.retrieval.selector_compatibility" not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
+def test_active_selection_wildcard_exports_keep_legacy_selector_lazy() -> None:
+    """Expose only active selection adapters from the implementation module."""
+
+    script = """
+import importlib
+import sys
+
+module = importlib.import_module("saxophone.agent.evidence_selection")
+assert "saxophone.retrieval.selector_compatibility" not in sys.modules
+namespace = {}
+exec("from saxophone.agent.evidence_selection import *", namespace)
+
+assert set(namespace) >= {
+    "ConceptRoleSelector",
+    "ParagraphDirectSelector",
+    "SelectionRequest",
+    "SelectionResult",
+}
+assert "adapt_legacy_selector" not in namespace
+assert "saxophone.retrieval.selector_compatibility" not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
+def test_retrieval_package_wildcard_exports_keep_legacy_modules_lazy() -> None:
+    """Wildcard retrieval imports must expose only the active lightweight facade."""
+
+    script = """
+import importlib
+import sys
+
+package = importlib.import_module("saxophone.retrieval")
+lazy_modules = (
+    "saxophone.retrieval.question_retrieval",
+    "saxophone.retrieval.selector_compatibility",
+    "saxophone.retrieval.role_selection",
+    "saxophone.retrieval.renderers",
+    "saxophone.retrieval.paragraph_traversal",
+    "saxophone.retrieval.paragraph_selection",
+    "saxophone.retrieval.context_limiter",
+)
+assert all(name not in sys.modules for name in lazy_modules)
+
+namespace = {}
+exec("from saxophone.retrieval import *", namespace)
+
+assert {"ChunkHit", "ChunkRetriever", "EvidenceBundle", "RetrieveEvidence"} <= namespace.keys()
+assert "QuestionRequest" not in namespace
+assert "StructuredParagraphSelector" not in namespace
+assert all(name not in sys.modules for name in lazy_modules)
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
+
+
+def test_question_retrieval_uses_the_compatibility_selector_boundary(monkeypatch) -> None:
+    """Do not make the legacy retrieval service reach into active selection internals."""
+
+    from saxophone.retrieval.question_retrieval import QuestionRetrievalService
+
+    sentinel = object()
+    seen: list[object] = []
+
+    def fake_adapter(selector: object) -> object:
+        seen.append(selector)
+        return sentinel
+
+    monkeypatch.setattr(selector_compatibility, "adapt_legacy_selector", fake_adapter)
+
+    service = QuestionRetrievalService(retriever=object(), selector="legacy")
+
+    assert seen == ["legacy"]
+    assert service._selector is sentinel
