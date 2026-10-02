@@ -97,8 +97,6 @@ class BudgetSnapshot:
             "timed_out_tool_calls",
         ):
             _require_non_negative_int(field_name, getattr(self, field_name))
-        if self.tool_calls > self.max_tool_calls:
-            raise ValueError("tool_calls must not exceed max_tool_calls")
         if self.document_search_calls > self.max_document_search_calls:
             raise ValueError(
                 "document_search_calls must not exceed max_document_search_calls"
@@ -120,7 +118,8 @@ class BudgetSnapshot:
 
     @property
     def remaining_tool_calls(self) -> int:
-        return self.max_tool_calls - self.tool_calls
+        """Compatibility alias for remaining search calls across both resources."""
+        return self.remaining_document_search_calls + self.remaining_web_search_calls
 
     remaining_calls = remaining_tool_calls
 
@@ -177,7 +176,7 @@ class BudgetSnapshot:
         """Return whether a specific tool can no longer be admitted."""
 
         normalized_tool = _normalize_identifier("tool", tool)
-        if self.exhausted:
+        if self.remaining_context_tokens == 0:
             return True
         if normalized_tool == RunBudget.DOCUMENT_SEARCH:
             return self.remaining_document_search_calls == 0
@@ -201,6 +200,8 @@ class RunBudget:
 
     Reservations are atomic and are consumed when a call starts.  A timeout or
     provider failure therefore cannot silently reset the run's limits.
+    max_tool_calls is retained for compatibility and no longer gates admission;
+    document and web searches each have an independent quota.
     """
 
     DOCUMENT_SEARCH = "document_search"
@@ -411,24 +412,17 @@ class RunBudget:
             return self._snapshot_locked()
 
     def remaining_for(self, tool: str) -> int:
-        """Return the remaining calls for a tool, including the global limit."""
+        """Return resource-specific capacity; selection has no search-call quota."""
 
         normalized_tool = _normalize_identifier("tool", tool)
         with self._lock:
             if self._context_tokens >= self.max_context_tokens:
                 return 0
-            remaining = self.max_tool_calls - self._tool_calls
             if normalized_tool == self.DOCUMENT_SEARCH:
-                remaining = min(
-                    remaining,
-                    self.max_document_search_calls - self._document_search_calls,
-                )
+                return max(self.max_document_search_calls - self._document_search_calls, 0)
             elif normalized_tool == self.WEB_SEARCH:
-                remaining = min(
-                    remaining,
-                    self.max_web_search_calls - self._web_search_calls,
-                )
-            return max(remaining, 0)
+                return max(self.max_web_search_calls - self._web_search_calls, 0)
+            return 1
 
     remaining_calls = remaining_for
 
@@ -452,8 +446,6 @@ class RunBudget:
         )
 
     def _reservation_reason_locked(self, tool: str) -> str | None:
-        if self._tool_calls >= self.max_tool_calls:
-            return "max_tool_calls"
         if self._context_tokens >= self.max_context_tokens:
             return "max_context_tokens"
         if tool == self.DOCUMENT_SEARCH and self._document_search_calls >= self.max_document_search_calls:
@@ -475,6 +467,36 @@ class RunBudget:
         _require_finite_positive_float("tool_timeout_seconds", limits["tool_timeout_seconds"])
 
 
+MAX_CHAT_HISTORY_MESSAGES = 20
+MAX_CHAT_MESSAGE_CHARS = 4_000
+MAX_CHAT_HISTORY_CHARS = 20_000
+
+
+@dataclass(frozen=True, slots=True)
+class ChatHistoryMessage:
+    """Previous conversation content, never retrieved source evidence."""
+
+    role: str
+    content: str
+
+    def __post_init__(self) -> None:
+        if self.role not in ("user", "assistant"):
+            raise ValueError("history role must be user or assistant")
+        content = _normalize_text("history content", self.content)
+        if len(content) > MAX_CHAT_MESSAGE_CHARS:
+            raise ValueError("history message exceeds character limit")
+        object.__setattr__(self, "content", content)
+
+
+def validate_chat_history(history: tuple[ChatHistoryMessage, ...]) -> None:
+    if not isinstance(history, tuple) or any(not isinstance(item, ChatHistoryMessage) for item in history):
+        raise ValueError("history must be a tuple of ChatHistoryMessage values")
+    if len(history) > MAX_CHAT_HISTORY_MESSAGES:
+        raise ValueError("history exceeds message limit")
+    if sum(len(item.content) for item in history) > MAX_CHAT_HISTORY_CHARS:
+        raise ValueError("history exceeds total character limit")
+
+
 @dataclass(frozen=True, slots=True)
 class AgentQuestion:
     """Normalized user question and retrieval constraints."""
@@ -482,6 +504,7 @@ class AgentQuestion:
     question: str
     filters: Mapping[str, str] = field(default_factory=dict)
     context_limit: int = 12_000
+    history: tuple[ChatHistoryMessage, ...] = ()
 
     def __post_init__(self) -> None:
         question = _normalize_text("question", self.question)
@@ -496,6 +519,7 @@ class AgentQuestion:
         else:
             raise ValueError("filters must be a mapping")
         _require_positive_int("context_limit", self.context_limit)
+        validate_chat_history(self.history)
         object.__setattr__(self, "question", question)
         object.__setattr__(self, "filters", MappingProxyType(normalized_filters))
 
@@ -514,6 +538,7 @@ class EvidenceItem:
     source_ref: str | None = None
     url: str | None = None
     retrieved_at: str | None = None
+    score: float | None = None
 
     def __post_init__(self) -> None:
         evidence_id = _normalize_identifier("evidence_id", self.evidence_id)
@@ -535,6 +560,11 @@ class EvidenceItem:
         source_ref = _optional_identifier("source_ref", self.source_ref)
         url = _optional_url("url", self.url)
         retrieved_at = _optional_text("retrieved_at", self.retrieved_at)
+        score = self.score
+        if score is not None:
+            if isinstance(score, bool) or not isinstance(score, (int, float)) or not math.isfinite(float(score)):
+                raise ValueError("score must be a finite number")
+            score = float(score)
 
         if source_type is EvidenceSourceType.DOCUMENT:
             if not chunk or not paragraph or self.page is None:
@@ -551,6 +581,7 @@ class EvidenceItem:
         object.__setattr__(self, "source_ref", source_ref)
         object.__setattr__(self, "url", url)
         object.__setattr__(self, "retrieved_at", retrieved_at)
+        object.__setattr__(self, "score", score)
 
     @property
     def chunk_id(self) -> str:
@@ -673,10 +704,20 @@ class EvidenceLedger:
     used_evidence_ids: tuple[str, ...] = ()
     citations: tuple[Citation, ...] = ()
     image_evidence_ids: tuple[str, ...] = ()
+    history: tuple[ChatHistoryMessage, ...] = ()
+    budget_exhausted: bool = False
+    budget_reason: str | None = None
 
     def __post_init__(self) -> None:
         run_id = _normalize_identifier("run_id", self.run_id)
         question = self.question.question if isinstance(self.question, AgentQuestion) else _normalize_text("question", self.question)
+        validate_chat_history(self.history)
+        history = self.history or (self.question.history if isinstance(self.question, AgentQuestion) else ())
+        validate_chat_history(history)
+        if not isinstance(self.budget_exhausted, bool):
+            raise ValueError("budget_exhausted must be a bool")
+        if self.budget_reason is not None:
+            object.__setattr__(self, "budget_reason", _normalize_identifier("budget_reason", self.budget_reason))
         selected_strategy = _coerce_enum(
             SelectionStrategy,
             "selected_strategy",
@@ -715,6 +756,7 @@ class EvidenceLedger:
 
         object.__setattr__(self, "run_id", run_id)
         object.__setattr__(self, "question", question)
+        object.__setattr__(self, "history", history)
         object.__setattr__(self, "selected_strategy", selected_strategy)
         object.__setattr__(self, "evidence", evidence)
         object.__setattr__(self, "search_trace", search_trace)
@@ -749,9 +791,12 @@ class SynthesisResult:
     used_evidence_ids: tuple[str, ...] = ()
     citations: tuple[Citation, ...] = ()
     image_evidence_ids: tuple[str, ...] = ()
+    evidence_sufficient: bool = True
 
     def __post_init__(self) -> None:
         answer = _normalize_text("answer", self.answer)
+        if not isinstance(self.evidence_sufficient, bool):
+            raise ValueError("evidence_sufficient must be a bool")
         used_evidence_ids = _require_unique_identifier_tuple(
             "used_evidence_ids", self.used_evidence_ids
         )
@@ -763,6 +808,10 @@ class SynthesisResult:
         object.__setattr__(self, "used_evidence_ids", used_evidence_ids)
         object.__setattr__(self, "citations", citations)
         object.__setattr__(self, "image_evidence_ids", image_evidence_ids)
+
+    @property
+    def used_internal_knowledge(self) -> bool:
+        return not self.evidence_sufficient
 
     def validate_against(self, ledger: EvidenceLedger) -> None:
         """Reject output that cites evidence outside the immutable ledger."""

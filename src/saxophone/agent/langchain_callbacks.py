@@ -13,6 +13,10 @@ from .tracing import AgentTracer, ObservationKind, TraceObservation, TraceStatus
 
 _PUBLIC_TAGS = frozenset({"answer", "public_answer", "synthesis"})
 _STAGE_ALIASES = (
+    ("search_docs", "document_search"),
+    ("search_web", "web_search"),
+    ("select_context", "context_selection"),
+    ("main_orchestrator", "understanding"),
     ("document_search", "document_search"),
     ("web_search", "web_search"),
     ("select_evidence", "selection"),
@@ -24,6 +28,20 @@ _STAGE_ALIASES = (
     ("evaluate", "understanding"),
     ("receive", "understanding"),
 )
+_STAGE_THINKING = {
+    "context_selection": "Đang chọn context cho câu trả lời",
+    "understanding": "Đang phân tích câu hỏi",
+    "document_search": "Đang tìm tài liệu liên quan",
+    "web_search": "Đang tìm thêm thông tin trên web",
+    "selection": "Đang chọn paragraph liên quan",
+    "synthesis": "Đang tổng hợp câu trả lời",
+    "validation": "Đang kiểm tra citation",
+}
+_DECISION_THINKING = {
+    "select": "Đang chọn paragraph liên quan",
+    "synthesize": "Đang tổng hợp câu trả lời",
+    "validate": "Đang kiểm tra citation",
+}
 
 
 class AgentEventCallbackHandler(AsyncCallbackHandler):
@@ -74,6 +92,10 @@ class AgentEventCallbackHandler(AsyncCallbackHandler):
             return
         self._started_stages.add(stage)
         await self._publish(AgentEvent(AgentEventType.STAGE_STARTED, self.run_id, stage=stage))
+        if (message := _STAGE_THINKING.get(stage)) is not None:
+            await self._publish(
+                AgentEvent(AgentEventType.THINKING, self.run_id, text=message)
+            )
 
     async def on_chain_end(
         self,
@@ -98,6 +120,10 @@ class AgentEventCallbackHandler(AsyncCallbackHandler):
                 reason_code=reason_code,
             )
         )
+        if (message := _DECISION_THINKING.get(action)) is not None:
+            await self._publish(
+                AgentEvent(AgentEventType.THINKING, self.run_id, text=message)
+            )
 
     async def on_chain_error(
         self,
@@ -133,6 +159,9 @@ class AgentEventCallbackHandler(AsyncCallbackHandler):
         callback_id = str(run_id)
         tool = _tool_name(serialized)
         self._tool_names[callback_id] = tool
+        progress_stage = {"search_docs": "document_search", "search_web": "web_search", "select_context": "context_selection"}.get(tool)
+        if progress_stage is not None:
+            await self._publish(AgentEvent(AgentEventType.THINKING, self.run_id, text=_STAGE_THINKING[progress_stage]))
         await self._publish(
             AgentEvent(
                 AgentEventType.TOOL_STARTED,
@@ -150,9 +179,19 @@ class AgentEventCallbackHandler(AsyncCallbackHandler):
         parent_run_id: UUID | None = None,
         **kwargs: Any,
     ) -> None:
-        del output, parent_run_id, kwargs
+        del parent_run_id, kwargs
         callback_id = str(run_id)
         tool = self._tool_names.pop(callback_id, "tool")
+        hits = getattr(output, "hits", None)
+        if hits is None and isinstance(output, Mapping):
+            for key in ("hits", "items", "results"):
+                if key in output:
+                    hits = output[key]
+                    break
+        confidence = getattr(output, "confidence", None)
+        if confidence is None and isinstance(output, Mapping):
+            confidence = output.get("confidence")
+        hit_count = _sequence_count(hits)
         await self._publish(
             AgentEvent(
                 AgentEventType.TOOL_COMPLETED,
@@ -160,8 +199,15 @@ class AgentEventCallbackHandler(AsyncCallbackHandler):
                 tool=tool,
                 call_id=callback_id,
                 status="completed",
+                hit_count=hit_count,
+                result_count=hit_count,
+                confidence=confidence if isinstance(confidence, (int, float)) else None,
             )
         )
+        if (message := _tool_thinking(tool, hit_count)) is not None:
+            await self._publish(
+                AgentEvent(AgentEventType.THINKING, self.run_id, text=message)
+            )
 
     async def on_tool_error(
         self,
@@ -204,6 +250,13 @@ class AgentEventCallbackHandler(AsyncCallbackHandler):
             return
         self._synthesis_started = True
         await self._publish(AgentEvent(AgentEventType.SYNTHESIS_STARTED, self.run_id))
+        await self._publish(
+            AgentEvent(
+                AgentEventType.THINKING,
+                self.run_id,
+                text=_STAGE_THINKING["synthesis"],
+            )
+        )
 
     async def on_chat_model_start(
         self,
@@ -665,6 +718,22 @@ def _public_token(token: object) -> str | None:
 
 def _safe_error_code(error: BaseException) -> str:
     return _safe_label(error.__class__.__name__) or "tool_error"
+
+
+def _tool_thinking(tool: str, hit_count: int | None) -> str | None:
+    if hit_count is None:
+        return None
+    if tool == "document_search":
+        return f"Đã tìm thấy {hit_count} chunk"
+    if tool in {"paragraph_selection", "select_evidence", "selection"}:
+        return f"Đã chọn {hit_count} nguồn"
+    return None
+
+
+def _sequence_count(value: object) -> int | None:
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        return len(value)
+    return None
 
 
 __all__ = ["AgentEventCallbackHandler", "AgentTracingCallbackHandler"]

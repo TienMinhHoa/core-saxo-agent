@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+import re
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
@@ -388,6 +389,7 @@ class ConceptRoleSelector:
             scoped_relations,
             paragraph_by_ref,
         )
+        context = _attach_requested_images(request.question, context, paragraph_by_ref)
         result = SelectionResult(self.strategy, context)
         result.validate_against(request)
         return result
@@ -417,6 +419,43 @@ def _answer_context(
     from saxophone.retrieval.renderers import AnswerContextModel
 
     return AnswerContextModel(selected_roles, paragraphs, selected_paragraph_refs)
+
+
+def _attach_requested_images(
+    question: str,
+    context: AnswerContextModel,
+    paragraph_by_ref: Mapping[str, SourceParagraph],
+) -> AnswerContextModel:
+    """Keep standalone image paragraphs when the user explicitly asks for a figure."""
+
+    lowered = question.casefold()
+    asks_for_visual = bool(
+        re.search(r"\b(?:figure|image|diagram|illustration)\b", lowered)
+        and re.search(r"\b(?:include|show|display|attach|provide)\b", lowered)
+    )
+    if not asks_for_visual:
+        return context
+
+    selected_chunks = {
+        paragraph.chunk_id or paragraph.parent_header
+        for paragraph in context.paragraphs
+    }
+    image_paragraphs = tuple(
+        paragraph
+        for paragraph in paragraph_by_ref.values()
+        if (paragraph.chunk_id or paragraph.parent_header) in selected_chunks
+        and paragraph.image_refs
+        and paragraph.paragraph_ref not in {item.paragraph_ref for item in context.paragraphs}
+    )
+    if not image_paragraphs:
+        return context
+    from saxophone.retrieval.renderers import AnswerContextModel
+
+    return AnswerContextModel(
+        context.selected_roles,
+        context.paragraphs + image_paragraphs,
+        context.selected_paragraph_refs,
+    )
 
 
 def _require_request(request: object) -> None:

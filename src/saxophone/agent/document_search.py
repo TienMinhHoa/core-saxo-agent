@@ -209,6 +209,14 @@ class SemanticDocumentSearchTool:
             )
         return await self._search(question, budget)
 
+    async def search_candidates(
+        self, question: AgentQuestion, budget: RunBudget,
+    ) -> DocumentSearchResult:
+        """Retrieve inside an already admitted query batch, without reserving again."""
+        if not isinstance(question, AgentQuestion) or not isinstance(budget, RunBudget):
+            raise TypeError("search_candidates requires AgentQuestion and RunBudget")
+        return await self._search(question, budget)
+
     async def _search(
         self,
         question: AgentQuestion,

@@ -8,9 +8,11 @@ adapter is the only place that maps those values into the immutable
 from __future__ import annotations
 
 import inspect
-from collections.abc import Mapping, Sequence
-from datetime import datetime, timezone
-from typing import Any, Callable, Protocol
+from collections.abc import Callable, Mapping, Sequence
+from datetime import UTC, datetime
+from typing import Any, Protocol
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from .contracts import AgentQuestion, RunBudget, WebSearchItem, WebSearchResult
 from .policies import run_with_budget
@@ -21,6 +23,46 @@ class WebSearchProvider(Protocol):
 
     async def search(self, query: str, *, limit: int) -> object:
         """Return provider-shaped search results for one query."""
+
+
+class WebSearchQueryPlan(BaseModel):
+    """Provider-neutral query plan produced by the search subagent."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    query: str = Field(min_length=1)
+    interpretation: str = Field(default="", max_length=500)
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class WebSearchQueryPlanner:
+    """Use a structured model to turn an underspecified request into a search query."""
+
+    def __init__(self, provider: object, *, domain_context: str = "") -> None:
+        if not callable(getattr(provider, "generate_structured", None)):
+            raise TypeError("provider must provide generate_structured")
+        self._provider = provider
+        self._domain_context = domain_context.strip()
+
+    async def plan(self, question: AgentQuestion) -> WebSearchQueryPlan:
+        if not isinstance(question, AgentQuestion):
+            raise ValueError("question must be an AgentQuestion")
+        context = self._domain_context or "Infer the relevant subject area from the request."
+        result = await self._provider.generate_structured(
+            task_type="web_search_query_planning",
+            system_prompt=(
+                "You are a general-purpose web search query planning subagent. "
+                "Rewrite the user's request into one precise search query. "
+                "Preserve important names, symbols, numbers, and quoted terms. "
+                "Resolve shorthand only when context supports it; otherwise keep "
+                "the ambiguity visible in the query. Do not answer the question, "
+                "do not invent facts, and do not hardcode a domain glossary. "
+                f"Subject context: {context}"
+            ),
+            user_prompt=f"User request:\n{question.question}\nFilters: {dict(question.filters)}",
+            response_model=WebSearchQueryPlan,
+        )
+        return result if isinstance(result, WebSearchQueryPlan) else WebSearchQueryPlan.model_validate(result)
 
 
 class WebSearchAdapter:
@@ -35,11 +77,16 @@ class WebSearchAdapter:
         max_results: int = 10,
         max_content_chars: int = 4_000,
         clock: Callable[[], str] | None = None,
+        query_planner: object | None = None,
     ) -> None:
         search = getattr(provider, "search", None)
         if not callable(search):
             raise TypeError("provider must provide search")
-        if isinstance(max_results, bool) or not isinstance(max_results, int) or max_results < 1:
+        if (
+            isinstance(max_results, bool)
+            or not isinstance(max_results, int)
+            or max_results < 1
+        ):
             raise ValueError("max_results must be a positive integer")
         if (
             isinstance(max_content_chars, bool)
@@ -53,6 +100,9 @@ class WebSearchAdapter:
         self._max_results = max_results
         self._max_content_chars = max_content_chars
         self._clock = clock or _utc_now
+        if query_planner is not None and not callable(getattr(query_planner, "plan", None)):
+            raise TypeError("query_planner must provide plan")
+        self._query_planner = query_planner
 
     async def search(
         self,
@@ -84,12 +134,23 @@ class WebSearchAdapter:
         budget: RunBudget,
     ) -> WebSearchResult:
         limit = min(self._max_results, budget.max_hits_per_tool)
-        response = self._provider.search(question.question, limit=limit)
+        query = question.question
+        if self._query_planner is not None:
+            try:
+                plan = self._query_planner.plan(question)
+                if inspect.isawaitable(plan):
+                    plan = await plan
+                planned_query = getattr(plan, "query", None)
+                if isinstance(planned_query, str) and planned_query.strip():
+                    query = planned_query.strip()
+            except Exception:
+                query = question.question
+        response = self._provider.search(query, limit=limit)
         if inspect.isawaitable(response):
             response = await response
         else:
             raise TypeError("provider.search must return an awaitable")
-        return self._normalize_response(question.question, response, limit=limit)
+        return self._normalize_response(query, response, limit=limit)
 
     def _normalize_response(
         self,
@@ -102,10 +163,7 @@ class WebSearchAdapter:
             return WebSearchResult(query=query, status="no_results")
 
         raw_items, raw_status = _extract_items(response)
-        items = tuple(
-            self._normalize_item(item)
-            for item in tuple(raw_items)[:limit]
-        )
+        items = tuple(self._normalize_item(item) for item in tuple(raw_items)[:limit])
         status = _normalize_status(raw_status, has_items=bool(items))
         return WebSearchResult(query=query, items=items, status=status)
 
@@ -147,7 +205,9 @@ def _extract_items(response: object) -> tuple[Sequence[object], object | None]:
     if isinstance(response, WebSearchResult):
         return response.items, response.status
     if isinstance(response, Mapping):
-        raw_items = response.get("items", response.get("results", response.get("data", ())))
+        raw_items = response.get(
+            "items", response.get("results", response.get("data", ()))
+        )
         status = response.get("status")
     else:
         raw_items = getattr(response, "items", getattr(response, "results", response))
@@ -179,7 +239,7 @@ def _normalize_status(value: object, *, has_items: bool) -> str:
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 WebSearchToolAdapter = WebSearchAdapter
@@ -191,4 +251,6 @@ __all__ = [
     "WebSearchProvider",
     "WebSearchService",
     "WebSearchToolAdapter",
+    "WebSearchQueryPlan",
+    "WebSearchQueryPlanner",
 ]

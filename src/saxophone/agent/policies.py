@@ -265,8 +265,6 @@ def _normalize_tool(tool: object) -> str:
 
 
 def _reason_for_snapshot(tool: str, snapshot: BudgetSnapshot) -> str:
-    if snapshot.remaining_tool_calls <= 0:
-        return "max_tool_calls"
     if snapshot.remaining_context_tokens <= 0:
         return "max_context_tokens"
     if tool == RunBudget.DOCUMENT_SEARCH and snapshot.remaining_document_search_calls <= 0:

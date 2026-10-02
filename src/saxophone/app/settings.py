@@ -21,6 +21,7 @@ class AppSettings:
     data_root: Path
     remote_gpu_base_url: str
     remote_gpu_bearer_token: str = field(repr=False)
+    image_root: Path | None = None
     remote_gpu_tls_verify: bool = True
     remote_gpu_max_in_flight: int = 4
     remote_gpu_retention_days: int = 30
@@ -47,6 +48,9 @@ class AppSettings:
     agent_max_hits_per_tool: int = 20
     agent_tool_timeout_seconds: float = 20.0
     agent_max_context_tokens: int = 12_000
+    tavily_api_key: str | None = field(default=None, repr=False)
+    tavily_base_url: str = "https://api.tavily.com"
+    tavily_max_results: int = 5
     langfuse_enabled: bool = False
     langfuse_secret_key: str | None = field(default=None, repr=False)
     langfuse_public_key: str | None = field(default=None, repr=False)
@@ -65,6 +69,8 @@ class AppSettings:
     def __post_init__(self) -> None:
         """Keep direct construction subject to the same runtime contract."""
         _validate_runtime_path(self.data_root, "data_root")
+        if self.image_root is not None:
+            _validate_runtime_path(self.image_root, "image_root")
         _validate_runtime_path(
             self.chroma_persist_directory, "chroma_persist_directory"
         )
@@ -87,6 +93,9 @@ class AppSettings:
         _validate_optional_runtime_text(self.langfuse_secret_key, "LANGFUSE_SECRET_KEY")
         _validate_optional_runtime_text(self.langfuse_public_key, "LANGFUSE_PUBLIC_KEY")
         _validate_optional_runtime_text(self.langfuse_base_url, "LANGFUSE_BASE_URL")
+        _validate_optional_runtime_text(self.tavily_api_key, "TAVILY_API_KEY")
+        _parse_optional_https_url(self.tavily_base_url, default="https://api.tavily.com", variable="TAVILY_BASE_URL")
+        _validate_runtime_integer(self.tavily_max_results, "TAVILY_MAX_RESULTS", strictly_positive=True)
         _parse_optional_langfuse_url(self.langfuse_base_url)
         if self.langfuse_enabled:
             _require_configured_langfuse(
@@ -247,8 +256,19 @@ class AppSettings:
             environment.get("SAXO_OPENAI_API_KEY") or environment.get("OPENAI_API_KEY"),
             "OPENAI_API_KEY",
         )
+        tavily_api_key = _parse_optional_env_token(environment, "TAVILY_API_KEY")
+        tavily_base_url = _parse_optional_https_url(
+            environment.get("TAVILY_BASE_URL"),
+            default="https://api.tavily.com",
+            variable="TAVILY_BASE_URL",
+        )
         data_root = _parse_data_root(
             environment.get("SAXO_DATA_ROOT", "runtime/saxophone")
+        )
+        image_root = (
+            _parse_runtime_path(environment["SAXO_IMAGE_ROOT"], "SAXO_IMAGE_ROOT")
+            if "SAXO_IMAGE_ROOT" in environment
+            else None
         )
         if model_provider == "direct":
             base_url = deepseek_api_base_url
@@ -288,6 +308,7 @@ class AppSettings:
         )
         return cls(
             data_root=data_root,
+            image_root=image_root,
             remote_gpu_base_url=base_url,
             remote_gpu_bearer_token=bearer_token,
             remote_gpu_tls_verify=_parse_boolean(
@@ -388,6 +409,11 @@ class AppSettings:
                 environment.get("SAXO_AGENT_MAX_CONTEXT_TOKENS", "12000"),
                 "SAXO_AGENT_MAX_CONTEXT_TOKENS",
             ),
+            tavily_api_key=tavily_api_key,
+            tavily_base_url=tavily_base_url,
+            tavily_max_results=_parse_positive_integer(
+                environment.get("TAVILY_MAX_RESULTS", "5"), "TAVILY_MAX_RESULTS"
+            ),
             langfuse_enabled=_parse_boolean(
                 environment.get("SAXO_LANGFUSE_ENABLED", "false"),
                 "SAXO_LANGFUSE_ENABLED",
@@ -441,6 +467,17 @@ def _validate_environment_mapping(environment: object) -> None:
             raise SettingsValidationError("environment keys and values must be text")
 
 
+def _parse_optional_env_token(environment: Mapping[str, str], variable: str) -> str | None:
+    """Treat an explicitly supplied blank or unsafe secret as a config error."""
+
+    if variable not in environment:
+        return None
+    value = environment[variable]
+    if not value.strip():
+        raise SettingsValidationError(f"{variable} must not be empty")
+    return _parse_optional_token(value, variable)
+
+
 def _parse_data_root(value: str | None) -> Path:
     if not value or not value.strip():
         raise SettingsValidationError("SAXO_DATA_ROOT must not be empty")
@@ -456,6 +493,20 @@ def _parse_data_root(value: str | None) -> Path:
         raise SettingsValidationError(
             "SAXO_DATA_ROOT must not traverse parent directories"
         )
+    return path
+
+
+def _parse_runtime_path(value: str | None, variable: str) -> Path:
+    if not value or not value.strip():
+        raise SettingsValidationError(f"{variable} must not be empty")
+    path = Path(value)
+    windows_path = PureWindowsPath(value)
+    if (path.drive and not path.is_absolute()) or (
+        windows_path.drive and not windows_path.is_absolute()
+    ):
+        raise SettingsValidationError(f"{variable} must not be drive-relative")
+    if ".." in path.parts or ".." in windows_path.parts:
+        raise SettingsValidationError(f"{variable} must not traverse parent directories")
     return path
 
 
@@ -530,7 +581,12 @@ def _parse_optional_https_url(value: str | None, *, default: str, variable: str)
 
 
 def _parse_optional_langfuse_url(value: str | None) -> str | None:
-    """Validate the optional Langfuse host without exposing credentials."""
+    """Validate the optional Langfuse host without exposing credentials.
+
+    Langfuse may run on a private HTTP endpoint, so both HTTP and HTTPS are
+    accepted here while URL credentials, query strings, and fragments remain
+    disallowed.
+    """
 
     variable = "LANGFUSE_BASE_URL"
     _validate_optional_runtime_text(value, variable)
@@ -539,7 +595,7 @@ def _parse_optional_langfuse_url(value: str | None) -> str | None:
     url = value.strip()
     parsed = urlsplit(url)
     if (
-        parsed.scheme != "https"
+        parsed.scheme not in {"http", "https"}
         or not parsed.hostname
         or parsed.username is not None
         or parsed.password is not None
@@ -547,7 +603,7 @@ def _parse_optional_langfuse_url(value: str | None) -> str | None:
         or parsed.fragment
     ):
         raise SettingsValidationError(
-            f"{variable} must be an HTTPS URL without credentials, query, or fragment",
+            f"{variable} must be an HTTP or HTTPS URL without credentials, query, or fragment",
         )
     try:
         parsed.port

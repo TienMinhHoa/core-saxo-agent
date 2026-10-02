@@ -60,8 +60,8 @@ class _StructuredModel:
             evidence_id = re.search(r"evidence_id: (\S+)", rendered)
             assert evidence_id is not None
             return {
-                "answer": "Grounded answer",
-                "used_evidence_ids": [evidence_id.group(1)],
+                "answer": "Grounded answer [1]",
+                "evidence_sufficient": True, "used_evidence_ids": [evidence_id.group(1)],
                 "citations": [{"evidence_id": evidence_id.group(1), "label": "[1]"}],
             }
 
@@ -75,8 +75,8 @@ class _ImageStructuredModel(_StructuredModel):
             evidence_id = re.search(r"evidence_id: (\S+)", rendered)
             assert evidence_id is not None
             return {
-                "answer": "Grounded answer with an illustration",
-                "used_evidence_ids": [evidence_id.group(1)],
+                "answer": "Grounded answer with an illustration [1]",
+                "evidence_sufficient": True, "used_evidence_ids": [evidence_id.group(1)],
                 "citations": [{"evidence_id": evidence_id.group(1), "label": "[1]"}],
                 "image_evidence_ids": [evidence_id.group(1)],
             }
@@ -268,7 +268,7 @@ async def test_pipeline_uses_local_evidence_without_web_fallback() -> None:
     result = await agent.run("What is a major triad?", run_id="pipeline-local")
 
     assert result.outcome is AgentOutcome.ANSWERED
-    assert result.answer == "Grounded answer"
+    assert result.answer == "Grounded answer [1]"
     assert len(document.calls) == 1
     assert web.calls == []
 
@@ -396,11 +396,12 @@ async def test_pipeline_returns_structured_failure_when_document_search_errors()
 
 
 @pytest.mark.anyio
-async def test_pipeline_stops_before_web_when_shared_budget_is_exhausted() -> None:
+async def test_pipeline_document_search_cannot_spend_the_web_quota() -> None:
     document = _BudgetedNoHitDocumentSearch()
     web = _BudgetedWebSearch()
     budget = RunBudget(max_tool_calls=1)
-    agent = MainAgent(document_search=document, web_search=web)
+    agent = MainAgent(document_search=document, web_search=web,
+                      synthesizer=EvidenceSynthesisService(_StructuredModel()))
 
     result = await agent.run(
         "What is rhythm?",
@@ -408,15 +409,14 @@ async def test_pipeline_stops_before_web_when_shared_budget_is_exhausted() -> No
         budget=budget,
     )
 
-    assert result.outcome is AgentOutcome.BUDGET_EXHAUSTED
-    assert result.answer is None
-    assert result.error == "budget exhausted for web_search: max_tool_calls"
+    assert result.outcome is AgentOutcome.ANSWERED
+    assert result.answer
+    assert result.error is None
     assert document.calls == 1
-    assert web.calls == 0
-    assert budget.snapshot().tool_calls == 1
-    assert budget.snapshot().web_search_calls == 0
+    assert web.calls == 1
+    assert budget.snapshot().tool_calls == 2
+    assert budget.snapshot().web_search_calls == 1
     assert result.state is not None
-    assert result.state["reason_code"] == "max_tool_calls"
 
 
 @pytest.mark.anyio

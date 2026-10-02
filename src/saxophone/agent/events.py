@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Protocol
+from typing import Mapping, Protocol
 
 
 class AgentEventType(StrEnum):
@@ -16,9 +16,11 @@ class AgentEventType(StrEnum):
     TOOL_PROGRESS = "tool_progress"
     TOOL_COMPLETED = "tool_completed"
     DECISION = "decision"
+    THINKING = "thinking"
     SYNTHESIS_STARTED = "synthesis_started"
     ANSWER_DELTA = "answer_delta"
     RUN_COMPLETED = "run_completed"
+    RUN_RESULT = "run_result"
     RUN_FAILED = "run_failed"
 
 
@@ -49,6 +51,7 @@ class AgentEvent:
     hit_count: int | None = None
     result_count: int | None = None
     confidence: float | None = None
+    result: Mapping[str, object] | None = None
 
     def __post_init__(self) -> None:
         try:
@@ -78,6 +81,10 @@ class AgentEvent:
                 object.__setattr__(self, field_name, _required_text(field_name, value))
         if self.text is not None and not isinstance(self.text, str):
             raise ValueError("text must be a string when provided")
+        if self.result is not None:
+            if not isinstance(self.result, Mapping):
+                raise ValueError("result must be a mapping")
+            object.__setattr__(self, "result", dict(self.result))
 
         for field_name in (
             "query_count",
@@ -114,6 +121,15 @@ class AgentEvent:
         elif self.type is AgentEventType.DECISION:
             _require_event_field(self.action, "action")
             _require_event_field(self.reason_code, "reason_code")
+        elif self.type is AgentEventType.THINKING:
+            if self.text is None:
+                raise ValueError("thinking text must be a non-blank single line")
+            normalized_text = self.text.strip()
+            if not normalized_text or any(
+                character in normalized_text for character in "\r\n"
+            ):
+                raise ValueError("thinking text must be a non-blank single line")
+            object.__setattr__(self, "text", normalized_text)
         elif self.type is AgentEventType.ANSWER_DELTA:
             if self.text is None:
                 raise ValueError("text is required")
@@ -121,6 +137,8 @@ class AgentEvent:
             _require_event_field(self.status, "status")
         elif self.type is AgentEventType.RUN_FAILED:
             _require_event_field(self.error_code, "error_code")
+        elif self.type is AgentEventType.RUN_RESULT:
+            _require_event_field(self.result, "result")
 
     @property
     def terminal(self) -> bool:
@@ -156,6 +174,8 @@ class AgentEvent:
             value = getattr(self, field_name)
             if value is not None:
                 payload[field_name] = value
+        if self.result is not None:
+            payload["result"] = dict(self.result)
         return payload
 
 

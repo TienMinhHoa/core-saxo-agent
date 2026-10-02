@@ -100,17 +100,69 @@ http://127.0.0.1:8000/agent/chat
 ```
 
 Trang nay dung topic retrieval flow da cau hinh. Endpoint JSON
-`POST /agent/chat/messages` giu contract compatibility va dung
-`GroundedAnswerService` khi topic retrieval san sang. Endpoint SSE
+`POST /agent/chat/messages` dung cung Main Agent voi endpoint SSE khi runner
+duoc cau hinh; `GroundedAnswerService` la fallback compatibility. Endpoint SSE
 `POST /agent/chat/stream` dung Main Agent compiled LangGraph neu
 `agent_graph_dependencies` duoc inject vao composition root; neu chua inject,
 endpoint tra `503` de tranh im lang mat kha nang streaming.
 
-Main Agent dieu phoi document search, selection strategy (`paragraph_direct`
-hoac `concept_role`), web fallback, clarification, immutable evidence ledger
-va LangChain synthesis. Moi run dung chung `RunBudget` voi cac gioi han
+Main Agent dung truc tiep `langchain.agents.create_agent` de chay vong ReAct.
+Orchestrator goi `search_docs` (tim va loc context ung vien), `search_web`
+va `select_context` (cap nhat `selected_contexts` cua rieng run). Main quan sat
+ket qua tool de quyet dinh tim tiep, thay doi context, hoac ket thuc. Synthesis
+la node rieng cua pipeline sau Main, khong phai tool cua orchestrator; no chi
+nhan evidence ledger tu cac context da chon va validate citation truoc khi tra
+ket qua. Moi run dung chung `RunBudget` voi cac gioi han
 `SAXO_AGENT_MAX_*`; tracing Langfuse la tuy chon va duoc redact truoc khi gui.
+Neu muon bat web fallback, dat `TAVILY_API_KEY`; co the dieu chinh
+`TAVILY_BASE_URL` va `TAVILY_MAX_RESULTS`. De trong key de tat web search.
 Tagging va role selection van giu model rieng cua pipeline.
+
+Orchestrator mac dinh uu tien `search_docs` theo tai lieu dang chon. Neu bang chung
+noi bo chua du, tiep tuc tim docs den het quota roi moi tim web. Neu docs da du,
+tra loi ngay. Neu cau hoi hien tai yeu cau tra web ro rang, chi tim web, khong
+bat buoc tim docs. Runtime chan tool vi pham thu tu hoac pham vi nguon nay.
+Ca hai endpoint chat nhan `history` tuy chon, gom cac message
+`{"role": "user" | "assistant", "content": "..."}`. History duoc truyen den
+orchestrator va synthesis de hieu cau hoi noi tiep, khong duoc coi la bang chung.
+Gioi han: 20 message, 4.000 ky tu/message, 20.000 ky tu tong.
+UI giu cac luot chat trong bo nho cua tab, gui history cua cac luot truoc va
+xoa history khi bam clear chat; reload trang bat dau hoi thoai moi.
+
+Synthesis gan citation so nhu `[1]`, `[2]` ngay sau cac y dung bang chung.
+Nhan trong cau tra loi va danh sach nguon duoc danh so lai cung nhau de khop.
+Citation thieu, trung, khong ton tai hoac khong duoc dung trong cau tra loi
+se bi tu choi. Danh sach nguon ben duoi hien ten tai lieu va trang cho nguon
+noi bo, hoac ten nguon va URL co the mo cho nguon web.
+
+Prompt synthesis `agent-synthesis-v7` uu tien ket thuc cau tra loi bang toi da
+mot cau hoi goi mo sat chu de: moi xem vi du, giai thich sau hon hoac cach ap dung.
+History giup tranh lap lai loi moi da bi tu choi. Bo qua loi moi khi user muon
+tra loi ngan/khong hoi them, dang can lam ro cau hoi, hoac gap loi.
+Day la huong dan cho model, khong phai cau hoi co dinh duoc ghep vao moi dap an.
+
+Quota tim kiem doc lap: `SAXO_AGENT_MAX_DOCUMENT_SEARCH_CALLS=3` va
+`SAXO_AGENT_MAX_WEB_SEARCH_CALLS=2`. Loc paragraph va `select_context` khong
+tru luot tim kiem; `SAXO_AGENT_MAX_TOOL_CALLS` chi con duoc doc de tuong thich
+cau hinh cu, khong con chan tool. Tong so tool calls trong log la thong ke.
+Tool vuot quota tra observation `quota_exhausted` cho main; het docs van con web.
+Runtime cho toi da 16 luot model, dung sau hai lan lien tiep yeu cau vuot quota,
+va giu gioi han timeout/context token. Khi het cac quota tim kiem, main van co
+mot luot de chon context. Context da chon duoc giu nguyen; neu chua chon,
+ket qua da tim duoc duoc giu trong gioi han context token.
+Synthesis tra `evidence_sufficient`: du bang chung thi tra loi kem citation;
+neu thieu thong tin, pipeline quay lai main de dung luot docs con lai truoc.
+Chi khi het quota docs, pipeline moi goi web neu con quota va web da cau hinh.
+Yeu cau tra web ro rang bo qua pha docs. Sau moi lan tiep tuc, synthesis danh gia
+lai context. Uu tien citation noi bo khi cac nguon lien quan ngang nhau va cung
+ho tro mot nhan dinh; web bo sung phan thieu. Khong ep cite tai lieu khong lien quan.
+Ket qua tam thoi khong duoc gui cho user. Neu van thieu, synthesis thong bao
+dung kien thuc noi tai, tra loi va khong gan citation gia.
+Loi provider va timeout thuc su van duoc xu ly nhu loi, khong gia thanh het luot.
+Log hoan tat ghi rieng so luot docs/web, budget status va evidence sufficiency.
+Tool observation log ghi dung so context ung vien thay vi mac dinh `result_count=0`.
+UI hien dau cho co chuyen dong va so giay xu ly trong ca request moi va resume;
+chi bao dung khi request ket thuc va ton trong `prefers-reduced-motion`.
 
 Ước lượng `output_v3/input-vl` mà chưa gọi API:
 
@@ -135,6 +187,17 @@ uv run python -m saxophone.cli.topic_input_vl --document-ref music-theory-full -
 
 Mỗi lần gọi DeepSeek/OpenAI sẽ ghi token input, token output và chi phí USD ước
 tính vào `logs/YYYY-MM-DD.log`. Logger không ghi prompt, response hay API key.
+
+Luồng chat cũng ghi từng run vào terminal và cùng file log. Mỗi dòng có
+`run_id`, node đang chạy, thời gian, trạng thái và các số liệu an toàn như số
+chunk, paragraph, nguồn, citation và số ký tự câu trả lời. Mức `DEBUG` mới
+hiển thị preview câu trả lời tối đa 512 ký tự để chẩn đoán; prompt, chain of
+thought, API key và lỗi provider nguyên văn vẫn được loại bỏ.
+
+Các event chính gồm `chat.request.received`, `agent.step.completed`,
+`agent.step.failed`, `chat.response.completed`, `agent.run.completed` và
+`agent.run.failed`. Dùng `run_id` để gom toàn bộ log của một câu hỏi khi
+nhiều lượt chat chạy đồng thời.
 
 Trong lúc ingest, terminal và cùng file log sẽ hiển thị tiến trình theo từng
 chunk và stage. Ví dụ:
@@ -188,8 +251,8 @@ git diff --check
 
 Khi kiem tra luong agent, dung fake tool/model trong test de xac nhan local
 search, web fallback, clarification, citation/image gate, budget va SSE ma
-khong goi provider that. `POST /agent/chat/messages` van la compatibility
-fallback cho client chua migrate sang stream.
+khong goi provider that. `POST /agent/chat/messages` chay cung Main Agent khi
+runner san sang, va giu compatibility fallback khi chi co legacy service.
 
 Các lệnh này kiểm chứng contract và behavior offline. Chúng không thay thế live
 smoke với endpoint, credential và catalog production đã được phê duyệt.

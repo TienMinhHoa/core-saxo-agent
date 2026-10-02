@@ -83,6 +83,8 @@ class _Synthesizer:
 
     async def synthesize(self, ledger: EvidenceLedger) -> SynthesisResult:
         self.ledgers.append(ledger)
+        if not ledger.evidence:
+            return SynthesisResult(answer="No grounded evidence was found.")
         evidence_id = ledger.evidence[0].evidence_id
         return SynthesisResult(
             answer="A major triad uses a root, third, and fifth.",
@@ -158,6 +160,76 @@ async def test_main_agent_runs_compiled_langgraph_for_local_evidence() -> None:
     assert len(selector.calls) == 1
     assert len(synthesizer.ledgers) == 1
     assert result.run_id == "run-local"
+
+
+@pytest.mark.anyio
+async def test_orchestrator_policy_can_route_local_observation_to_web_then_synthesis() -> None:
+    paragraph = _paragraph()
+    search = _DocumentSearch(
+        DocumentSearchResult(
+            "Công thức 145 là gì?",
+            (_hit(),),
+            (paragraph,),
+            status=DocumentSearchStatus.READY,
+        )
+    )
+    selector = _Selector(SelectionStrategy.PARAGRAPH_DIRECT, paragraph)
+    web = _WebSearch()
+    synthesizer = _Synthesizer()
+    decisions: list[AgentStage] = []
+
+    async def orchestrator_policy(state):
+        stage = state.get("stage")
+        decisions.append(stage)
+        if stage is AgentStage.EVALUATING_EVIDENCE:
+            return "web"
+        return "synthesize"
+
+    agent = MainAgent(
+        document_search=search,
+        paragraph_selector=selector,
+        web_search=web,
+        synthesizer=synthesizer,
+        orchestrator_policy=orchestrator_policy,
+    )
+
+    result = await agent.run("Công thức 145 là gì?", run_id="run-orchestrated")
+
+    assert result.outcome is AgentOutcome.ANSWERED
+    assert len(web.calls) == 1
+    assert len(synthesizer.ledgers) == 1
+    assert AgentStage.EVALUATING_EVIDENCE in decisions
+    assert AgentStage.WEB_SEARCHING in decisions
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("question_text", [
+    "Hãy tra web và trả lời cho tôi công thức 145 là gì",
+    "Hãy tra wweb và trả lời cho tôi công thức 145 là gì",
+    "Search the web for formula 145",
+])
+async def test_explicit_web_request_skips_local_search(question_text: str) -> None:
+    search = _DocumentSearch(DocumentSearchResult(question_text, (), (), status=DocumentSearchStatus.NO_HITS))
+    web = _WebSearch()
+    agent = MainAgent(document_search=search, web_search=web)
+
+    await agent.run(question_text, run_id="explicit-web")
+
+    assert search.calls == []
+    assert len(web.calls) == 1
+
+
+@pytest.mark.anyio
+async def test_explicit_web_request_without_provider_reports_missing_web_search() -> None:
+    request = "Tra web về công thức 145"
+    search = _DocumentSearch(DocumentSearchResult(request, (), (), status=DocumentSearchStatus.NO_HITS))
+    agent = MainAgent(document_search=search)
+
+    result = await agent.run(request, run_id="missing-web")
+
+    assert search.calls == []
+    assert result.outcome is AgentOutcome.INSUFFICIENT_EVIDENCE
+    assert result.state["reason_code"] == "web search is not configured"
 
 
 @pytest.mark.anyio

@@ -117,13 +117,17 @@ class ChromaSemanticRetriever(ChunkRetriever):
             limiter=self._io_limiter,
         )
         query_vector = _validated_embedding_output(vectors)
+        query_kwargs: dict[str, object] = {
+            "query_embeddings": [query_vector],
+            "n_results": limit,
+            "include": ["documents", "metadatas", "distances"],
+        }
+        if validated_filters:
+            query_kwargs["where"] = validated_filters
         result = await anyio.to_thread.run_sync(
             partial(
                 self._collection.query,
-                query_embeddings=[query_vector],
-                where=validated_filters,
-                n_results=limit,
-                include=["documents", "metadatas", "distances"],
+                **query_kwargs,
             ),
             limiter=self._io_limiter,
         )

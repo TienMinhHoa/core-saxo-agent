@@ -6,7 +6,7 @@ import re
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -144,6 +144,7 @@ class _DocumentComposition:
 
     pdf_extractor: PdfExtractor | None
     artifact_repository: ArtifactRepository
+    image_artifact_resolver: ImageArtifactResolver | None
     image_artifact_gate: ImageArtifactGate | None
     process_document: ProcessDocument | None
     process_and_persist_document: ProcessAndPersistDocument | None
@@ -315,7 +316,9 @@ def _compose_document_services(
     """Build artifact ownership and extraction workflows at one boundary."""
 
     from saxophone.platform.artifacts import (
+        FilesystemImageArtifactResolver,
         LocalArtifactRepository,
+        MountedImageArtifactRepository,
         RepositoryBackedImageArtifactGate,
     )
 
@@ -334,11 +337,19 @@ def _compose_document_services(
             settings.data_root / "artifacts",
             io_limiter=io_limiter,
         )
+    image_artifact_resolver = overrides.image_artifact_resolver
+    if image_artifact_resolver is None and settings.image_root is not None:
+        image_artifact_resolver = FilesystemImageArtifactResolver(settings.image_root)
+    if isinstance(artifact_repository, LocalArtifactRepository) and settings.image_root is not None:
+        artifact_repository = MountedImageArtifactRepository(
+            artifact_repository,
+            settings.image_root,
+        )
     image_artifact_gate = overrides.image_artifact_gate
-    if image_artifact_gate is None and overrides.image_artifact_resolver is not None:
+    if image_artifact_gate is None and image_artifact_resolver is not None:
         image_artifact_gate = RepositoryBackedImageArtifactGate(
             artifact_repository,
-            overrides.image_artifact_resolver,
+            image_artifact_resolver,
             io_limiter=io_limiter,
         )
 
@@ -360,6 +371,7 @@ def _compose_document_services(
     return _DocumentComposition(
         pdf_extractor=pdf_extractor,
         artifact_repository=artifact_repository,
+        image_artifact_resolver=image_artifact_resolver,
         image_artifact_gate=image_artifact_gate,
         process_document=process_document,
         process_and_persist_document=process_and_persist_document,
@@ -610,6 +622,63 @@ def _compose_agent_services(
     if runner is not None and run_manager is None:
         run_manager = AgentRunManager()
     return _AgentComposition(runner, run_manager, tracer)
+
+
+def _compose_production_agent_dependencies(
+    *,
+    settings: AppSettings,
+    vector_index: object | None,
+    embedding_provider: object | None,
+    ingestion_database: Path,
+    structured_provider: object,
+    agent_provider: object,
+    http_client: httpx.AsyncClient | None,
+):
+    """Assemble the production agent only when document retrieval is usable."""
+
+    if not _supports_topic_retrieval(vector_index, embedding_provider):
+        return None
+    from saxophone.agent.document_search import SemanticDocumentSearchTool
+    from saxophone.agent.document_query_planning import DocumentSearchQueryPlanner
+    from saxophone.agent.evidence_selection import ConceptRoleSelector, ParagraphDirectSelector
+    from saxophone.agent.graph import AgentGraphDependencies
+    from saxophone.agent.synthesis import EvidenceSynthesisService
+    from saxophone.agent.web_search import WebSearchAdapter, WebSearchQueryPlanner
+    from saxophone.platform.langchain_model import StructuredProviderChatModel, ThinkingToolChatModel
+    from saxophone.retrieval.adapters import VectorIndexChunkRetriever
+    from saxophone.retrieval.sqlite_context import SqliteRetrievalContextRepository
+
+    retriever = VectorIndexChunkRetriever(embedding_provider, vector_index)
+    context = SqliteRetrievalContextRepository(ingestion_database)
+    document_search = SemanticDocumentSearchTool(retriever, context)
+    paragraph_selector = ParagraphDirectSelector(provider=agent_provider)
+    concept_selector = ConceptRoleSelector(provider=agent_provider)
+    synthesizer = EvidenceSynthesisService(
+        StructuredProviderChatModel(provider=agent_provider, model_name=settings.agent_chat_model)
+    )
+    web_search = None
+    if settings.tavily_api_key is not None and http_client is not None:
+        from saxophone.platform.web_search_client import TavilySearchClient
+
+        web_search = WebSearchAdapter(
+            TavilySearchClient(
+                http_client=http_client,
+                api_key=settings.tavily_api_key,
+                base_url=settings.tavily_base_url,
+                timeout_seconds=settings.agent_tool_timeout_seconds,
+            ),
+            max_results=settings.tavily_max_results,
+            query_planner=WebSearchQueryPlanner(agent_provider),
+        )
+    return AgentGraphDependencies(
+        document_search=document_search,
+        paragraph_selector=paragraph_selector,
+        concept_selector=concept_selector,
+        web_search=web_search,
+        synthesizer=synthesizer,
+        orchestrator_model=ThinkingToolChatModel(provider=agent_provider),
+        document_query_planner=DocumentSearchQueryPlanner(agent_provider),
+    )
 
 
 def _compose_topic_services(
@@ -866,9 +935,11 @@ def create_app(
 ) -> FastAPI:
     """Compose the sole ASGI application without reading process environment."""
 
+    from saxophone.platform.chat_logging import configure_chat_logging
     from saxophone.platform.concurrency import create_blocking_io_limiter
 
     resolved_overrides = overrides or AppOverrides()
+    configure_chat_logging()
     direct_provider = settings.model_provider == "direct"
     io_limiter = create_blocking_io_limiter()
     model_composition = _compose_model_clients(settings, resolved_overrides)
@@ -891,6 +962,7 @@ def create_app(
     pdf_extractor = document_composition.pdf_extractor
     artifact_repository = document_composition.artifact_repository
     image_artifact_gate = document_composition.image_artifact_gate
+    image_artifact_resolver = document_composition.image_artifact_resolver
     process_document = document_composition.process_document
     process_and_persist_document = document_composition.process_and_persist_document
 
@@ -929,6 +1001,24 @@ def create_app(
     answer_question = legacy_chat.answer_question
 
     agent_chat = resolved_overrides.agent_chat
+    if (
+        resolved_overrides.agent_runner is None
+        and resolved_overrides.agent_graph_dependencies is None
+    ):
+        production_dependencies = _compose_production_agent_dependencies(
+            settings=settings,
+            vector_index=vector_index,
+            embedding_provider=embedding_provider,
+            ingestion_database=ingestion_database,
+            structured_provider=structured_llm_provider,
+            agent_provider=agent_structured_llm_provider,
+            http_client=http_client,
+        )
+        if production_dependencies is not None:
+            resolved_overrides = replace(
+                resolved_overrides,
+                agent_graph_dependencies=production_dependencies,
+            )
     agent_services = _compose_agent_services(settings, resolved_overrides)
     agent_runner = agent_services.runner
     agent_run_manager = agent_services.run_manager
@@ -970,7 +1060,7 @@ def create_app(
         content_ledger=content_ledger,
         vector_index=vector_index,
         artifact_repository=artifact_repository,
-        image_artifact_resolver=resolved_overrides.image_artifact_resolver,
+        image_artifact_resolver=image_artifact_resolver,
         image_artifact_gate=image_artifact_gate,
         process_document=process_document,
         process_and_persist_document=process_and_persist_document,

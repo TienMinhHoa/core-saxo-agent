@@ -43,6 +43,9 @@ class AnswerSource:
     image_refs: tuple[str, ...] = ()
     image_captions: Mapping[str, str] = field(default_factory=dict)
     image_errors: tuple[str, ...] = ()
+    citation: str | None = None
+    score: float | None = None
+    url: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.image_refs, tuple):

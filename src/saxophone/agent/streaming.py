@@ -110,6 +110,23 @@ class AgentRunManager:
         await self._notify(subscribers, sequenced)
         return True
 
+    async def reopen(self, run_id: str) -> None:
+        """Reopen a clarification run so a resumed invocation can append events."""
+
+        normalized = _normalize_run_id(run_id)
+        async with self._lock:
+            state = self._runs.get(normalized)
+            if state is None:
+                raise KeyError(f"unknown run: {normalized}")
+            if not state.terminal:
+                raise ValueError("run is already active")
+            if not state.history or state.history[-1].type not in {
+                AgentEventType.RUN_COMPLETED,
+                AgentEventType.RUN_FAILED,
+            }:
+                raise ValueError("run has no terminal event")
+            state.terminal = False
+
     async def events(
         self,
         run_id: str,

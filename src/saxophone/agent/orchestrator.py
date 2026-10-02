@@ -18,6 +18,13 @@ from .contracts import (
     SynthesisResult,
 )
 from .graph import AgentGraphDependencies, build_agent_graph
+from .logging import (
+    AgentLoggingCallbackHandler,
+    log_agent_run_cancelled,
+    log_agent_run_completed,
+    log_agent_run_failed,
+    log_agent_run_started,
+)
 from .langchain_callbacks import AgentTracingCallbackHandler
 from .state import AgentGraphState, AgentStage
 from .tracing import AgentTracer, NoopTracer, TraceStatus
@@ -57,6 +64,7 @@ class MainAgent:
         synthesizer: object | None = None,
         answer_synthesizer: object | None = None,
         evidence_policy: object | None = None,
+        orchestrator_policy: object | None = None,
         strategy_policy: object | None = None,
         clarification_policy: object | None = None,
         ledger_factory: object | None = None,
@@ -95,6 +103,7 @@ class MainAgent:
                 web_search,
                 synthesizer,
                 evidence_policy,
+                orchestrator_policy,
                 strategy_policy,
                 clarification_policy,
                 ledger_factory,
@@ -116,12 +125,14 @@ class MainAgent:
                     web_search=web_search,
                     synthesizer=synthesizer,
                     evidence_policy=evidence_policy,
+                    orchestrator_policy=orchestrator_policy,
                     strategy_policy=strategy_policy,
                     clarification_policy=clarification_policy,
                     ledger_factory=ledger_factory,
                 )
             self._graph = build_agent_graph(dependencies, checkpointer=checkpointer)
         self._tracer = tracer or NoopTracer()
+        self._clarification_runs: dict[str, tuple[AgentQuestion, RunBudget, ClarificationRequest]] = {}
         if budget_factory is not None and not callable(budget_factory):
             raise TypeError("budget_factory must be callable")
         self._budget_factory = budget_factory if budget_factory is not None else RunBudget
@@ -151,6 +162,7 @@ class MainAgent:
         run_budget = budget if budget is not None else self._budget_factory()
         if not isinstance(run_budget, RunBudget):
             raise TypeError("budget must be a RunBudget")
+        log_agent_run_started(run_id=normalized_run_id, question=question, budget=run_budget)
 
         run_config: RunnableConfig = dict(config or {})
         configurable = dict(run_config.get("configurable") or {})
@@ -171,8 +183,10 @@ class MainAgent:
             tracer=self._tracer,
             root=trace,
         )
+        logging_callback = AgentLoggingCallbackHandler(run_id=normalized_run_id)
         callback_list = _callback_list(callbacks)
         callback_list.append(tracing_callback)
+        callback_list.append(logging_callback)
         run_config["callbacks"] = callback_list
         try:
             state = await self._graph.ainvoke(
@@ -184,10 +198,12 @@ class MainAgent:
                 config=run_config,
             )
         except asyncio.CancelledError as error:
+            log_agent_run_cancelled(run_id=normalized_run_id)
             tracing_callback.finish(error=error)
             trace.end(error=error)
             raise
         except BaseException as error:
+            log_agent_run_failed(run_id=normalized_run_id, error=error)
             tracing_callback.finish(error=error)
             trace.end(error=error)
             return AgentRunResult(
@@ -198,7 +214,19 @@ class MainAgent:
                 error=str(error) or error.__class__.__name__,
             )
         result = _result_from_state(normalized_run_id, run_budget, state)
+        if result.outcome is AgentOutcome.NEEDS_CLARIFICATION and result.clarification is not None:
+            self._clarification_runs[normalized_run_id] = (
+                question,
+                run_budget,
+                result.clarification,
+            )
+        else:
+            self._clarification_runs.pop(normalized_run_id, None)
         tracing_callback.finish()
+        if result.outcome is AgentOutcome.FAILED:
+            log_agent_run_failed(run_id=normalized_run_id, error=RuntimeError(result.error or "agent_failed"), result=result)
+        else:
+            log_agent_run_completed(run_id=normalized_run_id, result=result)
         trace_output = {
             "outcome": result.outcome.value,
             "stage": result.stage.value,
@@ -215,6 +243,31 @@ class MainAgent:
         return result
 
     execute = run
+
+    async def resume(self, *, run_id: str, option: str) -> AgentRunResult:
+        """Resume a clarification checkpoint without resetting its budget."""
+
+        if not isinstance(run_id, str) or not run_id.strip():
+            raise ValueError("run_id must not be blank")
+        if not isinstance(option, str) or not option.strip():
+            raise ValueError("option must not be blank")
+        get_state = getattr(self._graph, "aget_state", None)
+        if not callable(get_state):
+            raise ValueError("agent graph does not support resume")
+        checkpoint = self._clarification_runs.get(run_id.strip())
+        if checkpoint is None:
+            raise ValueError("run is not waiting for clarification")
+        question, budget, clarification = checkpoint
+        normalized_option = option.strip()
+        if normalized_option not in clarification.options:
+            raise ValueError("option is not one of the clarification choices")
+        resumed_question = AgentQuestion(
+            f"{question.question}\nSelected interpretation: {normalized_option}",
+            filters=question.filters,
+            context_limit=question.context_limit,
+            history=question.history,
+        )
+        return await self.run(resumed_question, run_id=run_id, budget=budget)
 
 
 def _callback_list(callbacks: object | None) -> list[object]:

@@ -48,6 +48,20 @@ def _paragraph(ref: str, chunk: str = "chunk-1", text: str | None = None) -> Sou
     )
 
 
+def _image_paragraph(ref: str, chunk: str = "chunk-1") -> SourceParagraph:
+    return SourceParagraph(
+        ref,
+        "music.md",
+        "Major triads",
+        (),
+        '<div><img src="images/figure-2-1.jpg" /></div>',
+        (),
+        ("121",),
+        ("images/figure-2-1.jpg",),
+        chunk,
+    )
+
+
 def _search_result(
     paragraphs: tuple[SourceParagraph, ...],
     relations: tuple[ParagraphConceptRole, ...] = (),
@@ -139,6 +153,35 @@ async def test_concept_role_selector_returns_same_result_shape_and_traverses_sco
     assert result.selected_paragraph_refs == ("p-1",)
     assert result.selected_roles[0].paragraph_refs == ("p-1",)
     assert len(role_selector.requests) == 1
+
+
+@pytest.mark.anyio
+async def test_concept_role_selector_attaches_image_for_explicit_figure_request() -> None:
+    relation = ParagraphConceptRole("p-caption", "Note values", ContentRole.DEFINITION)
+    caption = _paragraph(
+        "p-caption",
+        text="Figure 2-1 shows a tree of notes and their values.",
+    )
+    image = _image_paragraph("p-image")
+    role_selector = _RoleSelector(
+        ConceptRoleSelectionResult(
+            (ConceptRoleSelection("Note values", (ContentRole.DEFINITION,), 1),)
+        )
+    )
+
+    result = await ConceptRoleSelector(role_selector).select(
+        SelectionRequest(
+            "What does Figure 2-1 show about note values? Please include the figure from the source if available",
+            _search_result((caption, image), (relation,)),
+        )
+    )
+
+    assert result.selected_paragraph_refs == ("p-caption",)
+    assert tuple(paragraph.paragraph_ref for paragraph in result.paragraphs) == (
+        "p-caption",
+        "p-image",
+    )
+    assert result.paragraphs[1].image_refs == ("images/figure-2-1.jpg",)
 
 
 @pytest.mark.anyio

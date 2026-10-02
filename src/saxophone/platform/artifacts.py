@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import mimetypes
 import os
 import tempfile
 import threading
@@ -32,6 +33,65 @@ class SafeImageArtifactGate:
             if image_ref not in validated:
                 validated.append(image_ref)
         return tuple(validated)
+
+
+class FilesystemImageArtifactResolver(ImageArtifactResolver):
+    """Resolve safe image references from a configured filesystem directory."""
+
+    def __init__(self, root: Path) -> None:
+        if not isinstance(root, Path):
+            raise ValueError("root must be a Path")
+        self._root = root.resolve()
+
+    async def resolve(self, image_ref: str) -> ArtifactRef:
+        if not is_safe_relative_image_reference(image_ref):
+            raise ValueError("unsafe image reference")
+        path = _image_path(self._root, image_ref)
+        if self._root not in path.parents or path.is_symlink() or not path.is_file():
+            raise FileNotFoundError(image_ref)
+        payload = await anyio.to_thread.run_sync(path.read_bytes)
+        media_type, _ = mimetypes.guess_type(path.name)
+        if not media_type or not is_image_media_type(media_type):
+            raise ValueError("resolved image artifact must have an image media type")
+        return ArtifactRef(
+            artifact_id=image_ref,
+            version=hashlib.sha256(payload).hexdigest(),
+            kind=ArtifactKind.IMAGE,
+            media_type=media_type,
+            sha256=hashlib.sha256(payload).hexdigest(),
+            size_bytes=len(payload),
+        )
+
+
+class MountedImageArtifactRepository:
+    """Read configured source images while delegating normal artifacts."""
+
+    def __init__(self, base: ArtifactRepository, root: Path) -> None:
+        self._base = base
+        self._root = root.resolve()
+
+    async def put(self, artifact: ArtifactRef, payload: bytes) -> None:
+        await self._base.put(artifact, payload)
+
+    async def get(self, artifact: ArtifactRef) -> bytes:
+        if artifact.kind is not ArtifactKind.IMAGE:
+            return await self._base.get(artifact)
+        path = _image_path(self._root, artifact.artifact_id)
+        if self._root not in path.parents or path.is_symlink() or not path.is_file():
+            raise FileNotFoundError(artifact.artifact_id)
+        payload = await anyio.to_thread.run_sync(path.read_bytes)
+        if hashlib.sha256(payload).hexdigest() != artifact.sha256:
+            raise ValueError("image artifact checksum does not match")
+        return payload
+
+
+def _image_path(root: Path, image_ref: str) -> Path:
+    """Map repository refs such as ``images/foo.jpg`` onto the image mount."""
+
+    relative = Path(image_ref)
+    if relative.parts and relative.parts[0] == root.name:
+        relative = Path(*relative.parts[1:])
+    return (root / relative).resolve()
 
 
 class RepositoryBackedImageArtifactGate:

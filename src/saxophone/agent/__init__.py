@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from .contracts import (
         AgentOutcome,
         AgentQuestion,
+        ChatHistoryMessage,
         BudgetCall,
         BudgetExhaustedError,
         BudgetSnapshot,
@@ -34,6 +35,7 @@ if TYPE_CHECKING:
 _EXPORTS: dict[str, tuple[str, str]] = {
     "AgentOutcome": (".contracts", "AgentOutcome"),
     "AgentQuestion": (".contracts", "AgentQuestion"),
+    "ChatHistoryMessage": (".contracts", "ChatHistoryMessage"),
     "BudgetCall": (".contracts", "BudgetCall"),
     "BudgetExhaustedError": (".contracts", "BudgetExhaustedError"),
     "BudgetSnapshot": (".contracts", "BudgetSnapshot"),
@@ -72,6 +74,8 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "build_agent_graph": (".graph", "build_agent_graph"),
     "AgentRunResult": (".orchestrator", "AgentRunResult"),
     "MainAgent": (".orchestrator", "MainAgent"),
+    "ModelOrchestratorPolicy": (".orchestrator_policy", "ModelOrchestratorPolicy"),
+    "OrchestratorRoute": (".orchestrator_policy", "OrchestratorRoute"),
     "AgentDecision": (".state", "AgentDecision"),
     "AgentGraphState": (".state", "AgentGraphState"),
     "AgentStage": (".state", "AgentStage"),

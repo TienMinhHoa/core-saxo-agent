@@ -19,11 +19,8 @@ def encode_agent_event(event: AgentEvent) -> str:
         ensure_ascii=False,
         separators=(",", ":"),
     )
-    return (
-        f"id: {event.sequence}\n"
-        f"event: {event.type.value}\n"
-        f"data: {payload}\n\n"
-    )
+    event_line = "" if event.type.value == "run_result" else f"event: {event.type.value}\n"
+    return f"id: {event.sequence}\n{event_line}data: {payload}\n\n"
 
 
 async def iter_agent_events(

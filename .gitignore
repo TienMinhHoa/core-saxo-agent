@@ -24,6 +24,7 @@ env/
 .uv-cache/
 .codex/
 
+
 # Packaging artifacts
 build/
 dist/
@@ -40,6 +41,8 @@ dist/
 /.gnhf/
 /.codex/
 .codex/
+temp/
+/temp/
 
 # Logs and temporary files
 *.log

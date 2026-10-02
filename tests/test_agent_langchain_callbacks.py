@@ -24,8 +24,10 @@ async def test_callback_maps_graph_node_to_safe_stage_event() -> None:
     )
 
     events = await manager.history("run-callback")
-    assert events[-1].type is AgentEventType.STAGE_STARTED
-    assert events[-1].stage == "document_search"
+    assert events[-2].type is AgentEventType.STAGE_STARTED
+    assert events[-2].stage == "document_search"
+    assert events[-1].type is AgentEventType.THINKING
+    assert events[-1].text == "Đang tìm tài liệu liên quan"
 
 
 @pytest.mark.anyio
@@ -41,9 +43,11 @@ async def test_callback_tolerates_langchain_runnables_without_serialized_metadat
         tags=["langgraph_node:web_search_tool"],
     )
 
-    event = (await manager.history("run-missing-serialized"))[-1]
-    assert event.type is AgentEventType.STAGE_STARTED
-    assert event.stage == "web_search"
+    events = await manager.history("run-missing-serialized")
+    assert events[-2].type is AgentEventType.STAGE_STARTED
+    assert events[-2].stage == "web_search"
+    assert events[-1].type is AgentEventType.THINKING
+    assert events[-1].text == "Đang tìm thêm thông tin trên web"
 
 
 @pytest.mark.anyio
@@ -65,6 +69,7 @@ async def test_callback_runs_through_langchain_async_runnable() -> None:
     assert [event.type for event in events] == [
         AgentEventType.RUN_STARTED,
         AgentEventType.STAGE_STARTED,
+        AgentEventType.THINKING,
     ]
 
 
@@ -127,6 +132,7 @@ async def test_callback_emits_only_opted_in_public_answer_deltas() -> None:
     events = await manager.history("run-answer")
     assert [event.type for event in events[1:]] == [
         AgentEventType.SYNTHESIS_STARTED,
+        AgentEventType.THINKING,
         AgentEventType.ANSWER_DELTA,
     ]
     assert events[-1].text == "hello"

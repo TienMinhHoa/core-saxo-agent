@@ -92,6 +92,23 @@ def test_agent_event_is_encoded_as_safe_sse_frame() -> None:
     }
 
 
+def test_agent_thinking_event_is_encoded_as_safe_sse_frame() -> None:
+    frame = encode_agent_event(
+        AgentEvent(
+            AgentEventType.THINKING,
+            run_id="run-sse-thinking",
+            text="Đang kiểm tra citation",
+        )
+    )
+
+    assert "event: thinking" in frame
+    assert json.loads(frame.split("data: ", 1)[1].strip()) == {
+        "type": "thinking",
+        "run_id": "run-sse-thinking",
+        "text": "Đang kiểm tra citation",
+    }
+
+
 def test_agent_stream_route_emits_ordered_safe_progress_events() -> None:
     manager = AgentRunManager()
     runner = _Runner()
@@ -108,11 +125,13 @@ def test_agent_stream_route_emits_ordered_safe_progress_events() -> None:
     assert [frame["type"] for frame in frames] == [
         "run_started",
         "stage_started",
+        "thinking",
         "synthesis_started",
+        "thinking",
         "answer_delta",
         "run_completed",
     ]
-    assert [frame["sequence"] for frame in frames] == [1, 2, 3, 4, 5]
+    assert [frame["sequence"] for frame in frames] == [1, 2, 3, 4, 5, 6, 7]
     assert "private prompt" not in response.text
     assert runner.calls[0][0].question == "What is rhythm?"
     assert runner.calls[0][0].context_limit == 1200

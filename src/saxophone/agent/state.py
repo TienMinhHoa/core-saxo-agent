@@ -11,6 +11,7 @@ from .contracts import (
     ClarificationCandidate,
     ClarificationRequest,
     EvidenceLedger,
+    EvidenceItem,
     RunBudget,
     SelectionStrategy,
     SynthesisResult,
@@ -66,12 +67,18 @@ class AgentGraphState(TypedDict, total=False):
     selection_strategy: SelectionStrategy
     selection_result: SelectionResult
     ledger: EvidenceLedger
+    selected_contexts: tuple[EvidenceItem, ...]
+    react_context: object
+    needs_web_fallback: bool
+    required_search_tool: str | None
     synthesis_result: SynthesisResult
     answer: str
     clarification: ClarificationRequest
     clarification_candidates: tuple[ClarificationCandidate, ...]
     error: str
     reason_code: str
+    budget_exhausted: bool
+    budget_reason: str | None
 
 
 GraphState = AgentGraphState

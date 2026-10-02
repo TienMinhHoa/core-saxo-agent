@@ -68,6 +68,25 @@ async def test_chroma_retriever_maps_results_to_ranked_provider_independent_hits
 
 
 @pytest.mark.anyio
+async def test_chroma_retriever_omits_empty_where_clause() -> None:
+    class _UnfilteredCollection:
+        def query(self, **kwargs: object) -> dict[str, list[list[object]]]:
+            assert "where" not in kwargs
+            return {
+                "ids": [["chunk-1"]],
+                "documents": [["text"]],
+                "metadatas": [[{"page": 1}]],
+                "distances": [[0.1]],
+            }
+
+    retriever = ChromaSemanticRetriever(_UnfilteredCollection(), _EmbeddingProvider())
+
+    hits = await retriever.search("find scales")
+
+    assert [hit.chunk_ref for hit in hits] == ["chunk-1"]
+
+
+@pytest.mark.anyio
 async def test_chroma_retriever_returns_empty_for_non_positive_limit_without_io() -> None:
     class _FailIfCalled:
         def embed(self, texts: list[str]) -> list[list[float]]:

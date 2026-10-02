@@ -45,6 +45,9 @@ _TASKS: dict[str, ModelTask] = {
     "chunk_tagging_and_conflict": ModelTask.CHUNK_TAGGING,
     "concept_role_selection": ModelTask.RETRIEVAL_SELECT,
     "paragraph_selection": ModelTask.RETRIEVAL_SELECT,
+    "orchestrator_decision": ModelTask.ORCHESTRATOR_DECISION,
+    "web_search_query_planning": ModelTask.WEB_SEARCH_QUERY_PLAN,
+    "document_search_query_planning": ModelTask.DOCUMENT_SEARCH_QUERY_PLAN,
     "answer_generation": ModelTask.ANSWER_GENERATE,
 }
 

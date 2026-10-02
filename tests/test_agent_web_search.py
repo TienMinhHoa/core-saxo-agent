@@ -4,6 +4,7 @@ import pytest
 
 from saxophone.agent.contracts import AgentQuestion, RunBudget, WebSearchItem
 from saxophone.agent.web_search import WebSearchAdapter
+from saxophone.agent.web_search import WebSearchQueryPlanner
 
 
 class _Provider:
@@ -14,6 +15,37 @@ class _Provider:
     async def search(self, query: str, *, limit: int) -> object:
         self.calls.append((query, limit))
         return self.response
+
+
+class _PlannerProvider:
+    async def generate_structured(self, **kwargs: object) -> object:
+        return {"query": "music theory 1 4 5 chord progression", "interpretation": "scale-degree progression", "confidence": 0.9}
+
+
+@pytest.mark.anyio
+async def test_web_query_planner_rewrites_ambiguous_request_without_domain_hardcoding() -> None:
+    planner = WebSearchQueryPlanner(_PlannerProvider())
+    plan = await planner.plan(AgentQuestion("what is 145 formula"))
+
+    assert plan.query == "music theory 1 4 5 chord progression"
+    assert plan.interpretation == "scale-degree progression"
+    assert plan.confidence == 0.9
+
+
+@pytest.mark.anyio
+async def test_web_search_adapter_uses_planned_query_and_keeps_original_on_planner_failure() -> None:
+    provider = _Provider({"results": [{"title": "Result", "url": "https://example.test", "snippet": "Result"}]})
+
+    class _FailingPlanner:
+        async def plan(self, question: AgentQuestion) -> object:
+            raise RuntimeError("planner unavailable")
+
+    result = await WebSearchAdapter(provider, query_planner=_FailingPlanner()).search(
+        AgentQuestion("145 formula"), RunBudget()
+    )
+
+    assert provider.calls[0][0] == "145 formula"
+    assert result.query == "145 formula"
 
 
 @pytest.mark.anyio

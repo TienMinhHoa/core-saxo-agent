@@ -43,6 +43,7 @@ class GraphDependencyError(TypeError):
 
 
 EvidencePolicy = Callable[[AgentGraphState], object]
+OrchestratorPolicy = Callable[[AgentGraphState], object]
 StrategyPolicy = Callable[[DocumentSearchResult], SelectionStrategy | str]
 ClarificationPolicy = Callable[[AgentGraphState], object]
 LedgerFactory = Callable[[AgentGraphState], EvidenceLedger]
@@ -58,13 +59,18 @@ class AgentGraphDependencies:
     web_search: WebSearchTool | None = None
     synthesizer: AnswerSynthesizer | None = None
     evidence_policy: EvidencePolicy | None = None
+    orchestrator_policy: OrchestratorPolicy | None = None
     strategy_policy: StrategyPolicy | None = None
     clarification_policy: ClarificationPolicy | None = None
     ledger_factory: LedgerFactory | None = None
+    orchestrator_model: object | None = None
+    document_query_planner: object | None = None
 
     def __post_init__(self) -> None:
         if not _has_search_entrypoint(self.document_search):
             raise GraphDependencyError("document_search must provide async search")
+        if self.document_query_planner is not None and not callable(getattr(self.document_query_planner, "plan", None)):
+            raise GraphDependencyError("document_query_planner must provide async plan")
         if self.web_search is not None and not _has_search_entrypoint(self.web_search):
             raise GraphDependencyError("web_search must provide async search")
         if self.synthesizer is not None and not (
@@ -80,6 +86,7 @@ class AgentGraphDependencies:
                 raise GraphDependencyError(f"{name} must provide async select")
         for name, policy in (
             ("evidence_policy", self.evidence_policy),
+            ("orchestrator_policy", self.orchestrator_policy),
             ("strategy_policy", self.strategy_policy),
             ("clarification_policy", self.clarification_policy),
             ("ledger_factory", self.ledger_factory),
@@ -98,6 +105,7 @@ def build_agent_graph(
     web_search: object | None = None,
     synthesizer: object | None = None,
     evidence_policy: EvidencePolicy | None = None,
+    orchestrator_policy: OrchestratorPolicy | None = None,
     strategy_policy: StrategyPolicy | None = None,
     clarification_policy: ClarificationPolicy | None = None,
     ledger_factory: LedgerFactory | None = None,
@@ -112,12 +120,18 @@ def build_agent_graph(
             web_search=web_search,
             synthesizer=synthesizer,
             evidence_policy=evidence_policy,
+            orchestrator_policy=orchestrator_policy,
             strategy_policy=strategy_policy,
             clarification_policy=clarification_policy,
             ledger_factory=ledger_factory,
         )
     elif not isinstance(dependencies, AgentGraphDependencies):
         raise TypeError("dependencies must be AgentGraphDependencies")
+
+    if dependencies.orchestrator_model is not None:
+        from .react_pipeline import build_react_pipeline
+
+        return build_react_pipeline(dependencies)
 
     graph = StateGraph(AgentGraphState)
     graph.add_node("receive_question", _receive_question)
@@ -133,13 +147,22 @@ def build_agent_graph(
     graph.add_node("failed", _failed)
 
     graph.add_edge(START, "receive_question")
-    graph.add_edge("receive_question", "document_search_tool")
+    graph.add_conditional_edges(
+        "receive_question",
+        _route_decision,
+        {
+            AgentDecision.SELECT: "document_search_tool",
+            AgentDecision.WEB: "web_search_tool",
+            AgentDecision.FAILED: "failed",
+        },
+    )
     graph.add_edge("document_search_tool", "evaluate_local_evidence")
     graph.add_conditional_edges(
         "evaluate_local_evidence",
         _route_decision,
         {
             AgentDecision.SELECT: "choose_selection_strategy",
+            AgentDecision.SYNTHESIZE: "synthesize",
             AgentDecision.WEB: "web_search_tool",
             AgentDecision.CLARIFY: "needs_clarification",
             AgentDecision.INSUFFICIENT: "completed",
@@ -240,14 +263,24 @@ async def _receive_question(state: AgentGraphState) -> AgentGraphState:
     run_id = state.get("run_id")
     if not isinstance(run_id, str) or not run_id.strip():
         return _failure("run_id must be a non-empty string")
+    explicit_web = _requests_web_search(question.question)
     return {
         "question": question,
         "budget": budget,
         "run_id": run_id.strip(),
         "stage": AgentStage.RECEIVED,
         "outcome": None,
-        "decision": AgentDecision.SELECT,
+        "decision": AgentDecision.WEB if explicit_web else AgentDecision.SELECT,
+        "reason_code": "explicit_web_request" if explicit_web else None,
     }
+
+
+def _requests_web_search(question: str) -> bool:
+    return bool(re.search(
+        r"\b(?:tra(?:\s+cứu)?|tìm(?:\s+kiếm)?|search(?:\s+the)?)"
+        r"\s+(?:(?:trên|on)\s+)?(?:w?web|internet|mạng)\b",
+        question.casefold(),
+    ))
 
 
 def _document_search_tool(dependencies: AgentGraphDependencies):
@@ -319,6 +352,26 @@ def _evaluate_local_evidence(dependencies: AgentGraphDependencies):
                 decision = AgentDecision.WEB
             else:
                 decision = AgentDecision.INSUFFICIENT
+        if dependencies.orchestrator_policy is not None and result.status is DocumentSearchStatus.READY:
+            try:
+                proposed = await _await_result(
+                    dependencies.orchestrator_policy(
+                        {
+                            **state,
+                            "stage": AgentStage.EVALUATING_EVIDENCE,
+                            "document_result": result,
+                        }
+                    )
+                )
+                routed = _coerce_decision(proposed)
+                if routed is not None:
+                    decision = routed
+            except (asyncio.CancelledError, BudgetExhaustedError):
+                raise
+            except BaseException:
+                # A routing model is advisory; deterministic fallback keeps the
+                # retrieval path available when that model/provider is unavailable.
+                pass
         return {
             "stage": AgentStage.EVALUATING_EVIDENCE,
             "decision": decision,
@@ -400,6 +453,33 @@ def _select_evidence(dependencies: AgentGraphDependencies):
                     else None
                 ),
             }
+        if dependencies.orchestrator_policy is not None:
+            try:
+                proposed = await _await_result(
+                    dependencies.orchestrator_policy(
+                        {
+                            **state,
+                            "selection_result": selected,
+                            "stage": AgentStage.SELECTING_EVIDENCE,
+                        }
+                    )
+                )
+                routed = _coerce_decision(proposed)
+                if routed is not None:
+                    return {
+                        "selection_result": selected,
+                        "stage": AgentStage.SELECTING_EVIDENCE,
+                        "decision": routed,
+                        "outcome": (
+                            AgentOutcome.INSUFFICIENT_EVIDENCE
+                            if routed is AgentDecision.INSUFFICIENT
+                            else None
+                        ),
+                    }
+            except (asyncio.CancelledError, BudgetExhaustedError):
+                raise
+            except BaseException:
+                pass
         return {
             "selection_result": selected,
             "stage": AgentStage.SELECTING_EVIDENCE,
@@ -434,11 +514,37 @@ def _web_search_tool(dependencies: AgentGraphDependencies):
         except BaseException as error:
             return _failure(_safe_error(error))
         if not _has_web_evidence(result):
+            if dependencies.synthesizer is not None:
+                return {
+                    "web_result": result,
+                    "stage": AgentStage.WEB_SEARCHING,
+                    "decision": AgentDecision.SYNTHESIZE,
+                    "reason_code": "web_evidence_unavailable",
+                }
             return _insufficient("web search returned no evidence")
+        decision = AgentDecision.SYNTHESIZE
+        if dependencies.orchestrator_policy is not None:
+            try:
+                proposed = await _await_result(
+                    dependencies.orchestrator_policy(
+                        {
+                            **state,
+                            "web_result": result,
+                            "stage": AgentStage.WEB_SEARCHING,
+                        }
+                    )
+                )
+                routed = _coerce_decision(proposed)
+                if routed is not None:
+                    decision = routed
+            except (asyncio.CancelledError, BudgetExhaustedError):
+                raise
+            except BaseException:
+                pass
         return {
             "web_result": result,
             "stage": AgentStage.WEB_SEARCHING,
-            "decision": AgentDecision.SYNTHESIZE,
+            "decision": decision,
             "reason_code": "web_evidence_available",
         }
 
@@ -450,6 +556,7 @@ async def _needs_clarification(state: AgentGraphState) -> AgentGraphState:
     if not isinstance(request, ClarificationRequest):
         return _failure("clarification request is missing")
     return {
+        "clarification": request,
         "stage": AgentStage.WAITING_FOR_CLARIFICATION,
         "outcome": AgentOutcome.NEEDS_CLARIFICATION,
         "decision": AgentDecision.COMPLETE,
@@ -521,7 +628,12 @@ async def _completed(state: AgentGraphState) -> AgentGraphState:
         if outcome is AgentOutcome.NEEDS_CLARIFICATION
         else AgentStage.COMPLETED
     )
-    return {"stage": terminal_stage, "outcome": outcome}
+    update: AgentGraphState = {"stage": terminal_stage, "outcome": outcome}
+    if outcome is AgentOutcome.NEEDS_CLARIFICATION:
+        request = state.get("clarification")
+        if isinstance(request, ClarificationRequest):
+            update["clarification"] = request
+    return update
 
 
 async def _failed(state: AgentGraphState) -> AgentGraphState:
@@ -717,6 +829,7 @@ def _coerce_synthesis(value: object) -> SynthesisResult:
         tuple(getattr(value, "used_evidence_ids", ())),
         tuple(getattr(value, "citations", ())),
         tuple(getattr(value, "image_evidence_ids", ())),
+        evidence_sufficient=getattr(value, "evidence_sufficient", True),
     )
 
 
@@ -735,6 +848,7 @@ def _default_ledger(state: AgentGraphState) -> EvidenceLedger:
         selected_strategy=strategy,
     )
     document_result = state.get("document_result")
+    chunk_scores: dict[str, float] = {}
     if isinstance(document_result, DocumentSearchResult):
         builder.add_query(document_result.query)
         builder.add_search_trace(
@@ -742,6 +856,13 @@ def _default_ledger(state: AgentGraphState) -> EvidenceLedger:
             hit_count=len(document_result.hits),
             status=document_result.status.value,
         )
+        for hit in document_result.hits:
+            raw_score = next(
+                (getattr(hit, name) for name in ("fused_score", "semantic_score", "keyword_score") if getattr(hit, name, None) is not None),
+                None,
+            )
+            if raw_score is not None:
+                chunk_scores[hit.chunk_ref] = float(raw_score)
     for paragraph in paragraphs:
         page = _first_page_number(paragraph.pages)
         if page is None:
@@ -753,6 +874,7 @@ def _default_ledger(state: AgentGraphState) -> EvidenceLedger:
             text=paragraph.text,
             page=page,
             image_refs=paragraph.image_refs,
+            score=chunk_scores.get(paragraph.chunk_id or paragraph.parent_header),
         )
     web_result = state.get("web_result")
     if isinstance(web_result, WebSearchResult):

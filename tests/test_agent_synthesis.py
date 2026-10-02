@@ -55,8 +55,8 @@ async def test_synthesis_service_uses_langchain_structured_runnable_and_maps_to_
     evidence_id = ledger.evidence[0].evidence_id
     model = _StructuredModel(
         {
-            "answer": "A major triad has a root, third, and fifth.",
-            "used_evidence_ids": [evidence_id],
+            "answer": "A major triad has a root, third, and fifth [1].",
+            "evidence_sufficient": True, "used_evidence_ids": [evidence_id],
             "citations": [{"evidence_id": evidence_id, "label": "[1]"}],
             "image_evidence_ids": [evidence_id],
         }
@@ -78,11 +78,48 @@ async def test_synthesis_service_uses_langchain_structured_runnable_and_maps_to_
 
 
 @pytest.mark.anyio
+async def test_synthesis_service_includes_available_image_for_explicit_figure_request() -> None:
+    builder = EvidenceLedgerBuilder(
+        "run-figure",
+        "What does Figure 2-1 show? Please include the figure.",
+        SelectionStrategy.PARAGRAPH_DIRECT,
+    )
+    builder.add_document(
+        source_ref="music-theory.md",
+        chunk_id="chunk-1",
+        paragraph_ref="caption",
+        text="Figure 2-1 shows note values.",
+        page=38,
+    )
+    builder.add_document(
+        source_ref="music-theory.md",
+        chunk_id="chunk-1",
+        paragraph_ref="figure",
+        text="Source figure image.",
+        page=38,
+        image_refs=("images/page-0038-01.jpg",),
+    )
+    ledger = builder.build()
+    model = _StructuredModel(
+        {
+            "answer": "Figure 2-1 shows note values [1].",
+            "evidence_sufficient": True, "used_evidence_ids": [ledger.evidence[0].evidence_id],
+            "citations": [{"evidence_id": ledger.evidence[0].evidence_id, "label": "[1]"}],
+        }
+    )
+
+    result = await EvidenceSynthesisService(model).synthesize(ledger)
+
+    assert result.used_evidence_ids == tuple(item.evidence_id for item in ledger.evidence)
+    assert result.image_evidence_ids == (ledger.evidence[1].evidence_id,)
+
+
+@pytest.mark.anyio
 async def test_synthesis_service_rejects_output_that_cites_unknown_evidence() -> None:
     model = _StructuredModel(
         {
             "answer": "Unsupported.",
-            "used_evidence_ids": ["document:foreign"],
+            "evidence_sufficient": True, "used_evidence_ids": ["document:foreign"],
             "citations": [{"evidence_id": "document:foreign", "label": "[1]"}],
         }
     )
@@ -113,7 +150,7 @@ async def test_synthesis_service_rejects_image_claim_without_image_reference() -
     model = _StructuredModel(
         {
             "answer": "A major triad has a root, third, and fifth.",
-            "used_evidence_ids": [no_image_id],
+            "evidence_sufficient": True, "used_evidence_ids": [no_image_id],
             "citations": [{"evidence_id": no_image_id, "label": "[1]"}],
             "image_evidence_ids": [no_image_id],
         }
@@ -129,13 +166,27 @@ async def test_synthesis_output_rejects_duplicate_ids_and_extra_fields() -> None
         SynthesisOutput.model_validate(
             {
                 "answer": "A supported answer.",
-                "used_evidence_ids": ["document:1", "document:1"],
+                "evidence_sufficient": True, "used_evidence_ids": ["document:1", "document:1"],
             }
         )
 
     with pytest.raises(ValueError, match="extra"):
         SynthesisOutput.model_validate(
             {"answer": "A supported answer.", "unexpected": True}
+        )
+
+
+def test_synthesis_output_rejects_ambiguous_duplicate_citation_labels() -> None:
+    with pytest.raises(ValueError, match="citation labels must be unique"):
+        SynthesisOutput.model_validate(
+            {
+                "answer": "A supported answer [1].",
+                "evidence_sufficient": True,
+                "citations": [
+                    {"evidence_id": "document:1", "label": "[1]"},
+                    {"evidence_id": "document:2", "label": "[1]"},
+                ],
+            }
         )
 
 

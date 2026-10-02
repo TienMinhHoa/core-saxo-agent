@@ -110,6 +110,7 @@ class EvidenceLedgerBuilder:
         page: int,
         image_refs: Iterable[str] = (),
         evidence_id: str | None = None,
+        score: float | None = None,
     ) -> EvidenceItem:
         """Normalize a document paragraph into an evidence item."""
 
@@ -128,6 +129,7 @@ class EvidenceLedgerBuilder:
             text=text,
             page=page,
             image_refs=tuple(image_refs),
+            score=score,
         )
         return self.add(item)
 
@@ -216,6 +218,7 @@ class EvidenceLedgerBuilder:
             used_evidence_ids=selected_ids,
             citations=tuple(citations),
             image_evidence_ids=tuple(image_evidence_ids),
+            history=self.question.history if isinstance(self.question, AgentQuestion) else (),
         )
 
 

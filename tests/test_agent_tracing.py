@@ -170,11 +170,32 @@ def test_settings_parse_langfuse_credentials_without_leaking_secret() -> None:
 
 
 @pytest.mark.parametrize(
+    "base_url",
+    [
+        "http://langfuse.example.test",
+        "http://100.110.177.94:3000",
+        "https://langfuse.example.test",
+    ],
+)
+def test_settings_accepts_http_or_https_langfuse_url(base_url: str) -> None:
+    settings = AppSettings.from_environment(
+        {
+            **VALID_ENVIRONMENT,
+            "LANGFUSE_BASE_URL": base_url,
+        }
+    )
+
+    assert settings.langfuse_base_url == base_url
+
+
+@pytest.mark.parametrize(
     ("variable", "value"),
     [
-        ("LANGFUSE_BASE_URL", "http://langfuse.example.test"),
+        ("LANGFUSE_BASE_URL", "ftp://langfuse.example.test"),
+        ("LANGFUSE_BASE_URL", "langfuse.example.test"),
         ("LANGFUSE_BASE_URL", "https://key@langfuse.example.test"),
         ("LANGFUSE_BASE_URL", "https://langfuse.example.test?debug=true"),
+        ("LANGFUSE_BASE_URL", "https://langfuse.example.test#fragment"),
     ],
 )
 def test_settings_reject_unsafe_langfuse_url(variable: str, value: str) -> None:

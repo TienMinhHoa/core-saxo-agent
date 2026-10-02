@@ -26,12 +26,12 @@ def test_run_budget_defaults_and_snapshot_expose_shared_limits() -> None:
     assert snapshot.max_hits_per_tool == 20
     assert snapshot.tool_timeout_seconds == 20.0
     assert snapshot.max_context_tokens == 12_000
-    assert snapshot.remaining_tool_calls == 8
+    assert snapshot.remaining_tool_calls == 5
     assert snapshot.remaining_document_search_calls == 3
     assert snapshot.remaining_web_search_calls == 2
 
 
-def test_document_and_web_calls_share_global_budget_without_resetting() -> None:
+def test_document_and_web_quotas_are_independent_without_resetting() -> None:
     budget = RunBudget(
         max_tool_calls=3,
         max_document_search_calls=2,
@@ -48,13 +48,15 @@ def test_document_and_web_calls_share_global_budget_without_resetting() -> None:
     assert snapshot.tool_calls == 3
     assert snapshot.document_search_calls == 2
     assert snapshot.web_search_calls == 1
-    assert snapshot.remaining_tool_calls == 0
-    with pytest.raises(BudgetExhaustedError, match="max_tool_calls"):
+    assert snapshot.remaining_tool_calls == 1
+    budget.reserve("web_search")
+    assert budget.snapshot().remaining_tool_calls == 0
+    with pytest.raises(BudgetExhaustedError, match="max_web_search_calls"):
         budget.reserve("web_search")
 
 
 def test_budget_policy_rejects_exhausted_call_before_invoking_operation() -> None:
-    budget = RunBudget(max_tool_calls=1)
+    budget = RunBudget(max_tool_calls=1, max_document_search_calls=1)
     calls = 0
 
     async def operation() -> str:
@@ -64,7 +66,8 @@ def test_budget_policy_rejects_exhausted_call_before_invoking_operation() -> Non
 
     assert asyncio.run(run_with_budget(budget, "document_search", operation)) == "done"
     with pytest.raises(BudgetExhaustedError):
-        asyncio.run(run_with_budget(budget, "web_search", operation))
+        asyncio.run(run_with_budget(budget, "document_search", operation))
+    assert budget.can_reserve("web_search")
     assert calls == 1
     assert budget.snapshot().completed_tool_calls == 1
 

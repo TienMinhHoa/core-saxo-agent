@@ -9,16 +9,25 @@ import re
 from contextlib import suppress
 from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import quote
+from uuid import uuid4
 
 from fastapi import APIRouter, File, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
-from saxophone.agent.contracts import AgentQuestion
+from saxophone.agent.contracts import (
+    AgentQuestion, ChatHistoryMessage, MAX_CHAT_HISTORY_MESSAGES,
+    MAX_CHAT_MESSAGE_CHARS, validate_chat_history,
+)
 from saxophone.agent.events import AgentEvent, AgentEventType
 from saxophone.agent.langchain_callbacks import AgentEventCallbackHandler
+from saxophone.agent.logging import (
+    log_chat_failure,
+    log_chat_request,
+    log_chat_response,
+)
 from saxophone.agent.streaming import AgentRunManager
 from saxophone.chat import ChatResult, ImageArtifactGate
 from saxophone.documents import (
@@ -54,12 +63,34 @@ class ChatRequest(BaseModel):
     filters: dict[str, object] | None = None
 
 
+class AgentChatHistoryMessageRequest(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=MAX_CHAT_MESSAGE_CHARS, strict=True)
+
+    @field_validator("content")
+    @classmethod
+    def non_blank_content(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("history content must not be blank")
+        return value.strip()
+
+
 class AgentChatMessageRequest(BaseModel):
     question: str = Field(min_length=1)
     filters: dict[str, object] | None = None
     chunk_limit: int = Field(default=10, ge=1, le=100)
     max_paragraphs: int = Field(default=20, ge=1, le=100)
     max_tokens: int = Field(default=4000, ge=1, le=100_000)
+    history: list[AgentChatHistoryMessageRequest] = Field(default_factory=list, max_length=MAX_CHAT_HISTORY_MESSAGES)
+
+    @model_validator(mode="after")
+    def validate_history(self):
+        validate_chat_history(tuple(ChatHistoryMessage(item.role, item.content) for item in self.history))
+        return self
+
+
+class AgentClarificationResumeRequest(BaseModel):
+    option: str = Field(min_length=1)
 
 
 class ArtifactRequest(BaseModel):
@@ -328,6 +359,10 @@ async def _finish_agent_stream_run(
     request: AgentChatMessageRequest,
     run_id: str,
     callback: AgentEventCallbackHandler,
+    *,
+    image_artifact_resolver: ImageArtifactResolver | None = None,
+    image_artifact_gate: ImageArtifactGate | None = None,
+    resume_option: str | None = None,
 ) -> None:
     """Run the injected agent and close its public event stream safely."""
 
@@ -336,16 +371,35 @@ async def _finish_agent_stream_run(
         run_method = getattr(runner, "run", None) or getattr(runner, "execute", None)
         if not callable(run_method):
             raise TypeError("agent runner must provide async run")
-        result = run_method(
-            question,
-            run_id=run_id,
-            callbacks=[callback],
-        )
+        if resume_option is not None:
+            resume_method = getattr(runner, "resume", None)
+            if not callable(resume_method):
+                raise TypeError("agent runner must provide async resume")
+            result = resume_method(run_id=run_id, option=resume_option)
+        else:
+            result = run_method(question, run_id=run_id, callbacks=[callback])
         if inspect.isawaitable(result):
             result = await result
         outcome_value = getattr(result, "outcome", None)
         outcome = getattr(outcome_value, "value", outcome_value)
         outcome = outcome.strip() if isinstance(outcome, str) and outcome.strip() else None
+        result_payload = await _agent_chat_response(
+            result,
+            image_artifact_resolver=image_artifact_resolver,
+            image_artifact_gate=image_artifact_gate,
+        )
+        log_chat_response(run_id=run_id, route="stream", payload=result_payload)
+        if any(
+            getattr(result, field, None) is not None
+            for field in ("state", "answer", "ledger", "synthesis", "clarification", "error")
+        ):
+            await manager.publish(
+                AgentEvent(
+                    AgentEventType.RUN_RESULT,
+                    run_id=run_id,
+                    result=result_payload,
+                )
+            )
         if outcome == "failed":
             await manager.publish(
                 AgentEvent(
@@ -365,6 +419,7 @@ async def _finish_agent_stream_run(
     except asyncio.CancelledError:
         raise
     except Exception as error:
+        log_chat_failure(run_id=run_id, route="stream", error=error)
         with suppress(KeyError, ValueError):
             if await manager.is_active(run_id):
                 await manager.publish(
@@ -384,6 +439,7 @@ def _agent_question(request: AgentChatMessageRequest) -> AgentQuestion:
         request.question,
         filters=filters,
         context_limit=request.max_tokens,
+        history=tuple(ChatHistoryMessage(item.role, item.content) for item in request.history),
     )
 
 
@@ -446,28 +502,38 @@ def build_agent_chat_router(
         request: AgentChatMessageRequest,
     ) -> dict[str, object]:
         question = _normalized_text(request.question, "question")
-        if agent_chat is None:
+        request_run_id = uuid4().hex
+        log_chat_request(run_id=request_run_id, route="json", request=request)
+        if agent_chat is None and agent_runner is None:
             raise HTTPException(
                 status_code=503,
                 detail="agent chat capability is not configured",
             )
-        # Keep the legacy request DTO behind this compatibility route.
-        from saxophone.retrieval.question_retrieval import QuestionRequest
+        try:
+            if agent_runner is not None:
+                result = await agent_runner.run(_agent_question(request), run_id=request_run_id)
+            else:
+                from saxophone.retrieval.question_retrieval import QuestionRequest
 
-        result = await agent_chat.answer(
-            QuestionRequest(
-                question,
-                filters=request.filters,
-                chunk_limit=request.chunk_limit,
-                max_paragraphs=request.max_paragraphs,
-                max_tokens=request.max_tokens,
+                result = await agent_chat.answer(
+                    QuestionRequest(
+                        question,
+                        filters=request.filters,
+                        chunk_limit=request.chunk_limit,
+                        max_paragraphs=request.max_paragraphs,
+                        max_tokens=request.max_tokens,
+                    )
+                )
+            payload = await _agent_chat_response(
+                result,
+                image_artifact_resolver=image_artifact_resolver,
+                image_artifact_gate=image_artifact_gate,
             )
-        )
-        return await _agent_chat_response(
-            result,
-            image_artifact_resolver=image_artifact_resolver,
-            image_artifact_gate=image_artifact_gate,
-        )
+        except Exception as error:
+            log_chat_failure(run_id=request_run_id, route="json", error=error)
+            raise
+        log_chat_response(run_id=request_run_id, route="json", payload=payload)
+        return payload
 
     @router.post("/agent/chat/stream")
     async def agent_chat_stream(
@@ -503,6 +569,7 @@ def build_agent_chat_router(
             except ValueError as error:
                 raise HTTPException(status_code=422, detail=str(error)) from error
             run_id = await agent_run_manager.start()
+            log_chat_request(run_id=run_id, route="stream", request=request)
             callback = AgentEventCallbackHandler(run_id=run_id, sink=agent_run_manager)
             run_task = asyncio.create_task(
                 _finish_agent_stream_run(
@@ -511,6 +578,8 @@ def build_agent_chat_router(
                     request,
                     run_id,
                     callback,
+                    image_artifact_resolver=image_artifact_resolver,
+                    image_artifact_gate=image_artifact_gate,
                 )
             )
             active_runs[run_id] = run_task
@@ -545,6 +614,66 @@ def build_agent_chat_router(
                 "Connection": "keep-alive",
                 "X-Agent-Run-ID": run_id,
             },
+        )
+
+    @router.post("/agent/chat/runs/{run_id}/resume")
+    async def agent_chat_resume(
+        run_id: str,
+        request: AgentClarificationResumeRequest,
+    ) -> StreamingResponse:
+        """Resume a clarification checkpoint on the same replayable stream."""
+
+        if agent_run_manager is None or agent_runner is None:
+            raise HTTPException(status_code=503, detail="agent streaming capability is not configured")
+        normalized = _optional_run_id(run_id)
+        assert normalized is not None
+        try:
+            await agent_run_manager.history(normalized)
+            pending = getattr(agent_runner, "_clarification_runs", {}).get(normalized)
+            if pending is None or request.option.strip() not in pending[2].options:
+                raise ValueError("option is not one of the clarification choices")
+            await agent_run_manager.reopen(normalized)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="agent run not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        previous_sequence = (await agent_run_manager.history(normalized))[-1].sequence
+        callback = AgentEventCallbackHandler(run_id=normalized, sink=agent_run_manager)
+        resume_task = asyncio.create_task(
+            _finish_agent_stream_run(
+                agent_runner,
+                agent_run_manager,
+                AgentChatMessageRequest(question="resume"),
+                normalized,
+                callback,
+                image_artifact_resolver=image_artifact_resolver,
+                image_artifact_gate=image_artifact_gate,
+                resume_option=request.option,
+            )
+        )
+
+        async def resume_body():
+            try:
+                async for frame in iter_agent_events(
+                    agent_run_manager, normalized, after_sequence=previous_sequence
+                ):
+                    yield frame
+            except asyncio.CancelledError:
+                if await agent_run_manager.is_active(normalized):
+                    await agent_run_manager.cancel(normalized)
+                if not resume_task.done():
+                    resume_task.cancel()
+                raise
+            finally:
+                if not resume_task.done():
+                    resume_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await resume_task
+
+        return StreamingResponse(
+            resume_body(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Agent-Run-ID": normalized},
         )
 
     return router
@@ -591,6 +720,7 @@ async def _agent_chat_response(
         "model_version": getattr(result, "model_version", None),
     }
     source_payloads: list[dict[str, object]] = []
+    score_by_chunk = _retrieval_scores(result)
     for index, source in enumerate(sources, start=1):
         source_payloads.append(
             await _source_response(
@@ -599,6 +729,7 @@ async def _agent_chat_response(
                 image_artifact_resolver=image_artifact_resolver,
                 image_artifact_gate=image_artifact_gate,
                 image_validation_enabled=image_validation_enabled,
+                score_override=score_by_chunk.get(getattr(source, "chunk_id", "")),
             )
         )
     response["sources"] = source_payloads
@@ -615,7 +746,9 @@ async def _source_response(
     image_artifact_resolver: ImageArtifactResolver | None,
     image_artifact_gate: ImageArtifactGate | None,
     image_validation_enabled: bool,
+    score_override: float | None = None,
 ) -> dict[str, object]:
+    citation = getattr(source, "citation", None) or citation
     image_refs = tuple(getattr(source, "image_refs", ()))
     payload: dict[str, object] = {
         "citation": citation,
@@ -626,9 +759,17 @@ async def _source_response(
         "page_end": getattr(source, "page_end", None),
         "image_refs": list(image_refs),
     }
+    source_url = getattr(source, "url", None)
+    if source_url is not None:
+        payload["url"] = source_url
     existing_errors = tuple(getattr(source, "image_errors", ()))
     if existing_errors:
         payload["image_errors"] = list(existing_errors)
+    score = getattr(source, "score", None)
+    if score is None:
+        score = score_override
+    if score is not None:
+        payload["score"] = score
     if not image_refs or not image_validation_enabled or image_artifact_gate is None:
         return payload
 
@@ -671,6 +812,26 @@ async def _source_response(
     return payload
 
 
+def _retrieval_scores(result: object) -> dict[str, float]:
+    """Expose the best available retrieval score for each selected chunk."""
+
+    state = getattr(result, "state", None)
+    if isinstance(state, Mapping):
+        search = state.get("document_result")
+    else:
+        search = getattr(state, "document_result", None) if state is not None else None
+    hits = getattr(search, "hits", ()) if search is not None else ()
+    scores: dict[str, float] = {}
+    for hit in hits:
+        score = next(
+            (getattr(hit, name) for name in ("fused_score", "semantic_score", "keyword_score") if getattr(hit, name, None) is not None),
+            None,
+        )
+        if score is not None:
+            scores[getattr(hit, "chunk_ref", "")] = float(score)
+    return scores
+
+
 def _fallback_image_caption(image_ref: str) -> str:
     name = image_ref.rsplit("/", 1)[-1]
     stem = name.rsplit(".", 1)[0]
@@ -692,6 +853,8 @@ def _agent_run_sources(result: object) -> tuple[object, ...]:
     if not ordered_ids:
         ordered_ids.extend(getattr(synthesis, "used_evidence_ids", ()))
     sources: list[object] = []
+    labels = {citation.evidence_id: citation.label for citation in citation_items}
+    score_by_chunk = _retrieval_scores(result)
     for evidence_id in dict.fromkeys(ordered_ids):
         item = evidence_by_id.get(evidence_id)
         if item is None:
@@ -703,6 +866,8 @@ def _agent_run_sources(result: object) -> tuple[object, ...]:
                 item,
                 source_ref=source_ref,
                 image_refs=refs,
+                citation=labels.get(evidence_id),
+                score_override=score_by_chunk.get(item.chunk),
             )
         )
     return tuple(sources)
@@ -713,6 +878,8 @@ def _source_from_evidence(
     *,
     source_ref: str,
     image_refs: tuple[str, ...],
+    citation: str | None = None,
+    score_override: float | None = None,
 ) -> object:
     from saxophone.chat.compatibility import AnswerSource
 
@@ -723,6 +890,9 @@ def _source_from_evidence(
         page_start=getattr(item, "page", None),
         page_end=getattr(item, "page", None),
         image_refs=image_refs,
+        citation=citation,
+        score=getattr(item, "score", None) if getattr(item, "score", None) is not None else score_override,
+        url=getattr(item, "url", None),
     )
 
 
